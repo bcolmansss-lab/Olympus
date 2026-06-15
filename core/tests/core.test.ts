@@ -49,8 +49,8 @@ describe("Orchestrator — mandatory dissent", () => {
     // A roster with no Devil's Advocate — only two vanilla domain agents.
     const { ExecutiveAgent } = await import("../agents/executive-agent.js");
     const skeletonRoster = [
-      new ExecutiveAgent("a1", "AgentA", "finance"),
-      new ExecutiveAgent("a2", "AgentB", "sales"),
+      new ExecutiveAgent("a1", "AgentA", "finance", "Maximize financial health"),
+      new ExecutiveAgent("a2", "AgentB", "sales", "Maximize revenue"),
     ];
     const orch = new Orchestrator(skeletonRoster, ctx);
     const brief = makeBrief(okg);
@@ -87,7 +87,7 @@ describe("OlympusMCPServer — audit chain", () => {
     mcp = new OlympusMCPServer(okg, bus);
     // Invoke a couple of allowed tools to populate the chain.
     await mcp.invoke("okg.query", { type: "Decision" }, { id: "cfo", kind: "agent", autonomyLevel: 2 });
-    await mcp.invoke("okg.query", { type: "Metric" }, { id: "cfo", kind: "agent", autonomyLevel: 2 });
+    await mcp.invoke("okg.query", { type: "Money" }, { id: "cfo", kind: "agent", autonomyLevel: 2 });
   });
 
   it("verifyAuditChain() returns true on untampered log", () => {
@@ -98,8 +98,8 @@ describe("OlympusMCPServer — audit chain", () => {
     // Peek at internal log and mutate one field.
     const log = mcp.auditLog();
     assert.ok(log.length >= 2);
-    // Cast to any to simulate external tampering.
-    (log[0] as Record<string, unknown>)["actor"] = "tampered";
+    // Cast through unknown to simulate external tampering of a sealed record.
+    (log[0] as unknown as Record<string, unknown>)["actor"] = "tampered";
     assert.equal(mcp.verifyAuditChain(), false);
   });
 });
@@ -266,7 +266,7 @@ describe("OKG — bitemporal as-of", () => {
     const bus = new EventBus();
     const okg = new OKG(bus);
 
-    const node = okg.addNode<{ v: number }>({ type: "Metric", props: { v: 1 }, createdBy: "test", provenance: [] });
+    const node = okg.addNode<{ v: number }>({ type: "Money", props: { v: 1 }, createdBy: "test", provenance: [] });
 
     // Pause to ensure t1 is between the two writes.
     await new Promise((r) => setTimeout(r, 10));
@@ -287,7 +287,7 @@ describe("OKG — bitemporal as-of", () => {
   it("currentNode() returns the latest version", () => {
     const bus = new EventBus();
     const okg = new OKG(bus);
-    const node = okg.addNode<{ v: number }>({ type: "Metric", props: { v: 10 }, createdBy: "test", provenance: [] });
+    const node = okg.addNode<{ v: number }>({ type: "Money", props: { v: 10 }, createdBy: "test", provenance: [] });
     okg.updateNode<{ v: number }>(node.id, { v: 20 }, "test", []);
     const current = okg.currentNode(node.id);
     assert.equal((current?.props as { v: number } | undefined)?.v, 20);

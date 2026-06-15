@@ -27,7 +27,32 @@ A runnable TypeScript skeleton of the core lives in [`core/`](./core). It has **
 ```bash
 npm install
 npm run demo        # end-to-end walkthrough with a deterministic mock LLM
+npm test            # 21 invariant tests (node:test, zero extra deps)
+npm run serve       # start the HTTP API on :7777
 npm run typecheck   # strict TypeScript
+```
+
+### HTTP API
+
+A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdlib `http`) maps the BLUEPRINT §21 REST spec onto the core:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/ask` | Reasoned Q&A — runs the full closed loop, returns thesis + evidence + autonomy gate |
+| `POST` · `GET` | `/v1/decisions` · `/v1/decisions/:id` | Open / list / fetch decision records |
+| `POST` | `/v1/simulate` | Run a digital-twin simulation (P10/P50/P90 + tail risk) |
+| `GET` · `PUT` | `/v1/autonomy/grants` | Inspect / set per-domain L0–L7 capability grants |
+| `GET` | `/v1/events` · `/v1/audit` | The event spine and the tamper-evident audit chain |
+
+```bash
+npm run serve
+curl -s -XPOST localhost:7777/v1/ask -d '{
+  "question":"Cut Q3 marketing spend 18%?","domain":"finance",
+  "options":["cut-18pct","hold"],"capability":"reallocate_budget",
+  "intervention":{"variable":"marketing_spend","delta":-0.18},
+  "exposureAmount":162000,"simSeed":7
+}'
+# → thesis "Auto-executed: cut-18pct (consensus 0.73, L5)."  autonomyGate "L5 — execute"
 ```
 
 ### What's implemented
@@ -46,6 +71,8 @@ npm run typecheck   # strict TypeScript
 | **Memory store** | `core/memory/memory-store.ts` | Six-layer memory (episodic, semantic, procedural, strategic, operational, decision); Hebbian reinforcement + decay; calibration flywheel (MAE by domain) |
 | **GraphRAG** | `core/retrieval/graph-rag.ts` | Grounded context bundle: graph traversal (causal edges, MAX 3 hops) + cosine vector search + semantic memory + relational aggregation, all with provenance refs |
 | **Autonomy engine** | `core/autonomy/autonomy-engine.ts` | Per-domain L0–L7 grants, blast-radius enforcement, L3+ simulation precondition, hard ceilings (human accountability tokens), auto-demotion, and a global kill switch |
+| **HTTP API** | `core/api/server.ts` | Zero-dependency stdlib `http` server exposing the BLUEPRINT §21 REST surface (`/v1/ask`, `/v1/decisions`, `/v1/simulate`, `/v1/autonomy/grants`, `/v1/events`, `/v1/audit`) |
+| **Tests** | `core/tests/core.test.ts` | 21 `node:test` invariant tests: mandatory dissent, audit-chain tamper detection, blast-radius, hard ceilings, kill switch, L3+ sim precondition, bitemporal replay, reconciliation, Hebbian reinforcement, sim reproducibility, closed-loop integration |
 | **Composition** | `core/index.ts`, `core/demo.ts` | Wires it all together; runnable demo |
 
 The demo shows a multi-agent decision with recorded dissent, a bitemporal decision + reconciliation, an MCP call denied by the autonomy gate, and a verified audit chain.

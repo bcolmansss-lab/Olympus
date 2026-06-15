@@ -120,6 +120,16 @@ export class AutonomyEngine {
     return this.grants.get(grantKey(domain, capability));
   }
 
+  /** All active grants (for inspection / the autonomy API). */
+  listGrants(): AutonomyGrant[] {
+    return [...this.grants.values()];
+  }
+
+  /** Whether the global kill switch is currently engaged. */
+  isKilled(): boolean {
+    return this.killed;
+  }
+
   /** Auto-demote a grant to L0 on accuracy drift or policy breach. */
   demote(domain: Domain, capability: string, reason: string): void {
     const g = this.grants.get(grantKey(domain, capability));
