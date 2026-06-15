@@ -120,18 +120,34 @@ export class RiskAgent implements Agent {
       system: `You are the Risk Officer. Estimate downside and whether human review is required.`,
       prompt: `Decision: ${brief.question}\nOptions: ${brief.options.join(", ")}\nAssess tail risk and blast radius.`,
     });
-    // Low confidence in the assessment => the situation is uncertain => escalate.
-    const shouldEscalate = res.confidence < this.escalateThreshold;
+
+    // Grounded downside: if a forward simulation is attached, escalate when the
+    // tail (sub-P10 mean) falls materially below the median outcome.
+    let simDownside = 0;
+    let simNote = "";
+    if (brief.simulation) {
+      const { p50, tailRisk } = brief.simulation.distribution;
+      simDownside = p50 !== 0 ? (p50 - tailRisk) / Math.abs(p50) : 0;
+      simNote = ` Simulated tail downside ${(simDownside * 100).toFixed(1)}% vs P50 (${brief.simulation.metric}).`;
+    }
+
+    // Escalate on either an uncertain assessment OR a severe simulated downside.
+    const severeDownside = simDownside > 0.25;
+    const shouldEscalate = res.confidence < this.escalateThreshold || severeDownside;
+
     const m = msg({
       type: shouldEscalate ? "ESCALATE" : "SUPPORT",
       fromAgent: this.id,
       to: ["orchestrator"],
       decisionId: brief.decisionId,
       claim: shouldEscalate
-        ? `Escalating to human review: ${res.text}`
-        : `Risk acceptable within charter: ${res.text}`,
+        ? `Escalating to human review:${simNote || " uncertain assessment."} ${res.text}`
+        : `Risk acceptable within charter.${simNote} ${res.text}`,
       evidence: [`okg://decision/${brief.decisionId}`],
       confidence: res.confidence,
+      predictedImpact: brief.simulation
+        ? { tailRisk: brief.simulation.distribution.tailRisk, p50: brief.simulation.distribution.p50 }
+        : undefined,
       dissent: false,
     });
     ctx.bus.publish(shouldEscalate ? "agent.escalated" : "agent.supported", m);

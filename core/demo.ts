@@ -17,7 +17,16 @@ import { Olympus } from "./index.js";
 import { DigitalTwin } from "./simulation/digital-twin.js";
 
 async function main(): Promise<void> {
-  const olympus = new Olympus();
+  // A toy structural causal model of quarterly cash given pipeline & spend,
+  // wired into Olympus so the reasoning engine simulates interventions inline.
+  const twin = new DigitalTwin({
+    metric: "q3_cash_usd",
+    coefficients: { pipeline_conversion: 4_000_000, marketing_spend: -1.0, base_revenue: 1.0 },
+    baseline: { pipeline_conversion: 0.22, marketing_spend: 900_000, base_revenue: 2_500_000 },
+    noiseFraction: 0.08,
+  });
+
+  const olympus = new Olympus({ twin });
 
   // Trace key events to show the spine is live.
   const seen: string[] = [];
@@ -25,18 +34,40 @@ async function main(): Promise<void> {
   olympus.bus.subscribe("agent.*",    (e) => { seen.push(e.topic); });
   olympus.bus.subscribe("memory.*",   (e) => { seen.push(e.topic); });
   olympus.bus.subscribe("sim.*",      (e) => { seen.push(e.topic); });
+  olympus.bus.subscribe("autonomy.*", (e) => { seen.push(e.topic); });
+  olympus.bus.subscribe("action.gated", (e) => { seen.push(e.topic); });
+
+  // Grant the finance domain the ability to reallocate budget autonomously (L5)
+  // within a blast-radius — so the closed loop can auto-execute when safe.
+  olympus.autonomy.setGrant({
+    domain: "finance",
+    capability: "reallocate_budget",
+    level: 5,
+    blastRadius: { maxAmount: 250_000, maxPerDay: 10 },
+  });
 
   // -------------------------------------------------------------------------
-  console.log("=== 1. Reasoned decision ===");
+  console.log("=== 1. Closed loop: reason → simulate → gate → act ===");
   const answer = await olympus.ere.ask(
     "Should we cut Q3 marketing spend by 18% to extend runway?",
-    { domain: "finance", options: ["cut-18pct", "hold-spend", "cut-9pct"], depth: "deliberate" },
+    {
+      domain: "finance",
+      options: ["cut-18pct", "hold-spend", "cut-9pct"],
+      depth: "deliberate",
+      intervention: { variable: "marketing_spend", delta: -0.18 },
+      capability: "reallocate_budget",
+      exposureAmount: 162_000, // 18% of 900k
+      simSeed: 7,
+    },
   );
   console.log("Thesis:        ", answer.thesis);
   console.log("Confidence:    ", answer.confidence);
   console.log("Recommendation:", answer.recommendation ?? "(escalated)");
-  console.log("Dissent:       ", answer.dissent.slice(0, 100) + "…");
+  console.log("Dissent:       ", answer.dissent.slice(0, 90) + "…");
   console.log("Autonomy gate: ", answer.autonomyGate);
+  for (const ev of answer.evidence) {
+    if (ev.ref.startsWith("sim://")) console.log("Sim evidence:  ", ev.claim);
+  }
 
   // -------------------------------------------------------------------------
   console.log("\n=== 2. Bitemporal OKG: decision + reconciliation ===");
@@ -71,15 +102,6 @@ async function main(): Promise<void> {
 
   // -------------------------------------------------------------------------
   console.log("\n=== 5. Digital-twin simulation (causal do-operator, 10k runs) ===");
-  const twin = new DigitalTwin(
-    {
-      metric: "q3_cash_usd",
-      coefficients: { pipeline_conversion: 4_000_000, marketing_spend: -1.0, base_revenue: 1.0 },
-      baseline: { pipeline_conversion: 0.22, marketing_spend: 900_000, base_revenue: 2_500_000 },
-      noiseFraction: 0.08,
-    },
-    olympus.bus,
-  );
   const sim = twin.run({
     type: "causal_intervention",
     decisionId: answer.decisionId,
@@ -169,9 +191,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  console.log("\n=== 8. Autonomy Engine: the governed action gate ===");
-  olympus.bus.subscribe("autonomy.*", (e) => { seen.push(e.topic); });
-  olympus.bus.subscribe("action.gated", (e) => { seen.push(e.topic); });
+  console.log("\n=== 8. Autonomy Engine: gate scenarios in isolation ===");
 
   // Grant collections the ability to send dunning at L4 within blast-radius.
   olympus.autonomy.setGrant({

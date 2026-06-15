@@ -49,3 +49,19 @@ npm run typecheck   # strict TypeScript
 | **Composition** | `core/index.ts`, `core/demo.ts` | Wires it all together; runnable demo |
 
 The demo shows a multi-agent decision with recorded dissent, a bitemporal decision + reconciliation, an MCP call denied by the autonomy gate, and a verified audit chain.
+
+### The closed loop
+
+A single `olympus.ere.ask(...)` call runs the full autonomous decision pipeline:
+
+```
+reason (decompose + ground)
+  → simulate the intervention on the digital twin (P10/P50/P90 + tail risk)
+  → multi-agent debate with mandatory dissent
+  → Risk Agent veto reads the simulated tail downside
+  → weighted consensus
+  → Autonomy Engine gate (per-domain L0–L7 + blast-radius + L3+ sim precondition)
+  → disposition: execute | execute_notify | queue_for_approval | escalate
+```
+
+In the demo this auto-executes a budget reallocation at L5 because the simulated downside is within charter and the exposure is inside the blast-radius — but flips to human escalation the moment the Risk Agent sees a severe tail, the amount breaches blast-radius, or a hard ceiling applies.

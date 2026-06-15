@@ -10,11 +10,11 @@
  * traceable to grounded evidence — the anti-hallucination contract.
  */
 
-import { randomUUID } from "node:crypto";
 import type { AgentContext, DecisionBrief } from "../agents/types.js";
 import { Orchestrator } from "../agents/orchestrator/orchestrator.js";
 import type { Agent } from "../agents/types.js";
 import type { Domain, UUID } from "../knowledge/graph/schema.js";
+import type { DigitalTwin } from "../simulation/digital-twin.js";
 
 export interface Evidence {
   ref: string;
@@ -40,6 +40,14 @@ export interface AskOptions {
   options?: string[];
   /** Cognitive depth; maps to model tier. */
   depth?: "reflex" | "operate" | "reason" | "deliberate";
+  /** Intervention to simulate on the digital twin (SIMULATE stage). */
+  intervention?: { variable: string; delta: number };
+  /** Capability the resolved action maps to (for the autonomy gate). */
+  capability?: string;
+  /** Monetary exposure of the action (for blast-radius checks). */
+  exposureAmount?: number;
+  /** Seed for reproducible simulation. */
+  simSeed?: number;
 }
 
 export class ExecutiveReasoningEngine {
@@ -48,6 +56,8 @@ export class ExecutiveReasoningEngine {
   constructor(
     private readonly roster: Agent[],
     private readonly ctx: AgentContext,
+    /** Optional digital twin; when present, interventions are simulated before consensus. */
+    private readonly twin?: DigitalTwin,
   ) {
     this.orchestrator = new Orchestrator(roster, ctx);
   }
@@ -76,14 +86,30 @@ export class ExecutiveReasoningEngine {
       "ere",
     );
 
+    // SIMULATE — run the intervention on the digital twin so the Risk Agent
+    // and the autonomy gate reason over a grounded forward distribution.
+    const simulation =
+      this.twin && opts.intervention
+        ? this.twin.run({
+            type: "causal_intervention",
+            decisionId: decision.id,
+            intervention: opts.intervention,
+            runs: 10_000,
+            seed: opts.simSeed ?? 42,
+          })
+        : undefined;
+
     const brief: DecisionBrief = {
       decisionId: decision.id,
       question,
       domain,
       options,
+      simulation,
+      capability: opts.capability,
+      exposureAmount: opts.exposureAmount,
     };
 
-    // MULTI-PERSPECTIVE + SIMULATE + SYNTHESIZE + DEVIL'S ADVOCATE
+    // MULTI-PERSPECTIVE + SYNTHESIZE + DEVIL'S ADVOCATE + AUTONOMY GATE
     // are all carried out inside the orchestrated session.
     const session = await this.orchestrator.runSession(brief);
 
@@ -100,22 +126,32 @@ export class ExecutiveReasoningEngine {
     );
 
     const dissentMsg = session.dissent[0]?.claim ?? "No dissent recorded.";
-    const autonomyGate =
-      session.outcome === "escalated_to_human"
-        ? "L1 (advisory) — escalated for human review"
-        : `L${decision.props.autonomyLevel} — within advisory bounds`;
+    const gateLevel = session.gate ? `L${session.gate.effectiveLevel}` : `L${decision.props.autonomyLevel}`;
+    const autonomyGate = `${gateLevel} — ${session.gate?.disposition ?? (session.outcome === "escalated_to_human" ? "advise_only" : "recommended")}`;
+
+    const thesisByOutcome: Record<typeof session.outcome, string> = {
+      recommended: `Recommended: ${session.recommendation} (consensus ${session.consensusScore}).`,
+      auto_executed: `Auto-executed: ${session.recommendation} (consensus ${session.consensusScore}, ${gateLevel}).`,
+      queued_for_approval: `Queued for human approval: ${session.recommendation} (consensus ${session.consensusScore}).`,
+      escalated_to_human: `No autonomous recommendation — escalated to human review.`,
+    };
+
+    const evidence: Evidence[] = [
+      { ref: `okg://decision/${decision.id}`, claim: "Decision session record" },
+      { ref: "ere://decompose", claim: decomposition.text },
+    ];
+    if (simulation) {
+      evidence.push({
+        ref: `sim://${decision.id}`,
+        claim: `Simulated ${simulation.metric}: P10/P50/P90 = ${simulation.distribution.p10}/${simulation.distribution.p50}/${simulation.distribution.p90}, tail ${simulation.distribution.tailRisk}`,
+      });
+    }
 
     return {
       question,
-      thesis:
-        session.outcome === "recommended"
-          ? `Recommended: ${session.recommendation} (consensus ${session.consensusScore}).`
-          : `No autonomous recommendation — escalated to human review.`,
+      thesis: thesisByOutcome[session.outcome],
       confidence,
-      evidence: [
-        { ref: `okg://decision/${decision.id}`, claim: "Decision session record" },
-        { ref: "ere://decompose", claim: decomposition.text },
-      ],
+      evidence,
       recommendation: session.recommendation,
       dissent: dissentMsg,
       autonomyGate,

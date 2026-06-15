@@ -10,6 +10,8 @@ import type { EventBus } from "../events/event-bus.js";
 import type { OKG } from "../knowledge/graph/okg.js";
 import type { LLMClient } from "../llm/client.js";
 import type { Domain, UUID } from "../knowledge/graph/schema.js";
+import type { SimResult } from "../simulation/digital-twin.js";
+import type { AutonomyEngine } from "../autonomy/autonomy-engine.js";
 
 export type OACPType =
   | "PROPOSE"
@@ -43,6 +45,8 @@ export interface AgentContext {
   okg: OKG;
   bus: EventBus;
   llm: LLMClient;
+  /** Optional governed action gate; when present the orchestrator gates its resolution. */
+  autonomy?: AutonomyEngine;
 }
 
 /** Question presented to agents for a decision session. */
@@ -52,6 +56,12 @@ export interface DecisionBrief {
   domain: Domain;
   /** Candidate option labels. */
   options: string[];
+  /** Forward simulation of the leading option, consumed by the Risk Agent's veto. */
+  simulation?: SimResult;
+  /** Capability the resolved action maps to (for the autonomy gate). */
+  capability?: string;
+  /** Monetary exposure of the action (for blast-radius checks). */
+  exposureAmount?: number;
 }
 
 export interface Agent {

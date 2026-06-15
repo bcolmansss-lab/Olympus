@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import type { Agent, AgentContext, DecisionBrief, OACPMessage } from "../types.js";
 import type { Domain, UUID } from "../../knowledge/graph/schema.js";
+import type { AutonomyLevel, GateResult } from "../../autonomy/autonomy-engine.js";
 
 export interface DecisionSession {
   id: UUID;
@@ -33,8 +34,10 @@ export interface DecisionSession {
   dissent: OACPMessage[];
   /** True when the Risk Agent forced human review. */
   riskVeto: boolean;
+  /** Result of the autonomy gate, when an autonomy engine + capability were supplied. */
+  gate?: GateResult;
   /** Terminal disposition of the session. */
-  outcome: "recommended" | "escalated_to_human";
+  outcome: "recommended" | "auto_executed" | "queued_for_approval" | "escalated_to_human";
 }
 
 export interface OrchestratorOptions {
@@ -104,7 +107,37 @@ export class Orchestrator {
       outcome: escalated ? "escalated_to_human" : "recommended",
     };
 
-    // 5. Synthesis message + routing event.
+    // 5. Close the loop: run the Autonomy gate on the resolution.
+    //    A simulation must exist for L3+ (the gate enforces this).
+    if (!escalated && this.ctx.autonomy && brief.capability) {
+      const grant = this.ctx.autonomy.getGrant(brief.domain, brief.capability);
+      const gate = this.ctx.autonomy.evaluate({
+        decisionId: brief.decisionId,
+        domain: brief.domain,
+        capability: brief.capability,
+        attemptedLevel: (grant?.level ?? 0) as AutonomyLevel,
+        amount: brief.exposureAmount,
+        simulated: brief.simulation !== undefined,
+      });
+      session.gate = gate;
+      session.outcome =
+        gate.disposition === "execute" || gate.disposition === "execute_notify"
+          ? "auto_executed"
+          : gate.disposition === "queue_for_approval"
+            ? "queued_for_approval"
+            : "escalated_to_human";
+    }
+
+    // 6. Synthesis message + routing event.
+    const resolutionNote =
+      session.outcome === "auto_executed"
+        ? `Auto-executed "${session.recommendation}" at ${session.gate?.effectiveLevel ? "L" + session.gate.effectiveLevel : "granted level"} (consensus ${consensusScore}).`
+        : session.outcome === "queued_for_approval"
+          ? `Queued "${session.recommendation}" for human approval (consensus ${consensusScore}).`
+          : escalated
+            ? `Escalated to human review (consensus ${consensusScore}, riskVeto=${session.riskVeto}).`
+            : `Recommend "${session.recommendation}" (consensus ${consensusScore}).`;
+
     const synthesis: OACPMessage = {
       msgId: randomUUID(),
       protocol: "OACP/1.0",
@@ -112,9 +145,7 @@ export class Orchestrator {
       fromAgent: "orchestrator",
       to: ["autonomy-gate"],
       decisionId: brief.decisionId,
-      claim: escalated
-        ? `Escalated to human review (consensus ${consensusScore}, riskVeto=${session.riskVeto}).`
-        : `Recommend "${session.recommendation}" (consensus ${consensusScore}).`,
+      claim: resolutionNote,
       evidence: [`okg://decision/${brief.decisionId}`],
       confidence: consensusScore,
       dissent: false,
