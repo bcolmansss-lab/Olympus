@@ -47,3 +47,4 @@ export { EventBus } from "./events/event-bus.js";
 export { ExecutiveReasoningEngine } from "./reasoning/executive-reasoning-engine.js";
 export { Orchestrator } from "./agents/orchestrator/orchestrator.js";
 export { OlympusMCPServer } from "./mcp/olympus-mcp-server.js";
+export { DigitalTwin } from "./simulation/digital-twin.js";

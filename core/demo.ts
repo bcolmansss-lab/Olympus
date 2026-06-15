@@ -11,6 +11,7 @@
  */
 
 import { Olympus } from "./index.js";
+import { DigitalTwin } from "./simulation/digital-twin.js";
 
 async function main(): Promise<void> {
   const olympus = new Olympus();
@@ -68,6 +69,29 @@ async function main(): Promise<void> {
   console.log("\n=== 4. Audit chain integrity ===");
   console.log("Audit records:", olympus.mcp.auditLog().length);
   console.log("Chain valid:  ", olympus.mcp.verifyAuditChain());
+
+  console.log("\n=== 5. Digital-twin simulation (Monte Carlo + causal do-operator) ===");
+  // A toy structural causal model of quarterly cash given pipeline & spend.
+  const twin = new DigitalTwin(
+    {
+      metric: "q3_cash_usd",
+      coefficients: { pipeline_conversion: 4_000_000, marketing_spend: -1.0, base_revenue: 1.0 },
+      baseline: { pipeline_conversion: 0.22, marketing_spend: 900_000, base_revenue: 2_500_000 },
+      noiseFraction: 0.08,
+    },
+    olympus.bus,
+  );
+  const sim = twin.run({
+    type: "causal_intervention",
+    decisionId: answer.decisionId,
+    intervention: { variable: "marketing_spend", delta: -0.18 }, // the "cut 18%" option
+    runs: 10_000,
+    seed: 7,
+  });
+  console.log("Metric:        ", sim.metric);
+  console.log("P10/P50/P90:   ", sim.distribution.p10, sim.distribution.p50, sim.distribution.p90);
+  console.log("Tail risk:     ", sim.distribution.tailRisk);
+  console.log("Sensitivity:   ", sim.sensitivity);
 
   console.log("\n=== Event spine (sampled) ===");
   console.log(seen.slice(0, 12).join("  "));

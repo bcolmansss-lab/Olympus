@@ -42,6 +42,7 @@ npm run typecheck   # strict TypeScript
 | **Orchestrator** | `core/agents/orchestrator/orchestrator.ts` | OACP decision session: debate, mandatory dissent, weighted consensus, escalation |
 | **Reasoning engine** | `core/reasoning/executive-reasoning-engine.ts` | The "reason, don't retrieve" pipeline (decompose → ground → multi-perspective → synthesize → Socratic probe → calibrate) |
 | **MCP layer** | `core/mcp/olympus-mcp-server.ts` | Tool registry with ABAC autonomy gating + tamper-evident hash-chained audit log |
+| **Digital twin** | `core/simulation/digital-twin.ts` | Seeded Monte Carlo + causal do-operator over a structural model → P10/P50/P90, tail risk, sensitivity |
 | **Composition** | `core/index.ts`, `core/demo.ts` | Wires it all together; runnable demo |
 
 The demo shows a multi-agent decision with recorded dissent, a bitemporal decision + reconciliation, an MCP call denied by the autonomy gate, and a verified audit chain.
