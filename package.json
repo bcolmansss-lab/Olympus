@@ -9,6 +9,7 @@
   },
   "scripts": {
     "demo": "tsx core/demo.ts",
+    "test": "node --import tsx/esm --test core/tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json"
   },
