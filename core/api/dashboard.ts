@@ -71,6 +71,11 @@ export const DASHBOARD_HTML = `<!doctype html>
   .src.aggregate { background: rgba(139,152,165,.18); color: var(--dim); }
   .score { font-family: var(--mono); color: var(--dim); font-size: 12px; }
   .grounded { font-size: 11px; color: var(--good); }
+  .briefing { padding: 11px 22px; border-bottom: 1px solid var(--line); font-size: 13.5px;
+    background: linear-gradient(90deg, rgba(78,161,255,.10), transparent); }
+  .briefing.urgent { background: linear-gradient(90deg, rgba(248,81,73,.16), transparent); }
+  .briefing.attention { background: linear-gradient(90deg, rgba(210,153,34,.14), transparent); }
+  .briefing b { color: var(--accent); }
   button.demo { margin-left: 10px; background: var(--accent); color: #04101f; border: 0; font-weight: 650;
     padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
   button.demo:hover { filter: brightness(1.1); }
@@ -84,6 +89,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <button class="demo" id="run">Run a decision</button>
   <span class="pill"><span class="dot" id="dot"></span><span id="status">connecting…</span></span>
 </header>
+<div id="briefing" class="briefing"></div>
 <main>
   <section class="panel">
     <h2>Decision Inbox <span id="inbox-count" class="sub"></span></h2>
@@ -155,7 +161,7 @@ function connect() {
    'memory.episode.recorded','audit.recorded']
     .forEach((t) => es.addEventListener(t, (e) => {
       try { addEvent(JSON.parse(e.data)); } catch (_) {}
-      if (t.startsWith('decision.') || t === 'action.gated') refreshInbox();
+      if (t.startsWith('decision.') || t === 'action.gated') { refreshInbox(); refreshBriefing(); }
     }));
 }
 
@@ -172,6 +178,17 @@ $('run').onclick = async () => {
       exposureAmount: 120000 + Math.floor(Math.random() * 200000), simSeed: Date.now() % 1000 }) });
   } finally { btn.disabled = false; btn.textContent = 'Run a decision'; refreshInbox(); }
 };
+
+async function refreshBriefing() {
+  try {
+    const b = await (await fetch('/v1/briefing')).json();
+    const sev = b.sections.some((s) => s.severity === 'urgent') ? 'urgent'
+      : b.sections.some((s) => s.severity === 'attention') ? 'attention' : '';
+    const el = $('briefing');
+    el.className = 'briefing ' + sev;
+    el.innerHTML = '<b>Briefing.</b> ' + esc(b.headline);
+  } catch (e) { /* ignore */ }
+}
 
 async function diagnose() {
   const btn = $('diagnose'); const q = $('q').value.trim();
@@ -197,6 +214,7 @@ $('diagnose').onclick = diagnose;
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') diagnose(); });
 
 refreshInbox();
+refreshBriefing();
 connect();
 </script>
 </body>

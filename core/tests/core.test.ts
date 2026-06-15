@@ -687,3 +687,55 @@ describe("BriefingEngine", () => {
     assert.ok(b.sections.some((s) => s.severity === "urgent"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 17. Workflow Engine — procedural memory as governed action
+// ---------------------------------------------------------------------------
+
+describe("WorkflowEngine", () => {
+  function registerSkill(olympus: Olympus, name: string, requiresAutonomy = 1) {
+    olympus.mcp.register({
+      name, sideEffect: "internal_write", requiresAutonomy,
+      handler: async () => ({ ok: true }),
+    });
+  }
+
+  it("runs every step through the MCP gate and completes", async () => {
+    const olympus = new Olympus();
+    ["a", "b", "c"].forEach((n) => registerSkill(olympus, n, 1));
+    olympus.memory.registerProcedure({
+      name: "Flow", description: "test",
+      steps: [{ action: "a" }, { action: "b" }, { action: "c" }],
+    });
+
+    const run = await olympus.workflow.run("Flow", { id: "agent-1", kind: "agent", autonomyLevel: 3 });
+    assert.equal(run.status, "completed");
+    assert.equal(run.steps.length, 3);
+    assert.ok(run.steps.every((s) => s.status === "executed"));
+    // Every step is in the tamper-evident audit chain.
+    assert.ok(olympus.mcp.verifyAuditChain());
+  });
+
+  it("halts fail-fast on the first step the caller isn't authorized for", async () => {
+    const olympus = new Olympus();
+    registerSkill(olympus, "safe", 1);
+    registerSkill(olympus, "privileged", 5); // needs L5
+    olympus.memory.registerProcedure({
+      name: "Flow2", description: "test",
+      steps: [{ action: "safe" }, { action: "privileged" }, { action: "safe" }],
+    });
+
+    const run = await olympus.workflow.run("Flow2", { id: "agent-1", kind: "agent", autonomyLevel: 2 });
+    assert.equal(run.status, "halted");
+    assert.equal(run.haltedAt, 1);
+    assert.equal(run.steps[0]!.status, "executed");
+    assert.equal(run.steps[1]!.status, "denied");
+    assert.equal(run.steps.length, 2, "no step runs after the halt");
+  });
+
+  it("halts on an unknown procedure", async () => {
+    const olympus = new Olympus();
+    const run = await olympus.workflow.run("does-not-exist", { id: "x", kind: "agent", autonomyLevel: 7 });
+    assert.equal(run.status, "halted");
+  });
+});

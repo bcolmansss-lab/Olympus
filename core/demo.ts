@@ -257,6 +257,17 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
+  console.log("\n=== 11. Workflow Engine: run procedural memory as governed action ===");
+  // Register the renewal steps as gated MCP skill tools (internal_write, L1).
+  for (const action of ["send_health_check", "schedule_qbr", "draft_renewal_proposal", "route_to_approver"]) {
+    olympus.mcp.register({ name: action, sideEffect: "internal_write", requiresAutonomy: 1, handler: async () => ({ ok: true }) });
+  }
+  const run = await olympus.workflow.run("RunRenewal", { id: "sales-agent", kind: "agent", autonomyLevel: 2 });
+  console.log(`Procedure "${run.procedure}" → ${run.status} (${run.steps.length} steps, all gated + audited)`);
+  for (const s of run.steps) console.log(`   [${s.status}] ${s.action}`);
+  console.log("Audit chain still valid:", olympus.mcp.verifyAuditChain());
+
+  // -------------------------------------------------------------------------
   console.log("\n=== Event spine (all unique topics) ===");
   const uniqueTopics = [...new Set(seen)];
   console.log(uniqueTopics.join("  "));

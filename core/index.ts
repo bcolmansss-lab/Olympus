@@ -25,6 +25,7 @@ import { AutonomyEngine } from "./autonomy/autonomy-engine.js";
 import { DigitalTwin } from "./simulation/digital-twin.js";
 import { DecisionInbox } from "./projections/decision-inbox.js";
 import { BriefingEngine } from "./briefing/briefing-engine.js";
+import { WorkflowEngine } from "./workflow/workflow-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -50,6 +51,8 @@ export class Olympus {
   readonly inbox: DecisionInbox;
   /** Proactive intelligence — synthesizes the live state into an executive briefing. */
   readonly briefing: BriefingEngine;
+  /** Executes procedural memory as autonomy-gated, audited MCP calls. */
+  readonly workflow: WorkflowEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -66,6 +69,7 @@ export class Olympus {
     this.mcp = new OlympusMCPServer(this.okg, this.bus);
     this.inbox = new DecisionInbox(this.okg).attach(this.bus);
     this.briefing = new BriefingEngine(this);
+    this.workflow = new WorkflowEngine(this.mcp, this.memory, this.bus);
   }
 }
 
@@ -82,3 +86,4 @@ export { AutonomyEngine } from "./autonomy/autonomy-engine.js";
 export { DecisionInbox } from "./projections/decision-inbox.js";
 export { FileEventLog } from "./persistence/file-event-log.js";
 export { BriefingEngine } from "./briefing/briefing-engine.js";
+export { WorkflowEngine } from "./workflow/workflow-engine.js";
