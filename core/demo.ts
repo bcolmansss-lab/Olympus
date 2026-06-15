@@ -248,6 +248,15 @@ async function main(): Promise<void> {
   console.log("Rebuilt from log — identical item count:", rebuilt.all().length);
 
   // -------------------------------------------------------------------------
+  console.log("\n=== 10. Proactive briefing: the morning executive summary ===");
+  const briefing = olympus.briefing.generate();
+  console.log("Headline:", briefing.headline);
+  for (const s of briefing.sections) {
+    console.log(`\n  [${s.severity.toUpperCase()}] ${s.heading}`);
+    for (const line of s.lines) console.log("   ", line);
+  }
+
+  // -------------------------------------------------------------------------
   console.log("\n=== Event spine (all unique topics) ===");
   const uniqueTopics = [...new Set(seen)];
   console.log(uniqueTopics.join("  "));

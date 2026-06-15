@@ -76,6 +76,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/autonomy/grants", handler: (_req, res) => this.handleListGrants(res) },
       { method: "PUT", pattern: "/v1/autonomy/grants", handler: (req, res) => this.handleSetGrant(req, res) },
 
+      { method: "GET", pattern: "/v1/briefing", handler: (_req, res) => res.json(200, this.olympus.briefing.generate()) },
+
       { method: "GET", pattern: "/v1/inbox", handler: (req, res) => this.handleInbox(req, res) },
       { method: "POST", pattern: "/v1/inbox/:id/resolve", handler: (req, res) => this.handleResolveInbox(req, res) },
 

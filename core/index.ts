@@ -24,6 +24,7 @@ import { GraphRAG } from "./retrieval/graph-rag.js";
 import { AutonomyEngine } from "./autonomy/autonomy-engine.js";
 import { DigitalTwin } from "./simulation/digital-twin.js";
 import { DecisionInbox } from "./projections/decision-inbox.js";
+import { BriefingEngine } from "./briefing/briefing-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -47,6 +48,8 @@ export class Olympus {
   readonly mcp: OlympusMCPServer;
   /** Read-model projection of decisions needing human attention. */
   readonly inbox: DecisionInbox;
+  /** Proactive intelligence — synthesizes the live state into an executive briefing. */
+  readonly briefing: BriefingEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -62,6 +65,7 @@ export class Olympus {
     this.ere = new ExecutiveReasoningEngine(this.roster, ctx, this.twin);
     this.mcp = new OlympusMCPServer(this.okg, this.bus);
     this.inbox = new DecisionInbox(this.okg).attach(this.bus);
+    this.briefing = new BriefingEngine(this);
   }
 }
 
@@ -77,3 +81,4 @@ export { GraphRAG } from "./retrieval/graph-rag.js";
 export { AutonomyEngine } from "./autonomy/autonomy-engine.js";
 export { DecisionInbox } from "./projections/decision-inbox.js";
 export { FileEventLog } from "./persistence/file-event-log.js";
+export { BriefingEngine } from "./briefing/briefing-engine.js";

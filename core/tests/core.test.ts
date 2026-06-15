@@ -644,3 +644,46 @@ describe("FileEventLog — projections rebuild from the durable log", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 16. Briefing Engine — proactive synthesis
+// ---------------------------------------------------------------------------
+
+describe("BriefingEngine", () => {
+  it("reports all-clear with no pending decisions", () => {
+    const olympus = new Olympus();
+    const b = olympus.briefing.generate();
+    assert.equal(b.pendingCount, 0);
+    assert.match(b.headline, /All clear/);
+  });
+
+  it("surfaces escalated decisions as urgent in the headline", async () => {
+    const twin = new DigitalTwin({
+      metric: "q3_cash_usd",
+      coefficients: { marketing_spend: -1.0, base_revenue: 1.0 },
+      baseline: { marketing_spend: 900_000, base_revenue: 2_500_000 },
+      noiseFraction: 0.08,
+    });
+    const olympus = new Olympus({ twin });
+    // L4 grant with a tiny blast-radius → the exposure breaches it → queued (pending).
+    olympus.autonomy.setGrant({
+      domain: "finance", capability: "reallocate_budget", level: 4,
+      blastRadius: { maxAmount: 10_000, maxPerDay: 10 },
+    });
+    await olympus.ere.ask("Cut Q3 spend 18%?", {
+      domain: "finance", options: ["cut-18pct", "hold"], capability: "reallocate_budget",
+      intervention: { variable: "marketing_spend", delta: -0.18 }, exposureAmount: 162_000, simSeed: 7,
+    });
+    const b = olympus.briefing.generate();
+    assert.equal(b.pendingCount, 1);
+    assert.ok(b.sections.some((s) => s.heading === "Needs your decision" && s.lines.length === 1));
+  });
+
+  it("reports the kill switch as urgent", () => {
+    const olympus = new Olympus();
+    olympus.autonomy.killSwitch("test");
+    const b = olympus.briefing.generate();
+    assert.match(b.headline, /Kill switch/i);
+    assert.ok(b.sections.some((s) => s.severity === "urgent"));
+  });
+});
