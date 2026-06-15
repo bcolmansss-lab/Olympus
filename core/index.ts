@@ -23,6 +23,7 @@ import { MemoryStore } from "./memory/memory-store.js";
 import { GraphRAG } from "./retrieval/graph-rag.js";
 import { AutonomyEngine } from "./autonomy/autonomy-engine.js";
 import { DigitalTwin } from "./simulation/digital-twin.js";
+import { DecisionInbox } from "./projections/decision-inbox.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -42,6 +43,8 @@ export class Olympus {
   readonly twin?: DigitalTwin;
   readonly ere: ExecutiveReasoningEngine;
   readonly mcp: OlympusMCPServer;
+  /** Read-model projection of decisions needing human attention. */
+  readonly inbox: DecisionInbox;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus();
@@ -56,6 +59,7 @@ export class Olympus {
     const ctx: AgentContext = { okg: this.okg, bus: this.bus, llm: this.llm, autonomy: this.autonomy };
     this.ere = new ExecutiveReasoningEngine(this.roster, ctx, this.twin);
     this.mcp = new OlympusMCPServer(this.okg, this.bus);
+    this.inbox = new DecisionInbox(this.okg).attach(this.bus);
   }
 }
 
@@ -69,3 +73,4 @@ export { DigitalTwin } from "./simulation/digital-twin.js";
 export { MemoryStore } from "./memory/memory-store.js";
 export { GraphRAG } from "./retrieval/graph-rag.js";
 export { AutonomyEngine } from "./autonomy/autonomy-engine.js";
+export { DecisionInbox } from "./projections/decision-inbox.js";

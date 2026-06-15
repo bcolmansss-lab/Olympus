@@ -240,6 +240,16 @@ async function main(): Promise<void> {
   olympus.autonomy.rearm();
 
   // -------------------------------------------------------------------------
+  console.log("\n=== 9. Decision Inbox: read-model projection over the log ===");
+  console.log("Inbox stats:", olympus.inbox.stats());
+  for (const item of olympus.inbox.all()) {
+    console.log(` [${item.status.padEnd(14)}] ${item.question.slice(0, 48)} — ${item.note}`);
+  }
+  // Projection contract: drop the inbox and rebuild it purely from the event log.
+  const rebuilt = olympus.inbox.rebuild(olympus.bus);
+  console.log("Rebuilt from log — identical item count:", rebuilt.all().length);
+
+  // -------------------------------------------------------------------------
   console.log("\n=== Event spine (all unique topics) ===");
   const uniqueTopics = [...new Set(seen)];
   console.log(uniqueTopics.join("  "));

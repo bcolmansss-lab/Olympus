@@ -74,6 +74,9 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/autonomy/grants", handler: (_req, res) => this.handleListGrants(res) },
       { method: "PUT", pattern: "/v1/autonomy/grants", handler: (req, res) => this.handleSetGrant(req, res) },
 
+      { method: "GET", pattern: "/v1/inbox", handler: (req, res) => this.handleInbox(req, res) },
+      { method: "POST", pattern: "/v1/inbox/:id/resolve", handler: (req, res) => this.handleResolveInbox(req, res) },
+
       { method: "GET", pattern: "/v1/events", handler: (req, res) => this.handleEvents(req, res) },
       { method: "GET", pattern: "/v1/audit", handler: (_req, res) => this.handleAudit(res) },
     );
@@ -215,6 +218,18 @@ export class OlympusApiServer {
     res.json(200, grant);
   }
 
+  private handleInbox(req: ApiRequest, res: ApiResponse): void {
+    const pendingOnly = req.query.get("pending") === "true";
+    const items = pendingOnly ? this.olympus.inbox.pending() : this.olympus.inbox.all();
+    res.json(200, { stats: this.olympus.inbox.stats(), items });
+  }
+
+  private handleResolveInbox(req: ApiRequest, res: ApiResponse): void {
+    const ok = this.olympus.inbox.resolve(req.params.id!);
+    if (!ok) return res.json(404, { error: "inbox item not found" });
+    res.json(200, { decision_id: req.params.id, status: "resolved" });
+  }
+
   private handleEvents(req: ApiRequest, res: ApiResponse): void {
     const limit = Number(req.query.get("limit") ?? "100");
     const all = this.olympus.bus.events();
@@ -255,6 +270,13 @@ export class OlympusApiServer {
       },
     };
 
+    // Live event stream — Server-Sent Events over plain HTTP (zero deps).
+    // The BLUEPRINT specifies a WebSocket; SSE is the dependency-free reference
+    // for one-way event push and swaps cleanly for WS in production.
+    if ((raw.method ?? "GET") === "GET" && url.pathname === "/v1/stream") {
+      return this.streamEvents(raw, rawRes, url.searchParams.get("topic") ?? "*");
+    }
+
     const matched = this.match(raw.method ?? "GET", url.pathname);
     if (!matched) return res.json(404, { error: `no route for ${raw.method} ${url.pathname}` });
 
@@ -271,6 +293,30 @@ export class OlympusApiServer {
       res.json(500, { error: (err as Error).message });
     }
   };
+
+  /** Hold an SSE connection open, pushing each matching bus event as it fires. */
+  private streamEvents(raw: IncomingMessage, res: ServerResponse, topic: string): void {
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    res.write(`event: ready\ndata: ${JSON.stringify({ topic })}\n\n`);
+
+    const unsubscribe = this.olympus.bus.subscribe(topic, (e) => {
+      res.write(`event: ${e.topic}\ndata: ${JSON.stringify(e)}\n\n`);
+    });
+
+    // Heartbeat keeps proxies from closing an idle stream.
+    const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), 15_000);
+
+    const cleanup = (): void => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    raw.on("close", cleanup);
+    res.on("error", cleanup);
+  }
 
   listen(port = 7777): Promise<number> {
     this.server = createServer(this.handler);

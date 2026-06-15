@@ -424,3 +424,77 @@ describe("Olympus — closed loop integration", () => {
     assert.ok(answer.evidence.some(e => e.ref.startsWith("sim://")), "simulation evidence must be present");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 12. Decision Inbox projection
+// ---------------------------------------------------------------------------
+
+describe("DecisionInbox — projection over the event spine", () => {
+  it("auto-executed decisions land as awareness items, not pending", async () => {
+    const twin = new DigitalTwin({
+      metric: "q3_cash_usd",
+      coefficients: { marketing_spend: -1.0, base_revenue: 1.0 },
+      baseline: { marketing_spend: 900_000, base_revenue: 2_500_000 },
+      noiseFraction: 0.08,
+    });
+    const olympus = new Olympus({ twin });
+    olympus.autonomy.setGrant({
+      domain: "finance", capability: "reallocate_budget", level: 5,
+      blastRadius: { maxAmount: 250_000, maxPerDay: 10 },
+    });
+
+    await olympus.ere.ask("Cut Q3 spend 18%?", {
+      domain: "finance", options: ["cut-18pct", "hold"], capability: "reallocate_budget",
+      intervention: { variable: "marketing_spend", delta: -0.18 }, exposureAmount: 162_000, simSeed: 7,
+    });
+
+    const all = olympus.inbox.all();
+    assert.ok(all.length >= 1, "inbox should record the resolved decision");
+    assert.equal(olympus.inbox.pending().length, 0, "auto-executed items are not pending");
+    assert.ok(all.some(i => i.status === "auto_executed"));
+  });
+
+  it("rebuild() from the log reproduces the same inbox (projection contract)", async () => {
+    const twin = new DigitalTwin({
+      metric: "q3_cash_usd",
+      coefficients: { marketing_spend: -1.0, base_revenue: 1.0 },
+      baseline: { marketing_spend: 900_000, base_revenue: 2_500_000 },
+      noiseFraction: 0.08,
+    });
+    const olympus = new Olympus({ twin });
+    olympus.autonomy.setGrant({
+      domain: "finance", capability: "reallocate_budget", level: 5,
+      blastRadius: { maxAmount: 250_000, maxPerDay: 10 },
+    });
+    await olympus.ere.ask("Cut Q3 spend 18%?", {
+      domain: "finance", options: ["cut-18pct", "hold"], capability: "reallocate_budget",
+      intervention: { variable: "marketing_spend", delta: -0.18 }, exposureAmount: 162_000, simSeed: 7,
+    });
+
+    const live = JSON.stringify(olympus.inbox.all());
+    const rebuilt = JSON.stringify(olympus.inbox.rebuild(olympus.bus).all());
+    assert.equal(rebuilt, live, "rebuilding from the log must yield the same projection");
+  });
+
+  it("blast-radius breach queues a decision as pending in the inbox", async () => {
+    const twin = new DigitalTwin({
+      metric: "q3_cash_usd",
+      coefficients: { marketing_spend: -1.0, base_revenue: 1.0 },
+      baseline: { marketing_spend: 900_000, base_revenue: 2_500_000 },
+      noiseFraction: 0.08,
+    });
+    const olympus = new Olympus({ twin });
+    // Grant L4 but with a tiny blast-radius so the exposure breaches it -> queue.
+    olympus.autonomy.setGrant({
+      domain: "finance", capability: "reallocate_budget", level: 4,
+      blastRadius: { maxAmount: 10_000, maxPerDay: 10 },
+    });
+    await olympus.ere.ask("Cut Q3 spend 18%?", {
+      domain: "finance", options: ["cut-18pct", "hold"], capability: "reallocate_budget",
+      intervention: { variable: "marketing_spend", delta: -0.18 }, exposureAmount: 162_000, simSeed: 7,
+    });
+
+    assert.equal(olympus.inbox.pending().length, 1, "breach must produce one pending item");
+    assert.equal(olympus.inbox.pending()[0]!.status, "needs_approval");
+  });
+});
