@@ -25,6 +25,7 @@ import { Olympus, type OlympusOptions } from "../index.js";
 import type { Domain } from "../knowledge/graph/schema.js";
 import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
 import type { AskOptions } from "../reasoning/executive-reasoning-engine.js";
+import { DASHBOARD_HTML } from "./dashboard.js";
 
 interface Route {
   method: string;
@@ -269,6 +270,13 @@ export class OlympusApiServer {
         rawRes.end(data);
       },
     };
+
+    // Operator console — a single self-contained HTML page.
+    if ((raw.method ?? "GET") === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+      rawRes.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      rawRes.end(DASHBOARD_HTML);
+      return;
+    }
 
     // Live event stream — Server-Sent Events over plain HTTP (zero deps).
     // The BLUEPRINT specifies a WebSocket; SSE is the dependency-free reference

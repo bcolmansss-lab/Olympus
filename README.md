@@ -38,6 +38,7 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/` | Live operator console — a single self-contained HTML page (Decision Inbox + event spine, streaming over SSE) |
 | `POST` | `/v1/ask` | Reasoned Q&A — runs the full closed loop, returns thesis + evidence + autonomy gate |
 | `POST` · `GET` | `/v1/decisions` · `/v1/decisions/:id` | Open / list / fetch decision records |
 | `POST` | `/v1/simulate` | Run a digital-twin simulation (P10/P50/P90 + tail risk) |
@@ -45,6 +46,8 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `GET` · `POST` | `/v1/inbox` · `/v1/inbox/:id/resolve` | Decision Inbox feed (items needing human attention) + resolve |
 | `GET` | `/v1/stream` | Live event stream (Server-Sent Events; `?topic=decision.*` to filter) |
 | `GET` | `/v1/events` · `/v1/audit` | The event spine log and the tamper-evident audit chain |
+
+Open **http://localhost:7777/** after `npm run serve` for the live operator console — click *Run a decision* and watch the closed loop flow through the Decision Inbox and event spine in real time.
 
 ```bash
 npm run serve
@@ -75,6 +78,7 @@ curl -s -XPOST localhost:7777/v1/ask -d '{
 | **Autonomy engine** | `core/autonomy/autonomy-engine.ts` | Per-domain L0–L7 grants, blast-radius enforcement, L3+ simulation precondition, hard ceilings (human accountability tokens), auto-demotion, and a global kill switch |
 | **Decision Inbox** | `core/projections/decision-inbox.ts` | Rebuildable read-model projection over the event log: decisions needing human attention (queued / escalated), auto-executed awareness items, and reconciliation — the canonical "the log is the source of truth" example |
 | **HTTP API** | `core/api/server.ts` | Zero-dependency stdlib `http` server exposing the BLUEPRINT §21 REST surface (`/v1/ask`, `/v1/decisions`, `/v1/simulate`, `/v1/autonomy/grants`, `/v1/inbox`, `/v1/stream` SSE, `/v1/events`, `/v1/audit`) |
+| **Operator console** | `core/api/dashboard.ts` | Single self-contained HTML page served at `/` — renders the Decision Inbox and live event spine over SSE, with a one-click decision runner |
 | **Tests** | `core/tests/core.test.ts` | 21 `node:test` invariant tests: mandatory dissent, audit-chain tamper detection, blast-radius, hard ceilings, kill switch, L3+ sim precondition, bitemporal replay, reconciliation, Hebbian reinforcement, sim reproducibility, closed-loop integration |
 | **Composition** | `core/index.ts`, `core/demo.ts` | Wires it all together; runnable demo |
 
