@@ -17,6 +17,7 @@ import { ExecutiveReasoningEngine } from "./reasoning/executive-reasoning-engine
 import { OlympusMCPServer } from "./mcp/olympus-mcp-server.js";
 import { MemoryStore } from "./memory/memory-store.js";
 import { GraphRAG } from "./retrieval/graph-rag.js";
+import { AutonomyEngine } from "./autonomy/autonomy-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -30,6 +31,7 @@ export class Olympus {
   readonly roster: Agent[];
   readonly memory: MemoryStore;
   readonly rag: GraphRAG;
+  readonly autonomy: AutonomyEngine;
   readonly ere: ExecutiveReasoningEngine;
   readonly mcp: OlympusMCPServer;
 
@@ -40,6 +42,7 @@ export class Olympus {
     this.roster = opts.roster ?? defaultRoster();
     this.memory = new MemoryStore(this.bus);
     this.rag = new GraphRAG(this.okg, this.memory);
+    this.autonomy = new AutonomyEngine(this.bus);
 
     const ctx: AgentContext = { okg: this.okg, bus: this.bus, llm: this.llm };
     this.ere = new ExecutiveReasoningEngine(this.roster, ctx);
@@ -56,3 +59,4 @@ export { OlympusMCPServer } from "./mcp/olympus-mcp-server.js";
 export { DigitalTwin } from "./simulation/digital-twin.js";
 export { MemoryStore } from "./memory/memory-store.js";
 export { GraphRAG } from "./retrieval/graph-rag.js";
+export { AutonomyEngine } from "./autonomy/autonomy-engine.js";

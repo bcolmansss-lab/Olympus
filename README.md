@@ -45,6 +45,7 @@ npm run typecheck   # strict TypeScript
 | **Digital twin** | `core/simulation/digital-twin.ts` | Seeded Monte Carlo + causal do-operator over a structural model → P10/P50/P90, tail risk, sensitivity |
 | **Memory store** | `core/memory/memory-store.ts` | Six-layer memory (episodic, semantic, procedural, strategic, operational, decision); Hebbian reinforcement + decay; calibration flywheel (MAE by domain) |
 | **GraphRAG** | `core/retrieval/graph-rag.ts` | Grounded context bundle: graph traversal (causal edges, MAX 3 hops) + cosine vector search + semantic memory + relational aggregation, all with provenance refs |
+| **Autonomy engine** | `core/autonomy/autonomy-engine.ts` | Per-domain L0–L7 grants, blast-radius enforcement, L3+ simulation precondition, hard ceilings (human accountability tokens), auto-demotion, and a global kill switch |
 | **Composition** | `core/index.ts`, `core/demo.ts` | Wires it all together; runnable demo |
 
 The demo shows a multi-agent decision with recorded dissent, a bitemporal decision + reconciliation, an MCP call denied by the autonomy gate, and a verified audit chain.

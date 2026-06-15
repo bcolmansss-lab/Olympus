@@ -169,6 +169,57 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
+  console.log("\n=== 8. Autonomy Engine: the governed action gate ===");
+  olympus.bus.subscribe("autonomy.*", (e) => { seen.push(e.topic); });
+  olympus.bus.subscribe("action.gated", (e) => { seen.push(e.topic); });
+
+  // Grant collections the ability to send dunning at L4 within blast-radius.
+  olympus.autonomy.setGrant({
+    domain: "finance",
+    capability: "send_dunning",
+    level: 4,
+    blastRadius: { maxAmount: 50_000, maxPerDay: 200 },
+  });
+
+  // a) In-bounds L4 action with a simulation -> executes (human notified).
+  const a = olympus.autonomy.evaluate({
+    decisionId: answer.decisionId, domain: "finance", capability: "send_dunning",
+    attemptedLevel: 4, amount: 12_000, simulated: true,
+  });
+  console.log("a) in-bounds L4:      ", a.disposition, "|", a.reasons[0]);
+
+  // b) L4 but blast-radius breach (amount too high) -> queued for approval.
+  const b = olympus.autonomy.evaluate({
+    decisionId: answer.decisionId, domain: "finance", capability: "send_dunning",
+    attemptedLevel: 4, amount: 90_000, simulated: true,
+  });
+  console.log("b) blast-radius:      ", b.disposition, "|", b.reasons[0]);
+
+  // c) L3+ action with NO simulation -> denied (simulation precondition).
+  const c = olympus.autonomy.evaluate({
+    decisionId: answer.decisionId, domain: "finance", capability: "send_dunning",
+    attemptedLevel: 4, amount: 12_000, simulated: false,
+  });
+  console.log("c) no simulation:     ", c.disposition, "|", c.reasons[0]);
+
+  // d) Hard-ceiling capability without a human token -> denied regardless of grant.
+  olympus.autonomy.setGrant({ domain: "people", capability: "terminate_employee", level: 6 });
+  const d = olympus.autonomy.evaluate({
+    decisionId: answer.decisionId, domain: "people", capability: "terminate_employee",
+    attemptedLevel: 6, simulated: true,
+  });
+  console.log("d) hard ceiling:      ", d.disposition, "| effectiveLevel L" + d.effectiveLevel, "|", d.reasons[0]);
+
+  // e) Kill switch -> everything drops to advisory.
+  olympus.autonomy.killSwitch("Anomaly detected by Risk Agent");
+  const e = olympus.autonomy.evaluate({
+    decisionId: answer.decisionId, domain: "finance", capability: "send_dunning",
+    attemptedLevel: 4, amount: 12_000, simulated: true,
+  });
+  console.log("e) after kill switch: ", e.disposition, "| effectiveLevel L" + e.effectiveLevel);
+  olympus.autonomy.rearm();
+
+  // -------------------------------------------------------------------------
   console.log("\n=== Event spine (all unique topics) ===");
   const uniqueTopics = [...new Set(seen)];
   console.log(uniqueTopics.join("  "));
