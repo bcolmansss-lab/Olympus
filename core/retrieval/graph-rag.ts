@@ -195,10 +195,14 @@ function nodeDescription(node: OKGNode): string {
   return `[${node.type}] ${snippet}`;
 }
 
-/** Score recency: 1.0 for today, decaying to 0.1 over ~365 days. */
+/**
+ * Score recency: 1.0 for today or any not-yet-past evidence, decaying toward
+ * 0.1 over ~year-and-a-half. Future-dated timestamps clamp to 1.0 so a clock
+ * skew (or forward-dated scenario data) can never inflate a score above 1.
+ */
 function recencyScore(ts: Timestamp): number {
-  const ageMs = Date.now() - new Date(ts).getTime();
-  const ageDays = ageMs / 86_400_000;
+  const ageDays = (Date.now() - new Date(ts).getTime()) / 86_400_000;
+  if (ageDays <= 0) return 1;
   return Math.max(0.1, Math.exp(-ageDays / 180));
 }
 

@@ -15,6 +15,7 @@
 
 import { Olympus } from "./index.js";
 import { DigitalTwin } from "./simulation/digital-twin.js";
+import { seedChurnScenario } from "./scenarios/churn.js";
 
 async function main(): Promise<void> {
   // A toy structural causal model of quarterly cash given pipeline & spend,
@@ -161,34 +162,31 @@ async function main(): Promise<void> {
   console.log("Procedure invoked:", proc?.name, "| steps:", proc?.steps.length, "| usage:", proc?.usageCount);
 
   // -------------------------------------------------------------------------
-  console.log("\n=== 7. GraphRAG: grounded context bundle ===");
+  console.log("\n=== 7. Second domain: churn causal subgraph + GraphRAG + sales twin ===");
 
-  // Index a couple of mock vector documents (tiny 4-dim embeddings for the demo).
-  olympus.rag.indexDocument({
-    id: "doc-churn-analysis",
-    text: "Mid-market churn rose 3.1pts in Q2 due to onboarding delays post support-reorg on 2035-04-01.",
-    embedding: [0.9, 0.1, 0.3, 0.4],
-    ts: new Date().toISOString(),
-  });
-  olympus.rag.indexDocument({
-    id: "doc-pipeline",
-    text: "Enterprise pipeline conversion held steady at 22% through H1.",
-    embedding: [0.2, 0.8, 0.1, 0.5],
-    ts: new Date().toISOString(),
-  });
+  // Seed a realistic world: support reorg → onboarding delay → churn spike → ARR.
+  const churn = seedChurnScenario(olympus);
 
+  // GraphRAG walks the causal edges from the churn spike and fuses graph +
+  // vector + semantic + aggregate streams into one fully-grounded bundle.
   const ctx = olympus.rag.retrieve(
-    "sales churn pipeline revenue",
-    [answer.decisionId],           // anchor on the decision node
-    [0.7, 0.4, 0.2, 0.45],        // mock query embedding (close to doc-churn-analysis)
+    "why did mid-market churn rise onboarding",
+    [churn.anchors.churnSpike, churn.anchors.reorg],
+    [0.85, 0.25, 0.3, 0.48],
     {},
-    12,
+    8,
   );
-  console.log("Facts retrieved:", ctx.facts.length);
-  console.log("Fully grounded: ", ctx.fullyGrounded);
-  for (const f of ctx.facts.slice(0, 4)) {
-    console.log(` [${f.source.padEnd(9)}] score=${f.score}  ${f.claim.slice(0, 80)}`);
+  console.log("Facts retrieved:", ctx.facts.length, "| fully grounded:", ctx.fullyGrounded);
+  for (const f of ctx.facts.slice(0, 5)) {
+    console.log(` [${f.source.padEnd(9)}] score=${f.score}  ${f.claim.slice(0, 72)}`);
   }
+
+  // Simulate the intervention "restore 2 onboarding FTE" on the sales twin.
+  const restore = churn.twin.run({ type: "causal_intervention", decisionId: answer.decisionId,
+    intervention: { variable: "onboarding_fte", delta: 0.6667 }, runs: 10_000, seed: 11 });
+  const churnBase = churn.twin.run({ type: "causal_intervention", decisionId: answer.decisionId,
+    intervention: { variable: "onboarding_fte", delta: 0 }, runs: 10_000, seed: 11 });
+  console.log(`Restore 2 FTE → churn P50 ${restore.distribution.p50}pt vs baseline ${churnBase.distribution.p50}pt (${(restore.distribution.p50 - churnBase.distribution.p50).toFixed(2)}pt).`);
 
   // -------------------------------------------------------------------------
   console.log("\n=== 8. Autonomy Engine: gate scenarios in isolation ===");

@@ -18,6 +18,7 @@ import { Orchestrator } from "../agents/orchestrator/orchestrator.js";
 import type { AgentContext, DecisionBrief } from "../agents/types.js";
 import { Olympus } from "../index.js";
 import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
+import { seedChurnScenario } from "../scenarios/churn.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -496,5 +497,57 @@ describe("DecisionInbox — projection over the event spine", () => {
 
     assert.equal(olympus.inbox.pending().length, 1, "breach must produce one pending item");
     assert.equal(olympus.inbox.pending()[0]!.status, "needs_approval");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. Churn scenario — GraphRAG causal grounding + sales twin
+// ---------------------------------------------------------------------------
+
+describe("Churn scenario — GraphRAG + sales twin", () => {
+  it("traverses the causal subgraph and returns a fully-grounded bundle", () => {
+    const olympus = new Olympus();
+    const sc = seedChurnScenario(olympus);
+
+    const ctx = olympus.rag.retrieve(
+      "why did mid-market churn rise onboarding",
+      [sc.anchors.churnSpike, sc.anchors.reorg],
+      [0.85, 0.25, 0.3, 0.48],
+      {},
+      12,
+    );
+
+    assert.ok(ctx.fullyGrounded, "every fact must carry a provenance ref");
+    // Graph traversal must reach all four causal nodes from the two anchors.
+    const graphFacts = ctx.facts.filter((f) => f.source === "graph");
+    assert.ok(graphFacts.length >= 4, "should reach reorg → onboarding → churn → ARR");
+    // All four retrieval streams should contribute.
+    const sources = new Set(ctx.facts.map((f) => f.source));
+    assert.ok(sources.has("graph") && sources.has("vector") && sources.has("semantic") && sources.has("aggregate"));
+  });
+
+  it("never scores a fact above 1.0 even with future-dated evidence (recency clamp)", () => {
+    const olympus = new Olympus();
+    const sc = seedChurnScenario(olympus); // docs are dated 2035
+
+    const ctx = olympus.rag.retrieve(
+      "mid-market churn onboarding",
+      [sc.anchors.churnSpike],
+      [0.85, 0.25, 0.3, 0.48],
+      {},
+      12,
+    );
+    for (const f of ctx.facts) {
+      assert.ok(f.score <= 1.0 + 1e-9, `score ${f.score} for ${f.ref} must not exceed 1.0`);
+    }
+  });
+
+  it("restoring onboarding FTE lowers simulated churn", () => {
+    const sc = seedChurnScenario(new Olympus());
+    const restore = sc.twin.run({ type: "causal_intervention", decisionId: "x",
+      intervention: { variable: "onboarding_fte", delta: 0.6667 }, runs: 5000, seed: 11 });
+    const base = sc.twin.run({ type: "causal_intervention", decisionId: "x",
+      intervention: { variable: "onboarding_fte", delta: 0 }, runs: 5000, seed: 11 });
+    assert.ok(restore.distribution.p50 < base.distribution.p50, "more FTE → less churn");
   });
 });
