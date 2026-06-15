@@ -12,7 +12,7 @@
  * touching the layers above.
  */
 
-import { EventBus } from "./events/event-bus.js";
+import { EventBus, type EventSink } from "./events/event-bus.js";
 import { OKG } from "./knowledge/graph/okg.js";
 import { MockLLM, type LLMClient } from "./llm/client.js";
 import { defaultRoster } from "./agents/executive-agent.js";
@@ -30,6 +30,8 @@ export interface OlympusOptions {
   roster?: Agent[];
   /** Optional digital twin; when present the reasoning engine simulates interventions. */
   twin?: DigitalTwin;
+  /** Optional durable event sink; every event is persisted for replay on restart. */
+  sink?: EventSink;
 }
 
 export class Olympus {
@@ -47,7 +49,7 @@ export class Olympus {
   readonly inbox: DecisionInbox;
 
   constructor(opts: OlympusOptions = {}) {
-    this.bus = new EventBus();
+    this.bus = new EventBus(opts.sink);
     this.okg = new OKG(this.bus);
     this.llm = opts.llm ?? new MockLLM();
     this.roster = opts.roster ?? defaultRoster();
@@ -74,3 +76,4 @@ export { MemoryStore } from "./memory/memory-store.js";
 export { GraphRAG } from "./retrieval/graph-rag.js";
 export { AutonomyEngine } from "./autonomy/autonomy-engine.js";
 export { DecisionInbox } from "./projections/decision-inbox.js";
+export { FileEventLog } from "./persistence/file-event-log.js";

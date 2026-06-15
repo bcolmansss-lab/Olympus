@@ -376,7 +376,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     baseline: { pipeline_conversion: 0.22, marketing_spend: 900_000, base_revenue: 2_500_000 },
     noiseFraction: 0.08,
   });
-  const api = new OlympusApiServer({ twin });
+  // Optional durable event log: set OLYMPUS_LOG to persist + replay across restarts.
+  let sink: import("../events/event-bus.js").EventSink | undefined;
+  let replayed = 0;
+  if (process.env.OLYMPUS_LOG) {
+    const { FileEventLog } = await import("../persistence/file-event-log.js");
+    const log = new FileEventLog(process.env.OLYMPUS_LOG);
+    replayed = log.count();
+    sink = log;
+  }
+
+  const api = new OlympusApiServer({ twin, sink });
+  if (process.env.OLYMPUS_LOG && replayed > 0) {
+    const { FileEventLog } = await import("../persistence/file-event-log.js");
+    api.olympus.bus.hydrate(new FileEventLog(process.env.OLYMPUS_LOG).readAll());
+    api.olympus.inbox.rebuild(api.olympus.bus);
+  }
   api.olympus.autonomy.setGrant({
     domain: "finance",
     capability: "reallocate_budget",
@@ -389,6 +404,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT ?? 7777);
   const actual = await api.listen(port);
   console.log(`Olympus API listening on http://localhost:${actual}`);
+  if (process.env.OLYMPUS_LOG) console.log(`Durable log: ${process.env.OLYMPUS_LOG} (replayed ${replayed} events)`);
   console.log("Try: curl -s localhost:" + actual + "/healthz");
   console.log(`     curl -s -XPOST localhost:${actual}/v1/ask -d '{"question":"Cut Q3 spend 18%?","domain":"finance","options":["cut-18pct","hold"],"intervention":{"variable":"marketing_spend","delta":-0.18},"capability":"reallocate_budget","exposureAmount":162000,"simSeed":7}'`);
 }

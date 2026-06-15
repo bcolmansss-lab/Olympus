@@ -23,6 +23,14 @@ export interface BusEvent<T = unknown> {
 
 export type Handler = (event: BusEvent) => void | Promise<void>;
 
+/**
+ * A durable sink for the event log. The in-memory bus is a projection of the
+ * sink; production swaps a file/Kafka-backed sink behind this interface.
+ */
+export interface EventSink {
+  append(event: BusEvent): void;
+}
+
 /** Matches "okg.node.versioned" against patterns like "okg.*" or "okg.node.versioned" or "*". */
 function topicMatches(pattern: string, topic: string): boolean {
   if (pattern === "*") return true;
@@ -38,6 +46,9 @@ export class EventBus {
   private readonly log: BusEvent[] = [];
   private readonly subscriptions: { pattern: string; handler: Handler }[] = [];
 
+  /** Optional durable sink; every published event is appended to it. */
+  constructor(private readonly sink?: EventSink) {}
+
   /** Append an event to the durable log and fan it out to subscribers. */
   publish<T>(topic: string, payload: T): BusEvent<T> {
     const event: BusEvent<T> = {
@@ -47,6 +58,7 @@ export class EventBus {
       ts: new Date().toISOString(),
     };
     this.log.push(event);
+    this.sink?.append(event);
     for (const sub of this.subscriptions) {
       if (topicMatches(sub.pattern, topic)) {
         // Fire-and-forget; projection handlers must be idempotent.
@@ -54,6 +66,15 @@ export class EventBus {
       }
     }
     return event;
+  }
+
+  /**
+   * Load prior events into the in-memory log without re-fanning them out to
+   * subscribers (replaying a durable log on startup). Side effects already
+   * happened in the originating session; here we only rebuild read state.
+   */
+  hydrate(events: readonly BusEvent[]): void {
+    for (const e of events) this.log.push(e);
   }
 
   /** Subscribe to a topic or wildcard pattern (e.g. "decision.*"). */

@@ -20,6 +20,11 @@ It is built on three pillars:
 
 See **[BLUEPRINT.md](./BLUEPRINT.md)** for the complete founder-grade blueprint: philosophy, architecture, knowledge graph design, multi-agent system, memory, security, autonomy levels, schemas, APIs, monetization, go-to-market, and the 10-year roadmap (2026–2035).
 
+## See It Work
+
+For a guided 2-minute tour — the finance closed loop, churn diagnosis, the
+governance guardrails, and durable replay — see **[DEMO.md](./DEMO.md)**.
+
 ## Core Reference Skeleton
 
 A runnable TypeScript skeleton of the core lives in [`core/`](./core). It has **zero runtime dependencies** and ships in-memory implementations behind clean interfaces, so it runs with no API keys and can later be swapped for production backends (Neo4j/FalkorDB, Kafka/Redpanda, Claude models).
@@ -79,6 +84,7 @@ curl -s -XPOST localhost:7777/v1/ask -d '{
 | **Autonomy engine** | `core/autonomy/autonomy-engine.ts` | Per-domain L0–L7 grants, blast-radius enforcement, L3+ simulation precondition, hard ceilings (human accountability tokens), auto-demotion, and a global kill switch |
 | **Decision Inbox** | `core/projections/decision-inbox.ts` | Rebuildable read-model projection over the event log: decisions needing human attention (queued / escalated), auto-executed awareness items, and reconciliation — the canonical "the log is the source of truth" example |
 | **Worked scenario** | `core/scenarios/churn.ts` | A causal churn subgraph (reorg → onboarding delay → churn spike → ARR) + a sales digital twin, so GraphRAG can walk causal edges to a fully-grounded diagnosis and simulate "restore 2 onboarding FTE → −0.9pt churn" |
+| **Persistence** | `core/persistence/file-event-log.ts` | File-backed append-only JSONL event log (a durable `EventSink`); on restart the log replays and every projection rebuilds — proving "the log is the source of truth" survives a restart |
 | **HTTP API** | `core/api/server.ts` | Zero-dependency stdlib `http` server exposing the BLUEPRINT §21 REST surface (`/v1/ask`, `/v1/decisions`, `/v1/simulate`, `/v1/autonomy/grants`, `/v1/inbox`, `/v1/stream` SSE, `/v1/events`, `/v1/audit`) |
 | **Operator console** | `core/api/dashboard.ts` | Single self-contained HTML page served at `/` — Decision Inbox, live event spine (SSE), a one-click decision runner, and a GraphRAG diagnosis panel that shows the grounded context bundle by retrieval source |
 | **Tests** | `core/tests/core.test.ts` | 21 `node:test` invariant tests: mandatory dissent, audit-chain tamper detection, blast-radius, hard ceilings, kill switch, L3+ sim precondition, bitemporal replay, reconciliation, Hebbian reinforcement, sim reproducibility, closed-loop integration |

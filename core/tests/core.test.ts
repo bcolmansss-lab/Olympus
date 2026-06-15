@@ -589,3 +589,58 @@ describe("OlympusApiServer — /v1/diagnose", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 15. Persistence — durable log survives a simulated restart
+// ---------------------------------------------------------------------------
+
+describe("FileEventLog — projections rebuild from the durable log", () => {
+  it("replays a persisted log into a fresh instance and rebuilds the inbox", async () => {
+    const { FileEventLog } = await import("../persistence/file-event-log.js");
+    const { EventBus } = await import("../events/event-bus.js");
+    const { DecisionInbox } = await import("../projections/decision-inbox.js");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { rmSync } = await import("node:fs");
+
+    const path = join(tmpdir(), `olympus-log-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    try {
+      // --- Session 1: run the closed loop, persisting every event to disk. ---
+      const twin = new DigitalTwin({
+        metric: "q3_cash_usd",
+        coefficients: { marketing_spend: -1.0, base_revenue: 1.0 },
+        baseline: { marketing_spend: 900_000, base_revenue: 2_500_000 },
+        noiseFraction: 0.08,
+      });
+      const sink = new FileEventLog(path);
+      const olympus = new Olympus({ twin, sink });
+      olympus.autonomy.setGrant({
+        domain: "finance", capability: "reallocate_budget", level: 5,
+        blastRadius: { maxAmount: 250_000, maxPerDay: 10 },
+      });
+      await olympus.ere.ask("Cut Q3 spend 18%?", {
+        domain: "finance", options: ["cut-18pct", "hold"], capability: "reallocate_budget",
+        intervention: { variable: "marketing_spend", delta: -0.18 }, exposureAmount: 162_000, simSeed: 7,
+      });
+
+      const originalInbox = JSON.stringify(olympus.inbox.all());
+      const persistedCount = sink.count();
+      assert.ok(persistedCount > 0, "events must be durably persisted");
+      assert.equal(persistedCount, olympus.bus.events().length, "every bus event is on disk");
+
+      // --- Session 2 (simulated restart): fresh bus, replay the log. ---
+      const replayed = new FileEventLog(path).readAll();
+      const bus2 = new EventBus();
+      bus2.hydrate(replayed);
+      const inbox2 = new DecisionInbox().rebuild(bus2);
+
+      assert.equal(
+        JSON.stringify(inbox2.all()),
+        originalInbox,
+        "inbox rebuilt from the durable log must match the original session",
+      );
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+});
