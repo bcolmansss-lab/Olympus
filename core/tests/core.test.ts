@@ -838,3 +838,56 @@ describe("ClaudeClient", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 20. HTTP API — auth + rate limiting
+// ---------------------------------------------------------------------------
+
+describe("OlympusApiServer — auth + rate limiting", () => {
+  it("is open when no apiKeys are configured", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/inbox`);
+      assert.equal(r.status, 200);
+    } finally { await api.close(); }
+  });
+
+  it("401s without a valid Bearer token when keys are configured", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer({ apiKeys: { "secret-1": "alice" } });
+    const port = await api.listen(0);
+    try {
+      const noAuth = await fetch(`http://localhost:${port}/v1/inbox`);
+      assert.equal(noAuth.status, 401);
+
+      const badAuth = await fetch(`http://localhost:${port}/v1/inbox`, { headers: { authorization: "Bearer nope" } });
+      assert.equal(badAuth.status, 401);
+
+      const ok = await fetch(`http://localhost:${port}/v1/inbox`, { headers: { authorization: "Bearer secret-1" } });
+      assert.equal(ok.status, 200);
+    } finally { await api.close(); }
+  });
+
+  it("keeps the console and healthz public even with auth on", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer({ apiKeys: { "secret-1": "alice" } });
+    const port = await api.listen(0);
+    try {
+      assert.equal((await fetch(`http://localhost:${port}/`)).status, 200);
+      assert.equal((await fetch(`http://localhost:${port}/healthz`)).status, 200);
+    } finally { await api.close(); }
+  });
+
+  it("429s once a caller exceeds the rate limit", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer({ rateLimit: { windowMs: 10_000, max: 2 } });
+    const port = await api.listen(0);
+    try {
+      assert.equal((await fetch(`http://localhost:${port}/v1/inbox`)).status, 200);
+      assert.equal((await fetch(`http://localhost:${port}/v1/inbox`)).status, 200);
+      assert.equal((await fetch(`http://localhost:${port}/v1/inbox`)).status, 429);
+    } finally { await api.close(); }
+  });
+});

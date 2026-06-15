@@ -56,6 +56,15 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `GET` | `/v1/stream` | Live event stream (Server-Sent Events; `?topic=decision.*` to filter) |
 | `GET` | `/v1/events` · `/v1/audit` | The event spine log and the tamper-evident audit chain |
 
+**Auth & rate limiting.** `/v1/*` routes accept optional Bearer-token auth and per-caller rate limiting; the console (`/`) and `/healthz` stay public. Both are off by default (zero-config demo). Enable via env:
+
+```bash
+OLYMPUS_API_KEYS="key-alice:alice,key-ci:ci" \
+OLYMPUS_RATE_LIMIT="100/60000" \
+npm run serve
+# → 401 without a valid Bearer token; 429 past 100 requests / 60s per caller
+```
+
 Open **http://localhost:7777/** after `npm run serve` for the live operator console — click *Run a decision* and watch the closed loop flow through the Decision Inbox and event spine in real time.
 
 ```bash

@@ -44,18 +44,65 @@ interface ApiResponse {
   json: (status: number, payload: unknown) => void;
 }
 
+export interface RateLimit {
+  /** Sliding window length in ms. */
+  windowMs: number;
+  /** Max requests per caller per window. */
+  max: number;
+}
+
 export interface ApiServerOptions extends OlympusOptions {
   olympus?: Olympus;
+  /**
+   * Bearer tokens that may call /v1/*. Map of token → human-readable caller
+   * label. When omitted/empty, the API is open (zero-config demo mode).
+   */
+  apiKeys?: Record<string, string>;
+  /** Per-caller rate limit. When omitted, requests are unlimited. */
+  rateLimit?: RateLimit;
 }
 
 export class OlympusApiServer {
   readonly olympus: Olympus;
   private readonly routes: Route[] = [];
   private server?: Server;
+  private readonly apiKeys: Record<string, string>;
+  private readonly rateLimit?: RateLimit;
+  /** caller label → recent request timestamps (sliding window). */
+  private readonly hits = new Map<string, number[]>();
 
   constructor(opts: ApiServerOptions = {}) {
     this.olympus = opts.olympus ?? new Olympus(opts);
+    this.apiKeys = opts.apiKeys ?? {};
+    this.rateLimit = opts.rateLimit;
     this.registerRoutes();
+  }
+
+  private get authEnabled(): boolean {
+    return Object.keys(this.apiKeys).length > 0;
+  }
+
+  /** Resolve the caller from a bearer token; returns label or null if unauthorized. */
+  private authenticate(req: IncomingMessage): string | null {
+    if (!this.authEnabled) return "anonymous";
+    const header = req.headers["authorization"];
+    const token = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : "";
+    return this.apiKeys[token] ?? null;
+  }
+
+  /** Sliding-window rate check; true when the caller is within budget. */
+  private withinRateLimit(caller: string): boolean {
+    if (!this.rateLimit) return true;
+    const now = Date.now();
+    const cutoff = now - this.rateLimit.windowMs;
+    const recent = (this.hits.get(caller) ?? []).filter((t) => t > cutoff);
+    if (recent.length >= this.rateLimit.max) {
+      this.hits.set(caller, recent);
+      return false;
+    }
+    recent.push(now);
+    this.hits.set(caller, recent);
+    return true;
   }
 
   // -- routing --------------------------------------------------------------
@@ -302,6 +349,22 @@ export class OlympusApiServer {
       return;
     }
 
+    // Auth + rate limiting gate every /v1/* route (console + /healthz stay open).
+    if (url.pathname.startsWith("/v1/")) {
+      const caller = this.authenticate(raw);
+      if (caller === null) {
+        rawRes.writeHead(401, { "content-type": "application/json", "www-authenticate": "Bearer" });
+        rawRes.end(JSON.stringify({ error: "unauthorized: valid Bearer token required" }));
+        return;
+      }
+      if (!this.withinRateLimit(caller)) {
+        const retryMs = this.rateLimit?.windowMs ?? 0;
+        rawRes.writeHead(429, { "content-type": "application/json", "retry-after": String(Math.ceil(retryMs / 1000)) });
+        rawRes.end(JSON.stringify({ error: "rate limit exceeded" }));
+        return;
+      }
+    }
+
     // Live event stream — Server-Sent Events over plain HTTP (zero deps).
     // The BLUEPRINT specifies a WebSocket; SSE is the dependency-free reference
     // for one-way event push and swaps cleanly for WS in production.
@@ -392,7 +455,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const { ClaudeClient } = await import("../llm/claude-client.js");
   const llm = ClaudeClient.fromEnv();
 
-  const api = new OlympusApiServer({ twin, sink, llm });
+  // Optional auth: OLYMPUS_API_KEYS="key1:alice,key2:ci". Optional rate limit:
+  // OLYMPUS_RATE_LIMIT="100/60000" (max/windowMs).
+  const apiKeys: Record<string, string> = {};
+  if (process.env.OLYMPUS_API_KEYS) {
+    for (const pair of process.env.OLYMPUS_API_KEYS.split(",")) {
+      const [key, label] = pair.split(":");
+      if (key) apiKeys[key.trim()] = (label ?? key).trim();
+    }
+  }
+  let rateLimit: RateLimit | undefined;
+  if (process.env.OLYMPUS_RATE_LIMIT) {
+    const [max, windowMs] = process.env.OLYMPUS_RATE_LIMIT.split("/").map(Number);
+    if (max && windowMs) rateLimit = { max, windowMs };
+  }
+
+  const api = new OlympusApiServer({ twin, sink, llm, apiKeys, rateLimit });
   if (process.env.OLYMPUS_LOG && replayed > 0) {
     const { FileEventLog } = await import("../persistence/file-event-log.js");
     api.olympus.bus.hydrate(new FileEventLog(process.env.OLYMPUS_LOG).readAll());
@@ -411,6 +489,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const actual = await api.listen(port);
   console.log(`Olympus API listening on http://localhost:${actual}`);
   console.log(`Cognition: ${llm ? "Claude (ANTHROPIC_API_KEY detected)" : "MockLLM (deterministic; set ANTHROPIC_API_KEY for Claude)"}`);
+  console.log(`Auth: ${Object.keys(apiKeys).length ? Object.keys(apiKeys).length + " API key(s)" : "open (set OLYMPUS_API_KEYS to require Bearer tokens)"}${rateLimit ? ` · rate limit ${rateLimit.max}/${rateLimit.windowMs}ms` : ""}`);
   if (process.env.OLYMPUS_LOG) console.log(`Durable log: ${process.env.OLYMPUS_LOG} (replayed ${replayed} events)`);
   console.log("Try: curl -s localhost:" + actual + "/healthz");
   console.log(`     curl -s -XPOST localhost:${actual}/v1/ask -d '{"question":"Cut Q3 spend 18%?","domain":"finance","options":["cut-18pct","hold"],"intervention":{"variable":"marketing_spend","delta":-0.18},"capability":"reallocate_budget","exposureAmount":162000,"simSeed":7}'`);
