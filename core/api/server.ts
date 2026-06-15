@@ -388,7 +388,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     sink = log;
   }
 
-  const api = new OlympusApiServer({ twin, sink });
+  // Use Claude when ANTHROPIC_API_KEY is set; otherwise the deterministic MockLLM.
+  const { ClaudeClient } = await import("../llm/claude-client.js");
+  const llm = ClaudeClient.fromEnv();
+
+  const api = new OlympusApiServer({ twin, sink, llm });
   if (process.env.OLYMPUS_LOG && replayed > 0) {
     const { FileEventLog } = await import("../persistence/file-event-log.js");
     api.olympus.bus.hydrate(new FileEventLog(process.env.OLYMPUS_LOG).readAll());
@@ -406,6 +410,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT ?? 7777);
   const actual = await api.listen(port);
   console.log(`Olympus API listening on http://localhost:${actual}`);
+  console.log(`Cognition: ${llm ? "Claude (ANTHROPIC_API_KEY detected)" : "MockLLM (deterministic; set ANTHROPIC_API_KEY for Claude)"}`);
   if (process.env.OLYMPUS_LOG) console.log(`Durable log: ${process.env.OLYMPUS_LOG} (replayed ${replayed} events)`);
   console.log("Try: curl -s localhost:" + actual + "/healthz");
   console.log(`     curl -s -XPOST localhost:${actual}/v1/ask -d '{"question":"Cut Q3 spend 18%?","domain":"finance","options":["cut-18pct","hold"],"intervention":{"variable":"marketing_spend","delta":-0.18},"capability":"reallocate_budget","exposureAmount":162000,"simSeed":7}'`);

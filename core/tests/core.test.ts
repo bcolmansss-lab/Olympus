@@ -779,3 +779,62 @@ describe("CalibrationMonitor — auto-demotion on prediction drift", () => {
     assert.equal(olympus.autonomy.getGrant("finance", "reallocate_budget")?.level, 5, "accurate domain keeps its grant");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 19. Claude adapter — parsing + fetch contract (no network)
+// ---------------------------------------------------------------------------
+
+describe("ClaudeClient", () => {
+  it("parses a calibrated confidence line and strips it from the text", async () => {
+    const { parseConfidence, stripConfidenceLine } = await import("../llm/claude-client.js");
+    assert.equal(parseConfidence("answer here\nCONFIDENCE: 0.82"), 0.82);
+    assert.equal(parseConfidence("no score given"), 0.5); // conservative default
+    assert.equal(parseConfidence("CONFIDENCE: 1.0"), 1);
+    assert.equal(stripConfidenceLine("the answer\nCONFIDENCE: 0.9"), "the answer");
+  });
+
+  it("fromEnv returns undefined without a key, a client with one", async () => {
+    const { ClaudeClient } = await import("../llm/claude-client.js");
+    assert.equal(ClaudeClient.fromEnv({}), undefined);
+    assert.ok(ClaudeClient.fromEnv({ ANTHROPIC_API_KEY: "sk-test" }));
+  });
+
+  it("routes tiers to models and parses the Messages API response", async () => {
+    const { ClaudeClient, DEFAULT_TIER_MODELS } = await import("../llm/claude-client.js");
+    const calls: Array<{ url: string; body: any }> = [];
+    const realFetch = globalThis.fetch;
+    // Stub fetch to assert the request shape and return a canned response.
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return {
+        ok: true,
+        json: async () => ({ model: "claude-opus-4-8", content: [{ type: "text", text: "Cut spend.\nCONFIDENCE: 0.88" }] }),
+      } as unknown as Response;
+    }) as typeof fetch;
+
+    try {
+      const llm = new ClaudeClient({ apiKey: "sk-test" });
+      const r = await llm.complete({ tier: "deliberate", prompt: "Should we cut spend?" });
+      assert.equal(r.text, "Cut spend.");
+      assert.equal(r.confidence, 0.88);
+      assert.equal(calls.length, 1);
+      assert.match(calls[0]!.url, /\/v1\/messages$/);
+      assert.equal(calls[0]!.body.model, DEFAULT_TIER_MODELS.deliberate);
+      assert.equal(calls[0]!.body.temperature, 0); // audited decisions default deterministic
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("throws on a non-OK API response", async () => {
+    const { ClaudeClient } = await import("../llm/claude-client.js");
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: false, status: 429, text: async () => "rate limited" }) as unknown as Response) as typeof fetch;
+    try {
+      const llm = new ClaudeClient({ apiKey: "sk-test" });
+      await assert.rejects(() => llm.complete({ prompt: "hi" }), /429/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

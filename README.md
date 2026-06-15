@@ -29,6 +29,8 @@ governance guardrails, and durable replay — see **[DEMO.md](./DEMO.md)**.
 
 A runnable TypeScript skeleton of the core lives in [`core/`](./core). It has **zero runtime dependencies** and ships in-memory implementations behind clean interfaces, so it runs with no API keys and can later be swapped for production backends (Neo4j/FalkorDB, Kafka/Redpanda, Claude models).
 
+> **Real cognition:** set `ANTHROPIC_API_KEY` and `npm run serve` automatically routes reasoning to Claude (Haiku → Sonnet → Opus by cognitive tier) instead of the deterministic mock — no code change. See `core/llm/claude-client.ts`.
+
 ```bash
 npm install
 npm run demo        # end-to-end walkthrough with a deterministic mock LLM
@@ -75,6 +77,7 @@ curl -s -XPOST localhost:7777/v1/ask -d '{
 | **OKG store** | `core/knowledge/graph/okg.ts` | Append-only bitemporal graph with as-of queries + decision reconciliation |
 | **Event spine** | `core/events/event-bus.ts` | Topic/wildcard pub-sub; the log is the source of truth |
 | **LLM tiering** | `core/llm/client.ts` | Provider-neutral client + deterministic `MockLLM` |
+| **Claude adapter** | `core/llm/claude-client.ts` | Production cognition over the Anthropic Messages API (stdlib `fetch`, zero deps); per-tier model routing (Haiku → Sonnet → Opus) + calibrated-confidence parsing. Auto-selected when `ANTHROPIC_API_KEY` is set |
 | **Agents** | `core/agents/executive-agent.ts` | Executive roster + mandatory Devil's Advocate + Risk Agent veto |
 | **Orchestrator** | `core/agents/orchestrator/orchestrator.ts` | OACP decision session: debate, mandatory dissent, weighted consensus, escalation |
 | **Reasoning engine** | `core/reasoning/executive-reasoning-engine.ts` | The "reason, don't retrieve" pipeline (decompose → ground → multi-perspective → synthesize → Socratic probe → calibrate) |

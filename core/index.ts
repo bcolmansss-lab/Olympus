@@ -92,3 +92,5 @@ export { FileEventLog } from "./persistence/file-event-log.js";
 export { BriefingEngine } from "./briefing/briefing-engine.js";
 export { WorkflowEngine } from "./workflow/workflow-engine.js";
 export { CalibrationMonitor } from "./autonomy/calibration-monitor.js";
+export { ClaudeClient, DEFAULT_TIER_MODELS } from "./llm/claude-client.js";
+export { MockLLM, type LLMClient, type LLMRequest, type LLMResponse, type CognitiveTier } from "./llm/client.js";
