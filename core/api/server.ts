@@ -71,6 +71,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/decisions/:id", handler: (req, res) => this.handleGetDecision(req, res) },
 
       { method: "POST", pattern: "/v1/simulate", handler: (req, res) => this.handleSimulate(req, res) },
+      { method: "POST", pattern: "/v1/diagnose", handler: (req, res) => this.handleDiagnose(req, res) },
 
       { method: "GET", pattern: "/v1/autonomy/grants", handler: (_req, res) => this.handleListGrants(res) },
       { method: "PUT", pattern: "/v1/autonomy/grants", handler: (req, res) => this.handleSetGrant(req, res) },
@@ -182,6 +183,27 @@ export class OlympusApiServer {
       seed: body.seed ?? 42,
     });
     res.json(200, sim);
+  }
+
+  private handleDiagnose(req: ApiRequest, res: ApiResponse): void {
+    const body = (req.body ?? {}) as {
+      query?: string;
+      anchorIds?: string[];
+      embedding?: number[];
+      topK?: number;
+    };
+    if (!body.query) return res.json(400, { error: "query is required" });
+    // Default to anchoring on the causal roots (Risk + Event nodes) so a
+    // diagnosis walks the structure even when the caller has no node ids.
+    const anchors =
+      body.anchorIds && body.anchorIds.length > 0
+        ? body.anchorIds
+        : this.olympus.okg
+            .snapshot()
+            .filter((n) => n.type === "Risk" || n.type === "Event")
+            .map((n) => n.id);
+    const ctx = this.olympus.rag.retrieve(body.query, anchors, body.embedding, {}, body.topK ?? 12);
+    res.json(200, ctx);
   }
 
   private handleListGrants(res: ApiResponse): void {
@@ -361,6 +383,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     level: 5,
     blastRadius: { maxAmount: 250_000, maxPerDay: 10 },
   });
+  // Seed the worked churn scenario so /v1/diagnose has a causal graph to walk.
+  const { seedChurnScenario } = await import("../scenarios/churn.js");
+  seedChurnScenario(api.olympus);
   const port = Number(process.env.PORT ?? 7777);
   const actual = await api.listen(port);
   console.log(`Olympus API listening on http://localhost:${actual}`);

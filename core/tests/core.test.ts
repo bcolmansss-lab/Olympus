@@ -551,3 +551,41 @@ describe("Churn scenario — GraphRAG + sales twin", () => {
     assert.ok(restore.distribution.p50 < base.distribution.p50, "more FTE → less churn");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 14. HTTP API — diagnose endpoint
+// ---------------------------------------------------------------------------
+
+describe("OlympusApiServer — /v1/diagnose", () => {
+  it("returns a grounded bundle anchored on causal roots by default", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    seedChurnScenario(api.olympus);
+
+    const port = await api.listen(0); // ephemeral port
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/diagnose`, {
+        method: "POST",
+        body: JSON.stringify({ query: "why did mid-market churn rise onboarding", embedding: [0.85, 0.25, 0.3, 0.48] }),
+      });
+      assert.equal(r.status, 200);
+      const ctx = await r.json() as { fullyGrounded: boolean; facts: Array<{ source: string }> };
+      assert.ok(ctx.fullyGrounded);
+      assert.ok(ctx.facts.some((f) => f.source === "graph"), "default anchors must drive graph traversal");
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("400s when query is missing", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/diagnose`, { method: "POST", body: "{}" });
+      assert.equal(r.status, 400);
+    } finally {
+      await api.close();
+    }
+  });
+});

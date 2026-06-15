@@ -55,6 +55,22 @@ export const DASHBOARD_HTML = `<!doctype html>
   .ev .topic { color: var(--accent); }
   @keyframes flash { from { background: rgba(78,161,255,.12); } to { background: transparent; } }
   .empty { color: var(--dim); padding: 18px 16px; font-style: italic; }
+  .diag { grid-column: 1 / -1; }
+  .diag .controls { display: flex; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .diag input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 6px; padding: 8px 11px; font-size: 13px; }
+  .diag input:focus { outline: 0; border-color: var(--accent); }
+  .fact { display: grid; grid-template-columns: 92px 56px 1fr; gap: 12px; align-items: baseline;
+    padding: 8px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .fact:last-child { border-bottom: 0; }
+  .src { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .5px; padding: 2px 6px; border-radius: 5px; text-align: center; }
+  .src.graph { background: rgba(78,161,255,.16); color: var(--accent); }
+  .src.vector { background: rgba(63,185,80,.16); color: var(--good); }
+  .src.semantic { background: rgba(210,153,34,.16); color: var(--warn); }
+  .src.aggregate { background: rgba(139,152,165,.18); color: var(--dim); }
+  .score { font-family: var(--mono); color: var(--dim); font-size: 12px; }
+  .grounded { font-size: 11px; color: var(--good); }
   button.demo { margin-left: 10px; background: var(--accent); color: #04101f; border: 0; font-weight: 650;
     padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
   button.demo:hover { filter: brightness(1.1); }
@@ -77,6 +93,15 @@ export const DASHBOARD_HTML = `<!doctype html>
   <section class="panel">
     <h2>Event Spine <span class="sub">live</span></h2>
     <div class="body" id="events"><div class="empty">Waiting for events…</div></div>
+  </section>
+  <section class="panel diag">
+    <h2>GraphRAG Diagnosis <span id="grounded" class="grounded"></span></h2>
+    <div class="controls">
+      <input id="q" type="text" value="why did mid-market churn rise onboarding"
+        placeholder="Ask a grounded question…" />
+      <button class="demo" id="diagnose">Diagnose</button>
+    </div>
+    <div class="body" id="facts"><div class="empty">Run a diagnosis to see the grounded context bundle.</div></div>
   </section>
 </main>
 <script>
@@ -147,6 +172,29 @@ $('run').onclick = async () => {
       exposureAmount: 120000 + Math.floor(Math.random() * 200000), simSeed: Date.now() % 1000 }) });
   } finally { btn.disabled = false; btn.textContent = 'Run a decision'; refreshInbox(); }
 };
+
+async function diagnose() {
+  const btn = $('diagnose'); const q = $('q').value.trim();
+  if (!q) return;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await fetch('/v1/diagnose', { method: 'POST', body: JSON.stringify({
+      query: q, embedding: [0.85, 0.25, 0.3, 0.48], topK: 12 }) });
+    const ctx = await r.json();
+    $('grounded').textContent = ctx.fullyGrounded ? '✓ fully grounded · ' + ctx.facts.length + ' facts' : '';
+    $('facts').innerHTML = (ctx.facts || []).length
+      ? ctx.facts.map((f) =>
+          '<div class="fact"><span class="src ' + f.source + '">' + f.source + '</span>' +
+          '<span class="score">' + f.score + '</span>' +
+          '<span>' + esc(f.claim) + '</span></div>'
+        ).join('')
+      : '<div class="empty">No grounded facts for that query.</div>';
+  } catch (e) {
+    $('facts').innerHTML = '<div class="empty">Diagnosis failed.</div>';
+  } finally { btn.disabled = false; btn.textContent = 'Diagnose'; }
+}
+$('diagnose').onclick = diagnose;
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') diagnose(); });
 
 refreshInbox();
 connect();

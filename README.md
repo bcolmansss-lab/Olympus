@@ -42,6 +42,7 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `POST` | `/v1/ask` | Reasoned Q&A — runs the full closed loop, returns thesis + evidence + autonomy gate |
 | `POST` · `GET` | `/v1/decisions` · `/v1/decisions/:id` | Open / list / fetch decision records |
 | `POST` | `/v1/simulate` | Run a digital-twin simulation (P10/P50/P90 + tail risk) |
+| `POST` | `/v1/diagnose` | GraphRAG grounded context bundle (graph + vector + semantic + aggregate, with provenance) |
 | `GET` · `PUT` | `/v1/autonomy/grants` | Inspect / set per-domain L0–L7 capability grants |
 | `GET` · `POST` | `/v1/inbox` · `/v1/inbox/:id/resolve` | Decision Inbox feed (items needing human attention) + resolve |
 | `GET` | `/v1/stream` | Live event stream (Server-Sent Events; `?topic=decision.*` to filter) |
@@ -79,7 +80,7 @@ curl -s -XPOST localhost:7777/v1/ask -d '{
 | **Decision Inbox** | `core/projections/decision-inbox.ts` | Rebuildable read-model projection over the event log: decisions needing human attention (queued / escalated), auto-executed awareness items, and reconciliation — the canonical "the log is the source of truth" example |
 | **Worked scenario** | `core/scenarios/churn.ts` | A causal churn subgraph (reorg → onboarding delay → churn spike → ARR) + a sales digital twin, so GraphRAG can walk causal edges to a fully-grounded diagnosis and simulate "restore 2 onboarding FTE → −0.9pt churn" |
 | **HTTP API** | `core/api/server.ts` | Zero-dependency stdlib `http` server exposing the BLUEPRINT §21 REST surface (`/v1/ask`, `/v1/decisions`, `/v1/simulate`, `/v1/autonomy/grants`, `/v1/inbox`, `/v1/stream` SSE, `/v1/events`, `/v1/audit`) |
-| **Operator console** | `core/api/dashboard.ts` | Single self-contained HTML page served at `/` — renders the Decision Inbox and live event spine over SSE, with a one-click decision runner |
+| **Operator console** | `core/api/dashboard.ts` | Single self-contained HTML page served at `/` — Decision Inbox, live event spine (SSE), a one-click decision runner, and a GraphRAG diagnosis panel that shows the grounded context bundle by retrieval source |
 | **Tests** | `core/tests/core.test.ts` | 21 `node:test` invariant tests: mandatory dissent, audit-chain tamper detection, blast-radius, hard ceilings, kill switch, L3+ sim precondition, bitemporal replay, reconciliation, Hebbian reinforcement, sim reproducibility, closed-loop integration |
 | **Composition** | `core/index.ts`, `core/demo.ts` | Wires it all together; runnable demo |
 
