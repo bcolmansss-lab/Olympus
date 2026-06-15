@@ -26,6 +26,7 @@ import { DigitalTwin } from "./simulation/digital-twin.js";
 import { DecisionInbox } from "./projections/decision-inbox.js";
 import { BriefingEngine } from "./briefing/briefing-engine.js";
 import { WorkflowEngine } from "./workflow/workflow-engine.js";
+import { CalibrationMonitor } from "./autonomy/calibration-monitor.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -53,6 +54,8 @@ export class Olympus {
   readonly briefing: BriefingEngine;
   /** Executes procedural memory as autonomy-gated, audited MCP calls. */
   readonly workflow: WorkflowEngine;
+  /** Auto-demotes autonomy grants when a domain's predictions drift. */
+  readonly calibrationMonitor: CalibrationMonitor;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -70,6 +73,7 @@ export class Olympus {
     this.inbox = new DecisionInbox(this.okg).attach(this.bus);
     this.briefing = new BriefingEngine(this);
     this.workflow = new WorkflowEngine(this.mcp, this.memory, this.bus);
+    this.calibrationMonitor = new CalibrationMonitor(this.memory, this.autonomy, this.bus).attach();
   }
 }
 
@@ -87,3 +91,4 @@ export { DecisionInbox } from "./projections/decision-inbox.js";
 export { FileEventLog } from "./persistence/file-event-log.js";
 export { BriefingEngine } from "./briefing/briefing-engine.js";
 export { WorkflowEngine } from "./workflow/workflow-engine.js";
+export { CalibrationMonitor } from "./autonomy/calibration-monitor.js";

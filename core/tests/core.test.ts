@@ -739,3 +739,43 @@ describe("WorkflowEngine", () => {
     assert.equal(run.status, "halted");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 18. Calibration Monitor — self-governing autonomy
+// ---------------------------------------------------------------------------
+
+describe("CalibrationMonitor — auto-demotion on prediction drift", () => {
+  it("demotes a domain's grants to L0 once MAE drifts past threshold", () => {
+    const olympus = new Olympus();
+    olympus.autonomy.setGrant({ domain: "finance", capability: "reallocate_budget", level: 5,
+      blastRadius: { maxAmount: 250_000, maxPerDay: 10 } });
+
+    // Three high-error reconciliations in finance (MAE ~2.0 > 0.5 threshold).
+    for (let i = 0; i < 3; i++) {
+      olympus.memory.recordCalibration({
+        decisionId: "d" + i, domain: "finance", predictedMetric: "x", predicted: 1, actual: 3, error: 2,
+      });
+    }
+
+    const grant = olympus.autonomy.getGrant("finance", "reallocate_budget");
+    assert.equal(grant?.level, 0, "drift must auto-demote the grant to L0");
+  });
+
+  it("does not demote before minimum observations", () => {
+    const olympus = new Olympus();
+    olympus.autonomy.setGrant({ domain: "finance", capability: "reallocate_budget", level: 5 });
+    // Only two observations (< default min of 3).
+    olympus.memory.recordCalibration({ decisionId: "d1", domain: "finance", predictedMetric: "x", predicted: 1, actual: 5, error: 4 });
+    olympus.memory.recordCalibration({ decisionId: "d2", domain: "finance", predictedMetric: "x", predicted: 1, actual: 5, error: 4 });
+    assert.equal(olympus.autonomy.getGrant("finance", "reallocate_budget")?.level, 5);
+  });
+
+  it("leaves well-calibrated domains untouched", () => {
+    const olympus = new Olympus();
+    olympus.autonomy.setGrant({ domain: "finance", capability: "reallocate_budget", level: 5 });
+    for (let i = 0; i < 4; i++) {
+      olympus.memory.recordCalibration({ decisionId: "d" + i, domain: "finance", predictedMetric: "x", predicted: 1, actual: 1.1, error: 0.1 });
+    }
+    assert.equal(olympus.autonomy.getGrant("finance", "reallocate_budget")?.level, 5, "accurate domain keeps its grant");
+  });
+});

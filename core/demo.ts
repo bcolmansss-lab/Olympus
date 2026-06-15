@@ -147,6 +147,13 @@ async function main(): Promise<void> {
   const mae = olympus.memory.maeByDomain();
   console.log("MAE by domain (calibration flywheel):", mae);
 
+  // Self-governing autonomy: enough drift in a domain auto-demotes its grants.
+  olympus.autonomy.setGrant({ domain: "people", capability: "adjust_comp", level: 4 });
+  for (let i = 0; i < 3; i++) {
+    olympus.memory.recordCalibration({ decisionId: "drift-" + i, domain: "people", predictedMetric: "attrition", predicted: 1, actual: 3, error: 2 });
+  }
+  console.log("Auto-demotion on drift → people/adjust_comp now at L" + olympus.autonomy.getGrant("people", "adjust_comp")?.level, "(was L4)");
+
   // Register a procedure.
   olympus.memory.registerProcedure({
     name: "RunRenewal",
