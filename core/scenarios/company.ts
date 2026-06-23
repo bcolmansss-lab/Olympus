@@ -47,6 +47,7 @@ export function seedCompany(olympus: Olympus): void {
   seedIncidents(olympus);
   seedMarketing(olympus);
   seedForecasting(olympus);
+  seedDataPipeline(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -991,4 +992,51 @@ function seedForecasting(olympus: Olympus): void {
     12,
     "optimistic"
   );
+}
+
+function seedDataPipeline(olympus: Olympus): void {
+  const dp = olympus.dataPipeline;
+
+  // 3 sources
+  const crmSource = dp.addSource({ name: "CRM Database", type: "postgres" });
+  const warehouseSource = dp.addSource({ name: "Analytics Warehouse", type: "bigquery" });
+  const s3Source = dp.addSource({ name: "Raw Event Bucket", type: "s3" });
+
+  // 3 pipelines
+  const crmPipeline = dp.addPipeline({
+    name: "CRM to Warehouse",
+    description: "Syncs CRM contacts and deals to the analytics warehouse",
+    sourceId: crmSource.id,
+    sinkDatasetId: "crm_contacts",
+    status: "active",
+    scheduleExpression: "0 0 * * *",
+  });
+
+  const eventsPipeline = dp.addPipeline({
+    name: "Events Aggregation",
+    description: "Aggregates raw S3 events into summary datasets",
+    sourceId: s3Source.id,
+    sinkDatasetId: "events_summary",
+    status: "active",
+    scheduleExpression: "0 * * * *",
+  });
+
+  dp.addPipeline({
+    name: "Marketing Attribution Feed",
+    description: "Pulls marketing attribution data from external API",
+    sourceId: warehouseSource.id,
+    sinkDatasetId: "marketing_attribution",
+    status: "active",
+    scheduleExpression: "0 */6 * * *",
+  });
+
+  // 4 runs: 2 completed for CRM, 1 failed + 1 completed for Events
+  dp.recordRun(crmPipeline.id, { rowsRead: 50_000, rowsWritten: 50_000, rowsErrored: 0, durationMs: 12_000 });
+  dp.recordRun(crmPipeline.id, { rowsRead: 50_000, rowsWritten: 50_000, rowsErrored: 0, durationMs: 11_500 });
+  dp.recordRun(eventsPipeline.id, { rowsRead: 0, rowsWritten: 0, rowsErrored: 0, durationMs: 3_000, status: "failed", error: "schema mismatch" });
+  dp.recordRun(eventsPipeline.id, { rowsRead: 48_000, rowsWritten: 48_000, rowsErrored: 0, durationMs: 9_800 });
+
+  // Quality scores
+  dp.recordQuality("crm_contacts", { completeness: 92, freshness: 88, validity: 95, uniqueness: 99, consistency: 91 });
+  dp.recordQuality("events_summary", { completeness: 78, freshness: 95, validity: 65, uniqueness: 88, consistency: 72 });
 }

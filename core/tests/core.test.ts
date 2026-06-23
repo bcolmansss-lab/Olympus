@@ -41,6 +41,7 @@ import { IncidentManager } from "../incidents/incident-manager.js";
 import { MarketingAttributionEngine } from "../marketing/attribution-engine.js";
 import type { TouchPoint } from "../marketing/attribution-engine.js";
 import { ForecastEngine } from "../forecasting/forecast-engine.js";
+import { DataPipelineManager } from "../pipeline/data-pipeline.js";
 import type { ForecastAssumptions } from "../forecasting/forecast-engine.js";
 
 // ---------------------------------------------------------------------------
@@ -3647,5 +3648,94 @@ describe("ForecastEngine", () => {
         "results should be sorted by impact descending",
       );
     }
+  });
+});
+
+// ── DataPipelineManager ────────────────────────────────────────────────────────
+describe("DataPipelineManager", () => {
+  it("addSource and addPipeline store correctly", () => {
+    const bus = new EventBus();
+    const dp = new DataPipelineManager(bus);
+    const src = dp.addSource({ name: "Test DB", type: "postgres" });
+    assert.equal(src.name, "Test DB");
+    assert.equal(src.type, "postgres");
+    assert.ok(src.id);
+    assert.deepEqual(dp.getSource(src.id), src);
+
+    const pl = dp.addPipeline({ name: "Test Pipeline", description: "desc", sourceId: src.id, sinkDatasetId: "test_ds", status: "active" });
+    assert.equal(pl.name, "Test Pipeline");
+    assert.equal(pl.sinkDatasetId, "test_ds");
+    assert.deepEqual(dp.getPipeline(pl.id), pl);
+    assert.equal(dp.listPipelines("active").length, 1);
+    assert.equal(dp.listSources().length, 1);
+  });
+
+  it("recordRun emits pipeline.run_completed on success", () => {
+    const bus = new EventBus();
+    const dp = new DataPipelineManager(bus);
+    const src = dp.addSource({ name: "DB", type: "mysql" });
+    const pl = dp.addPipeline({ name: "P", description: "d", sourceId: src.id, sinkDatasetId: "ds1", status: "active" });
+
+    const events: unknown[] = [];
+    bus.subscribe("pipeline.run_completed", (e) => { events.push(e.payload); });
+
+    const run = dp.recordRun(pl.id, { rowsRead: 100, rowsWritten: 100, durationMs: 500 });
+    assert.equal(run.status, "completed");
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { pipelineId: string }).pipelineId, pl.id);
+  });
+
+  it("recordRun emits pipeline.run_failed on error", () => {
+    const bus = new EventBus();
+    const dp = new DataPipelineManager(bus);
+    const src = dp.addSource({ name: "DB", type: "s3" });
+    const pl = dp.addPipeline({ name: "P", description: "d", sourceId: src.id, sinkDatasetId: "ds2", status: "active" });
+
+    const events: unknown[] = [];
+    bus.subscribe("pipeline.run_failed", (e) => { events.push(e.payload); });
+
+    const run = dp.recordRun(pl.id, { rowsRead: 0, rowsWritten: 0, durationMs: 100, error: "connection refused" });
+    assert.equal(run.status, "failed");
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { error: string }).error, "connection refused");
+  });
+
+  it("recordQuality computes overallScore as average", () => {
+    const bus = new EventBus();
+    const dp = new DataPipelineManager(bus);
+    const q = dp.recordQuality("my_dataset", { completeness: 80, freshness: 90, validity: 70, uniqueness: 100, consistency: 60 });
+    assert.equal(q.overallScore, 80); // (80+90+70+100+60)/5 = 400/5 = 80
+  });
+
+  it("recordQuality emits quality_alert when score < 70", () => {
+    const bus = new EventBus();
+    const dp = new DataPipelineManager(bus);
+    const alerts: unknown[] = [];
+    bus.subscribe("pipeline.quality_alert", (e) => { alerts.push(e.payload); });
+
+    dp.recordQuality("ds_x", { completeness: 50, freshness: 90, validity: 60, uniqueness: 80, consistency: 95 });
+    // completeness=50 and validity=60 are < 70
+    assert.equal(alerts.length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const dp = new DataPipelineManager(bus);
+    const src = dp.addSource({ name: "DB", type: "api" });
+    const pl1 = dp.addPipeline({ name: "P1", description: "d", sourceId: src.id, sinkDatasetId: "sink1", status: "active" });
+    const pl2 = dp.addPipeline({ name: "P2", description: "d", sourceId: src.id, sinkDatasetId: "sink2", status: "paused" });
+
+    dp.recordRun(pl1.id, { rowsRead: 100, rowsWritten: 100, durationMs: 1000 });
+    dp.recordRun(pl2.id, { rowsRead: 0, rowsWritten: 0, durationMs: 500, status: "failed" });
+    dp.recordQuality("sink1", { completeness: 90, freshness: 90, validity: 90, uniqueness: 90, consistency: 90 });
+
+    const s = dp.summary();
+    assert.equal(s.totalPipelines, 2);
+    assert.equal(s.activePipelines, 1);
+    assert.equal(s.totalRuns, 2);
+    assert.equal(s.successRate, 50); // 1/2 * 100
+    assert.equal(s.avgDurationMs, 1000); // only completed run
+    assert.equal(s.datasets, 2);
+    assert.equal(s.avgQualityScore, 90);
   });
 });
