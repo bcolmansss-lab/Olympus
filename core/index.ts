@@ -31,6 +31,7 @@ import { AnomalyDetector } from "./anomaly/anomaly-detector.js";
 import { PolicyEngine } from "./policy/policy-engine.js";
 import { NotificationRouter, InMemoryChannel } from "./notifications/notification-router.js";
 import { OKRTracker } from "./goals/okr-tracker.js";
+import { CapacityPlanner } from "./capacity/capacity-planner.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -70,6 +71,8 @@ export class Olympus {
   readonly alertLog: InMemoryChannel;
   /** OKR goal tracking layer — tracks objectives and key results from metric.observed events. */
   readonly okr: OKRTracker;
+  /** Capacity planner — models team headcount, project demands, and detects overallocation. */
+  readonly capacity: CapacityPlanner;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -93,6 +96,7 @@ export class Olympus {
     this.alertLog = new InMemoryChannel();
     this.notifications = new NotificationRouter(this.bus).addChannel(this.alertLog).attach();
     this.okr = new OKRTracker(this.bus).attach();
+    this.capacity = new CapacityPlanner(this.bus);
   }
 }
 
@@ -119,3 +123,4 @@ export { resolveOrgId, resolveTenant } from "./tenancy/index.js";
 export { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy, type Policy, type PolicyContext, type PolicyViolation } from "./policy/index.js";
 export { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert, type AlertChannel, type AlertSeverity } from "./notifications/index.js";
 export { OKRTracker, type Objective, type KeyResult, type KRStatus } from "./goals/index.js";
+export { CapacityPlanner, type Resource, type Project, type Allocation, type OverallocationReport } from "./capacity/index.js";

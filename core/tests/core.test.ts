@@ -27,6 +27,7 @@ import { OKRTracker } from "../goals/okr-tracker.js";
 import { seedPricingScenario, PRICING_SCENARIO_SEED } from "../scenarios/pricing.js";
 import { seedHiringScenario, HIRING_SCENARIO_SEED } from "../scenarios/hiring.js";
 import { compareScenarios } from "../simulation/scenario-compare.js";
+import { CapacityPlanner } from "../capacity/capacity-planner.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1452,5 +1453,95 @@ describe("NotificationRouter", () => {
       ch.send(mockAlert(`alert-${i}`));
     }
     assert.equal(ch.count(), 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 29. CapacityPlanner
+// ---------------------------------------------------------------------------
+
+describe("CapacityPlanner", () => {
+  it("addResource and listResources", () => {
+    const bus = new EventBus();
+    const planner = new CapacityPlanner(bus);
+    planner.addResource({ id: "r1", name: "Alice", role: "engineer", availability: 1.0 });
+    planner.addResource({ id: "r2", name: "Bob", role: "designer", availability: 1.0 });
+    assert.equal(planner.listResources().length, 2);
+  });
+
+  it("utilizationFor sums allocations", () => {
+    const bus = new EventBus();
+    const planner = new CapacityPlanner(bus);
+    planner.addResource({ id: "r1", name: "Alice", role: "engineer", availability: 1.0 });
+    planner.addProject({ id: "p1", name: "Proj1", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.addProject({ id: "p2", name: "Proj2", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.allocate({ resourceId: "r1", projectId: "p1", utilization: 0.5 });
+    planner.allocate({ resourceId: "r1", projectId: "p2", utilization: 0.3 });
+    assert.ok(Math.abs(planner.utilizationFor("r1") - 0.8) < 1e-9);
+  });
+
+  it("allocate detects overallocation and returns report", () => {
+    const bus = new EventBus();
+    const planner = new CapacityPlanner(bus);
+    planner.addResource({ id: "r1", name: "Alice", role: "engineer", availability: 1.0 });
+    planner.addProject({ id: "p1", name: "Proj1", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.addProject({ id: "p2", name: "Proj2", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.allocate({ resourceId: "r1", projectId: "p1", utilization: 0.6 });
+    const report = planner.allocate({ resourceId: "r1", projectId: "p2", utilization: 0.7 });
+    assert.ok(report !== undefined, "should return overallocation report");
+    assert.ok(Math.abs(report.totalUtilization - 1.3) < 1e-9, `expected 1.3, got ${report.totalUtilization}`);
+  });
+
+  it("allocate emits capacity.overallocated event", () => {
+    const bus = new EventBus();
+    const planner = new CapacityPlanner(bus);
+    planner.addResource({ id: "r1", name: "Alice", role: "engineer", availability: 1.0 });
+    planner.addProject({ id: "p1", name: "Proj1", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.addProject({ id: "p2", name: "Proj2", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+
+    const events: unknown[] = [];
+    bus.subscribe("capacity.overallocated", (e) => { events.push(e); });
+
+    planner.allocate({ resourceId: "r1", projectId: "p1", utilization: 0.6 });
+    planner.allocate({ resourceId: "r1", projectId: "p2", utilization: 0.7 });
+
+    assert.equal(events.length, 1, "capacity.overallocated event must be emitted");
+  });
+
+  it("deallocate reduces utilization", () => {
+    const bus = new EventBus();
+    const planner = new CapacityPlanner(bus);
+    planner.addResource({ id: "r1", name: "Alice", role: "engineer", availability: 1.0 });
+    planner.addProject({ id: "p1", name: "Proj1", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.allocate({ resourceId: "r1", projectId: "p1", utilization: 0.8 });
+    planner.deallocate("r1", "p1");
+    assert.equal(planner.utilizationFor("r1"), 0);
+  });
+
+  it("capacitySummary groups by role", () => {
+    const bus = new EventBus();
+    const planner = new CapacityPlanner(bus);
+    planner.addResource({ id: "r1", name: "Alice", role: "engineer", availability: 1.0 });
+    planner.addResource({ id: "r2", name: "Bob", role: "engineer", availability: 1.0 });
+    planner.addProject({ id: "p1", name: "Proj1", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.allocate({ resourceId: "r1", projectId: "p1", utilization: 0.5 });
+    const summary = planner.capacitySummary();
+    assert.equal(summary["engineer"]!.available, 2);
+    assert.equal(summary["engineer"]!.allocated, 0.5);
+  });
+
+  it("overallocatedResources returns only over-budget resources", () => {
+    const bus = new EventBus();
+    const planner = new CapacityPlanner(bus);
+    planner.addResource({ id: "r1", name: "Alice", role: "engineer", availability: 1.0 });
+    planner.addResource({ id: "r2", name: "Bob", role: "designer", availability: 1.0 });
+    planner.addProject({ id: "p1", name: "Proj1", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    planner.addProject({ id: "p2", name: "Proj2", startDate: "2026-01-01", endDate: "2026-06-30", demands: {} });
+    // r1 over-allocated: 0.6 + 0.6 = 1.2
+    planner.allocate({ resourceId: "r1", projectId: "p1", utilization: 0.6 });
+    planner.allocate({ resourceId: "r1", projectId: "p2", utilization: 0.6 });
+    // r2 fine: 0.8
+    planner.allocate({ resourceId: "r2", projectId: "p1", utilization: 0.8 });
+    assert.equal(planner.overallocatedResources().length, 1);
   });
 });
