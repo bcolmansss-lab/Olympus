@@ -28,6 +28,7 @@ import { BriefingEngine } from "./briefing/briefing-engine.js";
 import { WorkflowEngine } from "./workflow/workflow-engine.js";
 import { CalibrationMonitor } from "./autonomy/calibration-monitor.js";
 import { AnomalyDetector } from "./anomaly/anomaly-detector.js";
+import { PolicyEngine } from "./policy/policy-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -59,6 +60,8 @@ export class Olympus {
   readonly calibrationMonitor: CalibrationMonitor;
   /** Watches the event spine for metric anomalies and raises Risk nodes. */
   readonly anomalyDetector: AnomalyDetector;
+  /** Operator-defined business rule enforcement at the autonomy gate. */
+  readonly policy: PolicyEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -78,6 +81,7 @@ export class Olympus {
     this.workflow = new WorkflowEngine(this.mcp, this.memory, this.bus);
     this.calibrationMonitor = new CalibrationMonitor(this.memory, this.autonomy, this.bus).attach();
     this.anomalyDetector = new AnomalyDetector(this.bus, this.okg).attach();
+    this.policy = new PolicyEngine(this.bus);
   }
 }
 
@@ -101,3 +105,4 @@ export { ClaudeClient, DEFAULT_TIER_MODELS } from "./llm/claude-client.js";
 export { MockLLM, type LLMClient, type LLMRequest, type LLMResponse, type CognitiveTier } from "./llm/client.js";
 export { TenantRegistry, type TenantConfig, type Tenant } from "./tenancy/index.js";
 export { resolveOrgId, resolveTenant } from "./tenancy/index.js";
+export { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy, type Policy, type PolicyContext, type PolicyViolation } from "./policy/index.js";

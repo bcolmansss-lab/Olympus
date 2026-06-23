@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
 
 import { EventBus } from "../events/event-bus.js";
+import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
 import { MockLLM } from "../llm/client.js";
 import { AutonomyEngine } from "../autonomy/autonomy-engine.js";
@@ -1182,7 +1183,7 @@ describe("ScenarioComparison", () => {
     }
   });
 
-  it("POST /v1/compare returns 400 without twin", async () => {
+  it("POST /v1/compare returns 400 without a twin", async () => {
     const { OlympusApiServer } = await import("../api/server.js");
     // No twin configured
     const api = new OlympusApiServer();
@@ -1201,5 +1202,81 @@ describe("ScenarioComparison", () => {
     } finally {
       await api.close();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 26. PolicyEngine
+// ---------------------------------------------------------------------------
+
+describe("PolicyEngine", () => {
+  it("no violation when no policies registered", () => {
+    const bus = new EventBus();
+    const engine = new PolicyEngine(bus);
+    const result = engine.evaluate({ capability: "delete_data", domain: "finance", exposureAmount: 1_000_000 });
+    assert.equal(result, undefined);
+  });
+
+  it("blocks when policy fires", () => {
+    const bus = new EventBus();
+    const engine = new PolicyEngine(bus);
+    engine.register(exposureCeilingPolicy("cap-500k", 500_000));
+    const result = engine.evaluate({ capability: "reallocate_budget", domain: "finance", exposureAmount: 600_000 });
+    assert.ok(result !== undefined, "should return a violation");
+    assert.equal(result.policyName, "cap-500k");
+  });
+
+  it("passes when exposure under ceiling", () => {
+    const bus = new EventBus();
+    const engine = new PolicyEngine(bus);
+    engine.register(exposureCeilingPolicy("cap-500k", 500_000));
+    const result = engine.evaluate({ capability: "reallocate_budget", domain: "finance", exposureAmount: 400_000 });
+    assert.equal(result, undefined);
+  });
+
+  it("emits policy.blocked event on violation", () => {
+    const bus = new EventBus();
+    const engine = new PolicyEngine(bus);
+    engine.register(exposureCeilingPolicy("cap-500k", 500_000));
+
+    const events: unknown[] = [];
+    bus.subscribe("policy.blocked", (e) => { events.push(e); });
+
+    engine.evaluate({ capability: "reallocate_budget", domain: "finance", exposureAmount: 600_000 });
+    assert.equal(events.length, 1, "policy.blocked event must be emitted");
+  });
+
+  it("blockedCapabilityPolicy fires only for matching capability", () => {
+    const bus = new EventBus();
+    const engine = new PolicyEngine(bus);
+    engine.register(blockedCapabilityPolicy("delete_data"));
+
+    const blocked = engine.evaluate({ capability: "delete_data", domain: "finance" });
+    assert.ok(blocked !== undefined, "delete_data should be blocked");
+
+    const passed = engine.evaluate({ capability: "read_data", domain: "finance" });
+    assert.equal(passed, undefined, "read_data should pass");
+  });
+
+  it("domainFreezePolicy blocks entire domain", () => {
+    const bus = new EventBus();
+    const engine = new PolicyEngine(bus);
+    engine.register(domainFreezePolicy("people"));
+
+    const blocked = engine.evaluate({ capability: "hire_contractor", domain: "people" });
+    assert.ok(blocked !== undefined, "people domain should be blocked");
+
+    const passed = engine.evaluate({ capability: "approve_spend", domain: "finance" });
+    assert.equal(passed, undefined, "finance domain should pass");
+  });
+
+  it("unregister removes policy", () => {
+    const bus = new EventBus();
+    const engine = new PolicyEngine(bus);
+    engine.register(exposureCeilingPolicy("cap-500k", 500_000));
+    engine.unregister("cap-500k");
+    assert.deepEqual(engine.list(), []);
+    const result = engine.evaluate({ capability: "reallocate_budget", domain: "finance", exposureAmount: 600_000 });
+    assert.equal(result, undefined);
   });
 });
