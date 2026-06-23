@@ -32,6 +32,7 @@ import { FinancialLedger } from "../finance/ledger.js";
 import { SLATracker } from "../contracts/sla-tracker.js";
 import { DealPipeline } from "../crm/pipeline.js";
 import { RiskRegister } from "../risk/risk-register.js";
+import { VendorRegistry } from "../procurement/vendor-registry.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2290,6 +2291,103 @@ describe("OutcomeTracker", () => {
     assert.ok((o.memory.maeByDomain()["finance"] ?? 0) > 0.5);
     assert.ok(demotionFired, "expected calibration demotion event");
     assert.equal(o.autonomy.getGrant("finance", "reforecast")?.level, 0);
+  });
+});
+
+describe("VendorRegistry", () => {
+  it("add creates vendor and emits vendor.added", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus);
+    let event: { vendorId?: string; name?: string; category?: string } | undefined;
+    bus.subscribe("vendor.added", (e) => { event = e.payload as typeof event; });
+    const v = reg.add({ name: "Acme", category: "software", annualValueUsd: 10_000, renewalDate: new Date(Date.now() + 200 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) });
+    assert.equal(v.name, "Acme");
+    assert.equal(v.category, "software");
+    assert.equal(v.status, "active");
+    assert.ok(event);
+    assert.equal(event!.name, "Acme");
+  });
+
+  it("recordSpend accumulates totalSpendUsd and emits event with runningTotal", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus);
+    const v = reg.add({ name: "Stripe", category: "services", annualValueUsd: 5_000, renewalDate: new Date(Date.now() + 200 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) });
+    let payload: { vendorId?: string; amount?: number; runningTotal?: number } | undefined;
+    bus.subscribe("vendor.spend_recorded", (e) => { payload = e.payload as typeof payload; });
+    reg.recordSpend(v.id, 1_000);
+    reg.recordSpend(v.id, 500);
+    assert.equal(reg.get(v.id)!.totalSpendUsd, 1_500);
+    assert.equal(payload!.runningTotal, 1_500);
+  });
+
+  it("evaluateRenewal flags expiring within window and emits renewal_due", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus, { renewalWindowDays: 60 });
+    const renewalDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    let renewalEvent: { vendorId?: string } | undefined;
+    bus.subscribe("vendor.renewal_due", (e) => { renewalEvent = e.payload as typeof renewalEvent; });
+    const v = reg.add({ name: "Zoom", category: "software", annualValueUsd: 6_000, renewalDate });
+    assert.equal(v.status, "expiring");
+    assert.ok(renewalEvent, "expected renewal_due event");
+    assert.equal(renewalEvent!.vendorId, v.id);
+  });
+
+  it("evaluateRenewal marks expired when past", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus);
+    const renewalDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const v = reg.add({ name: "OldVendor", category: "other", annualValueUsd: 1_000, renewalDate });
+    assert.equal(v.status, "expired");
+  });
+
+  it("active when renewal beyond window", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus, { renewalWindowDays: 60 });
+    const renewalDate = new Date(Date.now() + 200 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const v = reg.add({ name: "Longterm", category: "infrastructure", annualValueUsd: 50_000, renewalDate });
+    assert.equal(v.status, "active");
+  });
+
+  it("summary aggregates by category and totals", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus);
+    const far = new Date(Date.now() + 200 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    reg.add({ name: "A", category: "software", annualValueUsd: 10_000, renewalDate: far });
+    reg.add({ name: "B", category: "software", annualValueUsd: 20_000, renewalDate: far });
+    reg.add({ name: "C", category: "infrastructure", annualValueUsd: 5_000, renewalDate: far });
+    const s = reg.summary();
+    assert.equal(s.vendorCount, 3);
+    assert.equal(s.totalAnnualCommitUsd, 35_000);
+    assert.equal(s.byCategory["software"]!.count, 2);
+    assert.equal(s.byCategory["software"]!.annualUsd, 30_000);
+  });
+
+  it("cancel excludes from summary vendorCount", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus);
+    const far = new Date(Date.now() + 200 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const v1 = reg.add({ name: "Keep", category: "services", annualValueUsd: 1_000, renewalDate: far });
+    const v2 = reg.add({ name: "Cancel", category: "services", annualValueUsd: 2_000, renewalDate: far });
+    reg.cancel(v2.id);
+    const s = reg.summary();
+    assert.equal(s.vendorCount, 1);
+    assert.equal(s.totalAnnualCommitUsd, 1_000);
+    void v1;
+  });
+
+  it("upcomingRenewals sorted soonest first", () => {
+    const bus = new EventBus();
+    const reg = new VendorRegistry(bus, { renewalWindowDays: 60 });
+    const d30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const d10 = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const d50 = new Date(Date.now() + 50 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    reg.add({ name: "Mid", category: "software", annualValueUsd: 1_000, renewalDate: d30 });
+    reg.add({ name: "Soon", category: "software", annualValueUsd: 1_000, renewalDate: d10 });
+    reg.add({ name: "Later", category: "software", annualValueUsd: 1_000, renewalDate: d50 });
+    const renewals = reg.upcomingRenewals();
+    assert.equal(renewals.length, 3);
+    assert.equal(renewals[0]!.name, "Soon");
+    assert.equal(renewals[2]!.name, "Later");
   });
 });
 

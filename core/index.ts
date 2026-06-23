@@ -39,6 +39,7 @@ import { RiskRegister } from "./risk/risk-register.js";
 import { HealthScorer } from "./health/health-score.js";
 import { OutcomeTracker } from "./learning/outcome-tracker.js";
 import { BoardReportGenerator } from "./reporting/board-report.js";
+import { VendorRegistry } from "./procurement/vendor-registry.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -94,6 +95,8 @@ export class Olympus {
   readonly boardReport: BoardReportGenerator;
   /** Closes the predict-act-observe-learn loop into the calibration flywheel. */
   readonly outcomes: OutcomeTracker;
+  /** Vendor / procurement registry — catalog, contracts, spend tracking, and renewal alerts. */
+  readonly vendors: VendorRegistry;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -123,6 +126,7 @@ export class Olympus {
     this.sla = new SLATracker(this.bus);
     this.pipeline = new DealPipeline(this.bus);
     this.riskRegister = new RiskRegister(this.bus);
+    this.vendors = new VendorRegistry(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -159,3 +163,4 @@ export { RiskRegister, type RiskEntry, type RiskStatus, type RiskCategory } from
 export { HealthScorer, type HealthReport, type HealthDimension, type HealthGrade } from "./health/index.js";
 export { OutcomeTracker, type PredictionRecord, type OutcomeRecord } from "./learning/index.js";
 export { BoardReportGenerator, type BoardReportOptions } from "./reporting/index.js";
+export { VendorRegistry, type VendorCategory, type ContractStatus, type Vendor, type AddVendorInput, type ProcurementSummary } from "./procurement/index.js";

@@ -36,6 +36,7 @@ export function seedCompany(olympus: Olympus): void {
   seedSla(olympus);
   seedCapacity(olympus);
   seedOkr(olympus);
+  seedVendors(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -230,6 +231,21 @@ function seedCapacity(olympus: Olympus): void {
   cap.allocate({ resourceId: "design-ines", projectId: "proj-fleet", utilization: 0.5 });
   cap.allocate({ resourceId: "pm-omar", projectId: "proj-fleet", utilization: 0.4 });
   cap.allocate({ resourceId: "pm-omar", projectId: "proj-observability", utilization: 0.4 });
+}
+
+function seedVendors(olympus: Olympus): void {
+  const v = olympus.vendors;
+
+  const daysOut = (n: number): string =>
+    new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const aws = v.add({ id: "vendor-aws", name: "AWS", category: "infrastructure", annualValueUsd: 480_000, renewalDate: daysOut(95) });
+  const dd = v.add({ id: "vendor-datadog", name: "Datadog", category: "software", annualValueUsd: 96_000, renewalDate: daysOut(40) });
+  v.add({ id: "vendor-salesforce", name: "Salesforce", category: "software", annualValueUsd: 144_000, renewalDate: daysOut(200) });
+  v.add({ id: "vendor-wework", name: "WeWork", category: "facilities", annualValueUsd: 72_000, renewalDate: daysOut(18) });
+
+  v.recordSpend(aws.id, 42_000);
+  v.recordSpend(dd.id, 8_200);
 }
 
 function seedOkr(olympus: Olympus): void {

@@ -144,6 +144,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/pipeline", handler: (_req, res) => res.json(200, { summary: this.olympus.pipeline.summary(), deals: this.olympus.pipeline.list() }) },
       { method: "GET", pattern: "/v1/sla", handler: (_req, res) => res.json(200, { slas: this.olympus.sla.list(), atRisk: this.olympus.sla.atRisk(), totalPenalties: this.olympus.sla.totalPenalties() }) },
       { method: "GET", pattern: "/v1/capacity", handler: (_req, res) => res.json(200, { summary: this.olympus.capacity.capacitySummary(), overallocated: this.olympus.capacity.overallocatedResources() }) },
+      { method: "GET", pattern: "/v1/vendors", handler: (_req, res) => res.json(200, { vendors: this.olympus.vendors.list(), summary: this.olympus.vendors.summary() }) },
     );
   }
 
