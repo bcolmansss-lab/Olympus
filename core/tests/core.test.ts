@@ -36,6 +36,7 @@ import { VendorRegistry } from "../procurement/vendor-registry.js";
 import { SprintTracker } from "../projects/sprint-tracker.js";
 import { CustomerSuccessTracker } from "../customer-success/account-health.js";
 import { ComplianceTracker } from "../compliance/index.js";
+import { CompetitiveIntel } from "../competitive/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2977,5 +2978,157 @@ describe("ComplianceTracker", () => {
 
     const all = ct.list();
     assert.equal(all.length, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CompetitiveIntel
+// ---------------------------------------------------------------------------
+
+describe("CompetitiveIntel", () => {
+  it("addCompetitor and listCompetitors", () => {
+    const bus = new EventBus();
+    const ci = new CompetitiveIntel(bus);
+
+    const apex = ci.addCompetitor({ name: "Apex Systems", tags: ["enterprise"] });
+    const nova = ci.addCompetitor({ id: "nova-1", name: "NovaTech" });
+
+    assert.ok(typeof apex.id === "string" && apex.id.length > 0);
+    assert.equal(apex.name, "Apex Systems");
+    assert.equal(apex.winRate, 0);
+    assert.ok(typeof apex.addedAt === "string");
+
+    assert.equal(nova.id, "nova-1");
+
+    const list = ci.listCompetitors();
+    assert.equal(list.length, 2);
+    assert.ok(list.some((c) => c.name === "Apex Systems"));
+    assert.ok(list.some((c) => c.name === "NovaTech"));
+  });
+
+  it("addSignal emits event and appears in signalsFor", () => {
+    const bus = new EventBus();
+    const ci = new CompetitiveIntel(bus);
+    const comp = ci.addCompetitor({ name: "Rival Co" });
+
+    const emitted: unknown[] = [];
+    bus.subscribe("competitive.signal_added", (e) => { emitted.push(e.payload); });
+
+    const signal = ci.addSignal({
+      competitorId: comp.id,
+      type: "pricing_change",
+      title: "Rival drops price",
+      summary: "Rival Co cut pricing by 10%",
+      sentiment: "negative",
+    });
+
+    assert.ok(signal, "signal should be returned");
+    assert.equal(signal!.competitorId, comp.id);
+    assert.equal(signal!.type, "pricing_change");
+    assert.ok(typeof signal!.recordedAt === "string");
+
+    assert.equal(emitted.length, 1);
+    const payload = emitted[0] as { signalId: string; competitor: string; type: string; sentiment: string };
+    assert.equal(payload.signalId, signal!.id);
+    assert.equal(payload.competitor, "Rival Co");
+    assert.equal(payload.type, "pricing_change");
+    assert.equal(payload.sentiment, "negative");
+
+    const signals = ci.signalsFor(comp.id);
+    assert.equal(signals.length, 1);
+    assert.equal(signals[0]!.id, signal!.id);
+  });
+
+  it("recordWinLoss updates winRate and emits event", () => {
+    const bus = new EventBus();
+    const ci = new CompetitiveIntel(bus);
+    const comp = ci.addCompetitor({ name: "Apex Systems" });
+
+    const emitted: unknown[] = [];
+    bus.subscribe("competitive.win_loss_recorded", (e) => { emitted.push(e.payload); });
+
+    const r1 = ci.recordWinLoss({ dealId: "deal-1", competitorId: comp.id, outcome: "win", reason: "Better support", dealArrUsd: 100_000 });
+    assert.ok(r1, "record should be returned");
+    assert.equal(r1!.outcome, "win");
+
+    const r2 = ci.recordWinLoss({ dealId: "deal-2", competitorId: comp.id, outcome: "loss", reason: "Price undercut" });
+    assert.ok(r2);
+
+    // 1 win, 1 loss → 50%
+    const updated = ci.getCompetitor(comp.id);
+    assert.ok(updated);
+    assert.equal(updated!.winRate, 0.5);
+
+    assert.equal(emitted.length, 2);
+    const payload = emitted[0] as { dealId: string; outcome: string; competitor: string; reason: string };
+    assert.equal(payload.dealId, "deal-1");
+    assert.equal(payload.outcome, "win");
+    assert.equal(payload.competitor, "Apex Systems");
+  });
+
+  it("summaryFor aggregates signals and win/loss", () => {
+    const bus = new EventBus();
+    const ci = new CompetitiveIntel(bus);
+    const comp = ci.addCompetitor({ name: "LegacyCorp" });
+
+    ci.addSignal({ competitorId: comp.id, type: "funding", title: "Funding cut", summary: "Series C failed", sentiment: "positive" });
+    ci.addSignal({ competitorId: comp.id, type: "news", title: "CEO leaves", summary: "CEO announced departure", sentiment: "positive" });
+
+    ci.recordWinLoss({ dealId: "d1", competitorId: comp.id, outcome: "win", reason: "Customer migrated from legacy" });
+    ci.recordWinLoss({ dealId: "d2", competitorId: comp.id, outcome: "win", reason: "Better roadmap" });
+    ci.recordWinLoss({ dealId: "d3", competitorId: comp.id, outcome: "loss", reason: "Switching cost too high" });
+
+    const summary = ci.summaryFor(comp.id);
+    assert.ok(summary, "summary should exist");
+    assert.equal(summary!.competitor.name, "LegacyCorp");
+    assert.equal(summary!.signals.length, 2);
+    assert.equal(summary!.winLoss.length, 3);
+    assert.equal(summary!.wins, 2);
+    assert.equal(summary!.losses, 1);
+    // 2/(2+1) ≈ 0.667
+    assert.ok(Math.abs(summary!.computedWinRate - 2 / 3) < 0.001);
+  });
+
+  it("recentSignals returns last N sorted desc", () => {
+    const bus = new EventBus();
+    const ci = new CompetitiveIntel(bus);
+    const c1 = ci.addCompetitor({ name: "A" });
+    const c2 = ci.addCompetitor({ name: "B" });
+
+    for (let i = 0; i < 7; i++) {
+      ci.addSignal({ competitorId: c1.id, type: "news", title: `Signal c1-${i}`, summary: "x", sentiment: "neutral" });
+    }
+    for (let i = 0; i < 5; i++) {
+      ci.addSignal({ competitorId: c2.id, type: "news", title: `Signal c2-${i}`, summary: "x", sentiment: "neutral" });
+    }
+
+    // Default N=10 — should return 10 of 12 total
+    const recent10 = ci.recentSignals();
+    assert.equal(recent10.length, 10);
+
+    // Top 3 only
+    const recent3 = ci.recentSignals(3);
+    assert.equal(recent3.length, 3);
+
+    // Sorted descending
+    for (let i = 1; i < recent10.length; i++) {
+      assert.ok(recent10[i - 1]!.recordedAt >= recent10[i]!.recordedAt, "signals should be sorted desc");
+    }
+  });
+
+  it("addSignal returns undefined for unknown competitor", () => {
+    const bus = new EventBus();
+    const ci = new CompetitiveIntel(bus);
+
+    const result = ci.addSignal({
+      competitorId: "nonexistent-id",
+      type: "news",
+      title: "Ghost signal",
+      summary: "Should not be created",
+      sentiment: "neutral",
+    });
+
+    assert.equal(result, undefined);
+    assert.equal(ci.recentSignals().length, 0);
   });
 });

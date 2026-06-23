@@ -45,6 +45,7 @@ import { SprintTracker } from "./projects/sprint-tracker.js";
 import { CustomerSuccessTracker } from "./customer-success/account-health.js";
 import { ProductAnalytics } from "./product/index.js";
 import { ComplianceTracker } from "./compliance/index.js";
+import { CompetitiveIntel } from "./competitive/index.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -112,6 +113,8 @@ export class Olympus {
   readonly product: ProductAnalytics;
   /** Compliance tracker — controls, evidence collection, gap detection, and compliance scoring. */
   readonly compliance: ComplianceTracker;
+  /** Competitive intelligence — competitor tracking, win/loss analysis, and market signals. */
+  readonly competitive: CompetitiveIntel;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -147,6 +150,7 @@ export class Olympus {
     this.customerSuccess = new CustomerSuccessTracker(this.bus);
     this.product = new ProductAnalytics(this.bus);
     this.compliance = new ComplianceTracker(this.bus);
+    this.competitive = new CompetitiveIntel(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -189,3 +193,4 @@ export { SprintTracker, type WorkItem, type Sprint, type Project as SprintProjec
 export { CustomerSuccessTracker, type RiskTier, type NPSCategory, type PaymentStatus, type AccountHealth, type AddAccountInput, type CSSummary } from "./customer-success/index.js";
 export { ProductAnalytics, type Feature, type UsageEvent, type FeatureAdoption, type RetentionCohort } from "./product/index.js";
 export { ComplianceTracker, type Control, type Evidence, type ControlStatus, type EvidenceType, type Framework, type AddControlInput, type ComplianceSummary } from "./compliance/index.js";
+export { CompetitiveIntel, type SignalType, type Sentiment, type WinLossOutcome, type Competitor, type CompetitiveSignal, type WinLossRecord, type CompetitorSummary } from "./competitive/index.js";

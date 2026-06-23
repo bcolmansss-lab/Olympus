@@ -42,6 +42,7 @@ export function seedCompany(olympus: Olympus): void {
   seedCustomerSuccess(olympus);
   seedProductAnalytics(olympus);
   seedCompliance(olympus);
+  seedCompetitiveIntel(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -620,6 +621,56 @@ function seedCustomerSuccess(olympus: Olympus): void {
     daysSinceLastActivity: 90,
     paymentStatus: "suspended",
   });
+}
+
+function seedCompetitiveIntel(olympus: Olympus): void {
+  const ci = olympus.competitive;
+
+  // Competitors
+  const apex = ci.addCompetitor({ id: "comp-apex", name: "Apex Systems", website: "https://apexsystems.io", tags: ["enterprise", "automation"] });
+  const nova = ci.addCompetitor({ id: "comp-nova", name: "NovaTech", website: "https://novatech.ai", tags: ["ai", "startup"] });
+  const legacy = ci.addCompetitor({ id: "comp-legacy", name: "LegacyCorp", website: "https://legacycorp.com", tags: ["legacy", "on-prem"] });
+
+  // Signals for Apex Systems — pricing change (negative for us, positive for them)
+  ci.addSignal({
+    competitorId: apex.id,
+    type: "pricing_change",
+    title: "Apex cuts enterprise pricing by 15%",
+    summary: "Apex Systems announced a 15% reduction in enterprise tier pricing, likely to win deals in mid-market.",
+    sentiment: "negative",
+    source: "press release",
+  });
+
+  // Signals for NovaTech — product launch (neutral)
+  ci.addSignal({
+    competitorId: nova.id,
+    type: "product_launch",
+    title: "NovaTech launches AI-powered fleet analytics",
+    summary: "NovaTech shipped a new AI analytics module that competes directly with our observability features.",
+    sentiment: "negative",
+    source: "techcrunch.com",
+  });
+
+  // Signals for LegacyCorp — funding round (positive for us — competitor struggles)
+  ci.addSignal({
+    competitorId: legacy.id,
+    type: "funding",
+    title: "LegacyCorp fails to close Series C",
+    summary: "LegacyCorp's Series C fell through; engineering layoffs expected. Opportunity to win their unhappy customers.",
+    sentiment: "positive",
+    source: "bloomberg",
+  });
+
+  // Win/loss records — 4 records showing mixed win rate
+  // Apex: 1 win, 1 loss → 50% win rate
+  ci.recordWinLoss({ dealId: "deal-acme", competitorId: apex.id, outcome: "win", reason: "Superior integration and support quality", dealArrUsd: 240_000 });
+  ci.recordWinLoss({ dealId: "deal-stellar", competitorId: apex.id, outcome: "loss", reason: "Apex undercut on price by 20% at last minute", dealArrUsd: 110_000 });
+
+  // NovaTech: 1 win → 100% win rate
+  ci.recordWinLoss({ dealId: "deal-northwind", competitorId: nova.id, outcome: "win", reason: "Enterprise features and compliance certifications tipped the deal", dealArrUsd: 180_000 });
+
+  // LegacyCorp: 1 loss → 0% win rate (customer chose legacy vendor familiarity)
+  ci.recordWinLoss({ dealId: "deal-pinnacle", competitorId: legacy.id, outcome: "loss", reason: "Customer locked into existing LegacyCorp contracts for 2 more years", dealArrUsd: 60_000 });
 }
 
 function seedCompliance(olympus: Olympus): void {

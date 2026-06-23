@@ -70,6 +70,7 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `GET` | `/v1/customer-success` | Customer success — account health scores, churn risk accounts (sorted by ARR), and summary by risk tier |
 | `GET` | `/v1/product` | Product analytics — feature registry, adoption rates, and top features by usage |
 | `GET` | `/v1/compliance` | Compliance & Audit — controls catalog, gap detection, and compliance score by framework |
+| `GET` | `/v1/competitive` | Competitive Intelligence — competitor list and 5 most recent market signals |
 
 **Auth & rate limiting.** `/v1/*` routes accept optional Bearer-token auth and per-caller rate limiting; the console (`/`) and `/healthz` stay public. Both are off by default (zero-config demo). Enable via env:
 
