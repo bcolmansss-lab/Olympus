@@ -34,6 +34,7 @@ import { OKRTracker } from "./goals/okr-tracker.js";
 import { CapacityPlanner } from "./capacity/capacity-planner.js";
 import { FinancialLedger } from "./finance/ledger.js";
 import { SLATracker } from "./contracts/sla-tracker.js";
+import { DealPipeline } from "./crm/pipeline.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -79,6 +80,8 @@ export class Olympus {
   readonly ledger: FinancialLedger;
   /** SLA tracker — service level agreement monitoring with breach detection and penalty tracking. */
   readonly sla: SLATracker;
+  /** CRM deal pipeline — tracks deals through sales stages with weighted ARR projection. */
+  readonly pipeline: DealPipeline;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -105,6 +108,7 @@ export class Olympus {
     this.capacity = new CapacityPlanner(this.bus);
     this.ledger = new FinancialLedger(this.bus);
     this.sla = new SLATracker(this.bus);
+    this.pipeline = new DealPipeline(this.bus);
   }
 }
 
@@ -134,3 +138,4 @@ export { OKRTracker, type Objective, type KeyResult, type KRStatus } from "./goa
 export { CapacityPlanner, type Resource, type Project, type Allocation, type OverallocationReport } from "./capacity/index.js";
 export { FinancialLedger, type Account, type AccountType, type JournalEntry, type BurnRateReport } from "./finance/index.js";
 export { SLATracker, type SLADefinition, type SLAState, type SLADirection, type SLAStatus } from "./contracts/index.js";
+export { DealPipeline, type Deal, type DealStage, type PipelineSummary } from "./crm/index.js";

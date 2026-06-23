@@ -30,6 +30,7 @@ import { compareScenarios } from "../simulation/scenario-compare.js";
 import { CapacityPlanner } from "../capacity/capacity-planner.js";
 import { FinancialLedger } from "../finance/ledger.js";
 import { SLATracker } from "../contracts/sla-tracker.js";
+import { DealPipeline } from "../crm/pipeline.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1750,5 +1751,96 @@ describe("SLATracker", () => {
     tracker.record("sla-breached", 300); // exceeds threshold
 
     assert.equal(tracker.atRisk().length, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 32. DealPipeline
+// ---------------------------------------------------------------------------
+
+describe("DealPipeline", () => {
+  it("createDeal adds deal and emits event", () => {
+    const bus = new EventBus();
+    const pipeline = new DealPipeline(bus);
+
+    const events: unknown[] = [];
+    bus.subscribe("crm.deal_created", (e) => { events.push(e); });
+
+    const deal = pipeline.createDeal({ name: "Acme Corp", arrUsd: 50000, stage: "lead", owner: "alice" });
+    assert.ok(pipeline.get(deal.id) !== undefined, "deal must be retrievable");
+    assert.equal(pipeline.list().length, 1);
+    assert.equal(events.length, 1, "crm.deal_created event must be emitted");
+    const payload = (events[0] as { payload: { dealId: string; name: string } }).payload;
+    assert.equal(payload.dealId, deal.id);
+    assert.equal(payload.name, "Acme Corp");
+  });
+
+  it("advance moves deal to next stage and emits event", () => {
+    const bus = new EventBus();
+    const pipeline = new DealPipeline(bus);
+
+    const events: unknown[] = [];
+    bus.subscribe("crm.deal_advanced", (e) => { events.push(e); });
+
+    const deal = pipeline.createDeal({ name: "Beta Inc", arrUsd: 20000, stage: "lead", owner: "bob" });
+    const updated = pipeline.advance(deal.id, "qualified");
+
+    assert.equal(updated?.stage, "qualified", "stage must be updated");
+    assert.equal(events.length, 1, "crm.deal_advanced event must be emitted");
+    const payload = (events[0] as { payload: { fromStage: string; toStage: string } }).payload;
+    assert.equal(payload.fromStage, "lead");
+    assert.equal(payload.toStage, "qualified");
+  });
+
+  it("advance to closed_won emits crm.deal_closed with outcome won", () => {
+    const bus = new EventBus();
+    const pipeline = new DealPipeline(bus);
+
+    const events: unknown[] = [];
+    bus.subscribe("crm.deal_closed", (e) => { events.push(e); });
+
+    const deal = pipeline.createDeal({ name: "Gamma LLC", arrUsd: 75000, stage: "negotiation", owner: "carol" });
+    pipeline.advance(deal.id, "closed_won");
+
+    assert.equal(events.length, 1, "crm.deal_closed event must be emitted");
+    const payload = (events[0] as { payload: { outcome: string; arrUsd: number } }).payload;
+    assert.equal(payload.outcome, "won");
+    assert.equal(payload.arrUsd, 75000);
+  });
+
+  it("summary computes weighted ARR", () => {
+    const bus = new EventBus();
+    const pipeline = new DealPipeline(bus);
+
+    pipeline.createDeal({ name: "Deal A", arrUsd: 100000, stage: "qualified", owner: "alice" });
+    pipeline.createDeal({ name: "Deal B", arrUsd: 200000, stage: "proposal", owner: "bob" });
+
+    const sum = pipeline.summary();
+    // 100000 * 0.20 + 200000 * 0.45 = 20000 + 90000 = 110000
+    assert.equal(sum.weightedArrUsd, 110000);
+  });
+
+  it("summary tracks closedWonArrUsd", () => {
+    const bus = new EventBus();
+    const pipeline = new DealPipeline(bus);
+
+    const deal = pipeline.createDeal({ name: "Big Win", arrUsd: 500000, stage: "negotiation", owner: "dave" });
+    pipeline.advance(deal.id, "closed_won");
+
+    const sum = pipeline.summary();
+    assert.equal(sum.closedWonArrUsd, 500000);
+  });
+
+  it("list with stage filter", () => {
+    const bus = new EventBus();
+    const pipeline = new DealPipeline(bus);
+
+    pipeline.createDeal({ name: "Lead Deal", arrUsd: 10000, stage: "lead", owner: "alice" });
+    pipeline.createDeal({ name: "Qualified Deal 1", arrUsd: 20000, stage: "qualified", owner: "bob" });
+    pipeline.createDeal({ name: "Qualified Deal 2", arrUsd: 30000, stage: "qualified", owner: "carol" });
+
+    const qualified = pipeline.list("qualified");
+    assert.equal(qualified.length, 2);
+    assert.ok(qualified.every((d) => d.stage === "qualified"));
   });
 });
