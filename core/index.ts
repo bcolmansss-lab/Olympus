@@ -33,6 +33,7 @@ import { NotificationRouter, InMemoryChannel } from "./notifications/notificatio
 import { OKRTracker } from "./goals/okr-tracker.js";
 import { CapacityPlanner } from "./capacity/capacity-planner.js";
 import { FinancialLedger } from "./finance/ledger.js";
+import { SLATracker } from "./contracts/sla-tracker.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -76,6 +77,8 @@ export class Olympus {
   readonly capacity: CapacityPlanner;
   /** Financial ledger — double-entry bookkeeping, burn rate, and runway projection. */
   readonly ledger: FinancialLedger;
+  /** SLA tracker — service level agreement monitoring with breach detection and penalty tracking. */
+  readonly sla: SLATracker;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -101,6 +104,7 @@ export class Olympus {
     this.okr = new OKRTracker(this.bus).attach();
     this.capacity = new CapacityPlanner(this.bus);
     this.ledger = new FinancialLedger(this.bus);
+    this.sla = new SLATracker(this.bus);
   }
 }
 
@@ -129,3 +133,4 @@ export { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert, type A
 export { OKRTracker, type Objective, type KeyResult, type KRStatus } from "./goals/index.js";
 export { CapacityPlanner, type Resource, type Project, type Allocation, type OverallocationReport } from "./capacity/index.js";
 export { FinancialLedger, type Account, type AccountType, type JournalEntry, type BurnRateReport } from "./finance/index.js";
+export { SLATracker, type SLADefinition, type SLAState, type SLADirection, type SLAStatus } from "./contracts/index.js";

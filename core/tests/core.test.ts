@@ -29,6 +29,7 @@ import { seedHiringScenario, HIRING_SCENARIO_SEED } from "../scenarios/hiring.js
 import { compareScenarios } from "../simulation/scenario-compare.js";
 import { CapacityPlanner } from "../capacity/capacity-planner.js";
 import { FinancialLedger } from "../finance/ledger.js";
+import { SLATracker } from "../contracts/sla-tracker.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1665,5 +1666,89 @@ describe("FinancialLedger", () => {
     ledger.post({ date: today, description: "High expense", debitAccountId: "expense", creditAccountId: "ap", amount: 3000 });
 
     assert.ok(warnings.length >= 1, "finance.runway_warning must be emitted when runway < threshold");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 31. SLATracker
+// ---------------------------------------------------------------------------
+
+describe("SLATracker", () => {
+  it("register and list SLAs", () => {
+    const bus = new EventBus();
+    const tracker = new SLATracker(bus);
+    tracker.register({ id: "sla-1", contractName: "Acme", metric: "uptime", threshold: 99.9, direction: "above", penaltyUsd: 0 });
+    tracker.register({ id: "sla-2", contractName: "Beta", metric: "latency_ms", threshold: 200, direction: "below", penaltyUsd: 0 });
+    assert.equal(tracker.list().length, 2);
+  });
+
+  it("healthy when value meets threshold", () => {
+    const bus = new EventBus();
+    const tracker = new SLATracker(bus);
+    // atRiskPct=0 means riskZone=0, so any value >= threshold is healthy
+    tracker.register({ id: "sla-uptime", contractName: "Acme", metric: "uptime", threshold: 99.9, direction: "above", penaltyUsd: 0, atRiskPct: 0 });
+    const state = tracker.record("sla-uptime", 99.95);
+    assert.equal(state?.status, "healthy");
+  });
+
+  it("at-risk when within atRiskPct of threshold", () => {
+    const bus = new EventBus();
+    const tracker = new SLATracker(bus);
+    // threshold=99.9, atRiskPct=5 → riskZone=4.995 → at-risk when value < 104.895 but >= 99.9
+    tracker.register({ id: "sla-uptime", contractName: "Acme", metric: "uptime", threshold: 99.9, direction: "above", penaltyUsd: 0, atRiskPct: 5 });
+    const state1 = tracker.record("sla-uptime", 99.95); // >= 99.9 and < 104.895 → at-risk
+    assert.equal(state1?.status, "at-risk");
+    const state2 = tracker.record("sla-uptime", 110); // >= 104.895 → healthy
+    assert.equal(state2?.status, "healthy");
+  });
+
+  it("breach when value violates threshold", () => {
+    const bus = new EventBus();
+    const tracker = new SLATracker(bus);
+    tracker.register({ id: "sla-uptime", contractName: "Acme", metric: "uptime", threshold: 99.9, direction: "above", penaltyUsd: 0 });
+    const state = tracker.record("sla-uptime", 99.5);
+    assert.equal(state?.status, "breached");
+    assert.equal(state?.breachCount, 1);
+  });
+
+  it("emits sla.breached event with penalty", () => {
+    const bus = new EventBus();
+    const tracker = new SLATracker(bus);
+    tracker.register({ id: "sla-uptime", contractName: "Acme SLA", metric: "uptime", threshold: 99.9, direction: "above", penaltyUsd: 5000 });
+
+    const events: unknown[] = [];
+    bus.subscribe("sla.breached", (e) => { events.push(e); });
+
+    tracker.record("sla-uptime", 99.0); // breaches threshold
+    assert.equal(events.length, 1, "sla.breached event must be emitted");
+    assert.equal(tracker.totalPenalties(), 5000);
+  });
+
+  it("latency SLA (below direction)", () => {
+    const bus = new EventBus();
+    const tracker = new SLATracker(bus);
+    tracker.register({ id: "sla-latency", contractName: "Acme", metric: "p99_latency_ms", threshold: 200, direction: "below", penaltyUsd: 1000 });
+    const state1 = tracker.record("sla-latency", 150); // 150 <= 200 → healthy
+    assert.ok(state1?.status !== "breached", `expected not breached, got ${state1?.status}`);
+    const state2 = tracker.record("sla-latency", 250); // 250 > 200 → breached
+    assert.equal(state2?.status, "breached");
+  });
+
+  it("atRisk returns breached and at-risk SLAs", () => {
+    const bus = new EventBus();
+    const tracker = new SLATracker(bus);
+    // SLA 1: will be healthy
+    tracker.register({ id: "sla-healthy", contractName: "A", metric: "uptime", threshold: 99.9, direction: "above", penaltyUsd: 0, atRiskPct: 1 });
+    tracker.record("sla-healthy", 110); // well above threshold + riskZone
+
+    // SLA 2: will be at-risk
+    tracker.register({ id: "sla-atrisk", contractName: "B", metric: "uptime2", threshold: 99.9, direction: "above", penaltyUsd: 0, atRiskPct: 5 });
+    tracker.record("sla-atrisk", 99.95); // within at-risk zone
+
+    // SLA 3: will be breached
+    tracker.register({ id: "sla-breached", contractName: "C", metric: "latency", threshold: 200, direction: "below", penaltyUsd: 0 });
+    tracker.record("sla-breached", 300); // exceeds threshold
+
+    assert.equal(tracker.atRisk().length, 2);
   });
 });
