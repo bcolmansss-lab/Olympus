@@ -23,6 +23,7 @@ import { Olympus } from "../index.js";
 import { AnomalyDetector } from "../anomaly/anomaly-detector.js";
 import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
 import { seedChurnScenario } from "../scenarios/churn.js";
+import { OKRTracker } from "../goals/okr-tracker.js";
 import { seedPricingScenario, PRICING_SCENARIO_SEED } from "../scenarios/pricing.js";
 import { seedHiringScenario, HIRING_SCENARIO_SEED } from "../scenarios/hiring.js";
 import { compareScenarios } from "../simulation/scenario-compare.js";
@@ -1283,7 +1284,114 @@ describe("PolicyEngine", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 27. NotificationRouter
+// 27. OKRTracker
+// ---------------------------------------------------------------------------
+
+describe("OKRTracker", () => {
+  const makeObjectiveInput = (id: string) => ({
+    id,
+    label: "Grow revenue",
+    owner: "ceo",
+    dueDate: "2026-12-31",
+    keyResults: [
+      { id: `${id}-kr1`, label: "Increase ARR", metricKey: "arr", baseline: 0, target: 1_000_000 },
+      { id: `${id}-kr2`, label: "Reduce churn", metricKey: "churn_rate", baseline: 0.1, target: 0.05 },
+    ],
+  });
+
+  it("addObjective creates objective with not-started KRs", () => {
+    const bus = new EventBus();
+    const tracker = new OKRTracker(bus);
+    const obj = tracker.addObjective(makeObjectiveInput("obj-1"));
+    assert.equal(obj.overallStatus, "not-started");
+    assert.equal(obj.overallProgress, 0);
+    assert.ok(obj.keyResults.every((kr) => kr.status === "not-started"));
+    assert.ok(obj.keyResults.every((kr) => kr.progress === 0));
+  });
+
+  it("recordMetric updates KR progress and status", () => {
+    const bus = new EventBus();
+    const tracker = new OKRTracker(bus);
+    tracker.addObjective(makeObjectiveInput("obj-2"));
+    // 70% of way to target (baseline=0, target=1_000_000)
+    tracker.recordMetric("arr", 700_000);
+    const obj = tracker.get("obj-2")!;
+    const kr = obj.keyResults.find((k) => k.metricKey === "arr")!;
+    assert.ok(Math.abs(kr.progress - 0.7) < 0.001, `expected progress ~0.7, got ${kr.progress}`);
+    assert.equal(kr.status, "on-track");
+  });
+
+  it("achieved when current >= target", () => {
+    const bus = new EventBus();
+    const tracker = new OKRTracker(bus);
+    tracker.addObjective(makeObjectiveInput("obj-3"));
+    tracker.recordMetric("arr", 1_000_000);
+    const obj = tracker.get("obj-3")!;
+    const kr = obj.keyResults.find((k) => k.metricKey === "arr")!;
+    assert.equal(kr.progress, 1.0);
+    assert.equal(kr.status, "achieved");
+  });
+
+  it("overallStatus is worst KR status", () => {
+    const bus = new EventBus();
+    const tracker = new OKRTracker(bus);
+    tracker.addObjective(makeObjectiveInput("obj-4"));
+    // arr at 80% → on-track; churn_rate barely improved (baseline 0.1, target 0.05, current 0.09 → only 20% progress)
+    tracker.recordMetric("arr", 800_000);
+    tracker.recordMetric("churn_rate", 0.09);
+    const obj = tracker.get("obj-4")!;
+    assert.equal(obj.overallStatus, "off-track");
+  });
+
+  it("attach subscribes to metric.observed events", () => {
+    const bus = new EventBus();
+    const tracker = new OKRTracker(bus).attach();
+    tracker.addObjective({
+      id: "obj-5",
+      label: "Test",
+      owner: "cto",
+      dueDate: "2026-12-31",
+      keyResults: [{ id: "obj-5-kr1", label: "Test KR", metricKey: "latency_ms", baseline: 0, target: 100 }],
+    });
+    bus.publish("metric.observed", { key: "latency_ms", value: 75 });
+    const obj = tracker.get("obj-5")!;
+    const kr = obj.keyResults[0]!;
+    assert.equal(kr.current, 75);
+    assert.ok(Math.abs(kr.progress - 0.75) < 0.001);
+    assert.equal(kr.status, "on-track");
+    tracker.detach();
+  });
+
+  it("atRisk returns only non-on-track objectives", () => {
+    const bus = new EventBus();
+    const tracker = new OKRTracker(bus);
+    // Achieved objective
+    tracker.addObjective({
+      id: "obj-achieved",
+      label: "Done",
+      owner: "ceo",
+      dueDate: "2026-12-31",
+      keyResults: [{ id: "kr-achieved", label: "Done KR", metricKey: "done_metric", baseline: 0, target: 100 }],
+    });
+    tracker.recordMetric("done_metric", 100);
+    // Off-track objective
+    tracker.addObjective({
+      id: "obj-offtrack",
+      label: "Behind",
+      owner: "ceo",
+      dueDate: "2026-12-31",
+      keyResults: [{ id: "kr-offtrack", label: "Behind KR", metricKey: "behind_metric", baseline: 0, target: 100 }],
+    });
+    tracker.recordMetric("behind_metric", 10); // 10% → off-track
+
+    const atRisk = tracker.atRisk();
+    assert.equal(atRisk.length, 1);
+    assert.equal(atRisk[0]!.id, "obj-offtrack");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 28. NotificationRouter
 // ---------------------------------------------------------------------------
 
 describe("NotificationRouter", () => {

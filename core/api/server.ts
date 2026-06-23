@@ -25,6 +25,7 @@ import { Olympus, type OlympusOptions } from "../index.js";
 import type { Domain } from "../knowledge/graph/schema.js";
 import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
 import type { AskOptions } from "../reasoning/executive-reasoning-engine.js";
+import type { AddObjectiveInput } from "../goals/okr-tracker.js";
 import { DASHBOARD_HTML } from "./dashboard.js";
 import { compareScenarios } from "../simulation/scenario-compare.js";
 
@@ -132,6 +133,9 @@ export class OlympusApiServer {
 
       { method: "GET", pattern: "/v1/events", handler: (req, res) => this.handleEvents(req, res) },
       { method: "GET", pattern: "/v1/audit", handler: (_req, res) => this.handleAudit(res) },
+
+      { method: "GET", pattern: "/v1/okr", handler: (_req, res) => res.json(200, this.olympus.okr.list()) },
+      { method: "POST", pattern: "/v1/okr", handler: (req, res) => this.handleAddObjective(req, res) },
     );
   }
 
@@ -324,6 +328,15 @@ export class OlympusApiServer {
     const all = this.olympus.bus.events();
     const slice = all.slice(Math.max(0, all.length - limit));
     res.json(200, { total: all.length, events: slice });
+  }
+
+  private handleAddObjective(req: ApiRequest, res: ApiResponse): void {
+    const body = req.body as AddObjectiveInput | undefined;
+    if (!body?.id || !body.label || !body.owner || !body.dueDate || !Array.isArray(body.keyResults)) {
+      return res.json(400, { error: "id, label, owner, dueDate, and keyResults are required" });
+    }
+    const objective = this.olympus.okr.addObjective(body);
+    res.json(200, objective);
   }
 
   private handleAudit(res: ApiResponse): void {

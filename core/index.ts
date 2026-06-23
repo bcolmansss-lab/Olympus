@@ -30,6 +30,7 @@ import { CalibrationMonitor } from "./autonomy/calibration-monitor.js";
 import { AnomalyDetector } from "./anomaly/anomaly-detector.js";
 import { PolicyEngine } from "./policy/policy-engine.js";
 import { NotificationRouter, InMemoryChannel } from "./notifications/notification-router.js";
+import { OKRTracker } from "./goals/okr-tracker.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -67,6 +68,8 @@ export class Olympus {
   readonly notifications: NotificationRouter;
   /** In-memory alert log wired into the notification router by default. */
   readonly alertLog: InMemoryChannel;
+  /** OKR goal tracking layer — tracks objectives and key results from metric.observed events. */
+  readonly okr: OKRTracker;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -89,6 +92,7 @@ export class Olympus {
     this.policy = new PolicyEngine(this.bus);
     this.alertLog = new InMemoryChannel();
     this.notifications = new NotificationRouter(this.bus).addChannel(this.alertLog).attach();
+    this.okr = new OKRTracker(this.bus).attach();
   }
 }
 
@@ -114,3 +118,4 @@ export { TenantRegistry, type TenantConfig, type Tenant } from "./tenancy/index.
 export { resolveOrgId, resolveTenant } from "./tenancy/index.js";
 export { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy, type Policy, type PolicyContext, type PolicyViolation } from "./policy/index.js";
 export { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert, type AlertChannel, type AlertSeverity } from "./notifications/index.js";
+export { OKRTracker, type Objective, type KeyResult, type KRStatus } from "./goals/index.js";
