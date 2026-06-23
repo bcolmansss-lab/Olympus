@@ -162,6 +162,8 @@ export function defaultRoster(): Agent[] {
     new ExecutiveAgent("coo", "COO Agent", "ops", "Operations, throughput, supply, capacity."),
     new ExecutiveAgent("sales", "Sales Agent", "sales", "Pipeline, revenue motion."),
     new ExecutiveAgent("strategy", "Strategy Agent", "strategy", "Market positioning and long-range bets."),
+    new ExecutiveAgent("pricing-agent", "Pricing Intelligence Agent", "sales", "Maximize revenue through optimal pricing strategy while managing churn risk."),
+    new ExecutiveAgent("talent-agent", "Talent Acquisition Agent", "people", "Minimize time-to-hire and maximize offer acceptance while closing headcount gaps."),
     new RiskAgent(),
     new DevilsAdvocateAgent(),
   ];

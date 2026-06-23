@@ -19,6 +19,8 @@ import type { AgentContext, DecisionBrief } from "../agents/types.js";
 import { Olympus } from "../index.js";
 import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
 import { seedChurnScenario } from "../scenarios/churn.js";
+import { seedPricingScenario, PRICING_SCENARIO_SEED } from "../scenarios/pricing.js";
+import { seedHiringScenario, HIRING_SCENARIO_SEED } from "../scenarios/hiring.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -889,5 +891,80 @@ describe("OlympusApiServer — auth + rate limiting", () => {
       assert.equal((await fetch(`http://localhost:${port}/v1/inbox`)).status, 200);
       assert.equal((await fetch(`http://localhost:${port}/v1/inbox`)).status, 429);
     } finally { await api.close(); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 21. Pricing scenario
+// ---------------------------------------------------------------------------
+
+describe("Pricing scenario", () => {
+  it("seeds OKG with pricing nodes including ElasticityModel", () => {
+    const olympus = new Olympus();
+    const scenario = seedPricingScenario(olympus);
+    const nodes = olympus.okg.snapshot();
+    const names = nodes.map((n) => (n.props as Record<string, unknown>)["name"]);
+    assert.ok(names.includes("ElasticityModel"), "ElasticityModel node must exist");
+    assert.ok(scenario.anchors.elasticityModel, "elasticityModel anchor must be set");
+  });
+
+  it("raise_price_10pct simulation produces a result with p50 defined", () => {
+    const olympus = new Olympus();
+    const scenario = seedPricingScenario(olympus);
+    const result = scenario.twin.run({
+      type: "causal_intervention",
+      intervention: PRICING_SCENARIO_SEED.intervention,
+      seed: 42,
+    });
+    assert.ok(typeof result.distribution.p50 === "number", "p50 must be a number");
+    assert.equal(result.metric, "monthly_arpu_usd");
+  });
+
+  it("causal edge exists from ElasticityModel to PricingTier", () => {
+    const olympus = new Olympus();
+    const scenario = seedPricingScenario(olympus);
+    const edges = olympus.okg.edgesFrom(scenario.anchors.elasticityModel);
+    assert.ok(
+      edges.some((e) => e.dst === scenario.anchors.pricingTier),
+      "must have an edge from ElasticityModel to PricingTier",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 22. Hiring scenario
+// ---------------------------------------------------------------------------
+
+describe("Hiring scenario", () => {
+  it("seeds OKG with HiringPipeline node", () => {
+    const olympus = new Olympus();
+    const scenario = seedHiringScenario(olympus);
+    const nodes = olympus.okg.snapshot();
+    const names = nodes.map((n) => (n.props as Record<string, unknown>)["name"]);
+    assert.ok(names.includes("HiringPipeline"), "HiringPipeline node must exist");
+    assert.ok(scenario.anchors.hiringPipeline, "hiringPipeline anchor must be set");
+  });
+
+  it("accelerate_sourcing simulation produces a result with p50 defined", () => {
+    const olympus = new Olympus();
+    const scenario = seedHiringScenario(olympus);
+    const result = scenario.twin.run({
+      type: "causal_intervention",
+      intervention: HIRING_SCENARIO_SEED.intervention,
+      seed: 42,
+    });
+    assert.ok(typeof result.distribution.p50 === "number", "p50 must be a number");
+    assert.equal(result.metric, "revenue_per_head_usd");
+  });
+
+  it("HeadcountGap risk node exists in the OKG", () => {
+    const olympus = new Olympus();
+    const scenario = seedHiringScenario(olympus);
+    const riskNodes = olympus.okg.nodesByType("Risk");
+    assert.ok(
+      riskNodes.some((n) => (n.props as Record<string, unknown>)["name"] === "HeadcountGap"),
+      "HeadcountGap risk node must exist",
+    );
+    assert.ok(scenario.anchors.headcountGap, "headcountGap anchor must be set");
   });
 });
