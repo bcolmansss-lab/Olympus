@@ -101,6 +101,8 @@ export class Olympus {
   readonly vendors: VendorRegistry;
   /** HR / People registry — employee headcount, org structure, and compensation bands. */
   readonly people: PeopleRegistry;
+  /** Sprint tracker — project work items, sprints, velocity, and burn-down. */
+  readonly sprints: SprintTracker;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -132,6 +134,7 @@ export class Olympus {
     this.riskRegister = new RiskRegister(this.bus);
     this.vendors = new VendorRegistry(this.bus);
     this.people = new PeopleRegistry(this.bus);
+    this.sprints = new SprintTracker(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -170,3 +173,4 @@ export { OutcomeTracker, type PredictionRecord, type OutcomeRecord } from "./lea
 export { BoardReportGenerator, type BoardReportOptions } from "./reporting/index.js";
 export { VendorRegistry, type VendorCategory, type ContractStatus, type Vendor, type AddVendorInput, type ProcurementSummary } from "./procurement/index.js";
 export { PeopleRegistry, type Employee, type EmployeeLevel, type EmploymentStatus, type OpenRole, type DepartmentSummary, type OrgSummary } from "./hr/index.js";
+export { SprintTracker, type WorkItem, type Sprint, type Project as SprintProject, type ProjectSummary, type ItemStatus, type ItemType, type ItemPriority } from "./projects/index.js";

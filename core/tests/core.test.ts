@@ -33,6 +33,7 @@ import { SLATracker } from "../contracts/sla-tracker.js";
 import { DealPipeline } from "../crm/pipeline.js";
 import { RiskRegister } from "../risk/risk-register.js";
 import { VendorRegistry } from "../procurement/vendor-registry.js";
+import { SprintTracker } from "../projects/sprint-tracker.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2526,5 +2527,131 @@ describe("Operator console panels", () => {
     assert.ok(DASHBOARD_HTML.includes("Board Report"), "expected Board Report button");
     assert.ok(DASHBOARD_HTML.includes("/v1/report"), "expected /v1/report fetch");
     assert.ok(DASHBOARD_HTML.includes("renderMarkdown"), "expected renderMarkdown fn");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SprintTracker — project work items, sprints, velocity, and burn-down
+// ---------------------------------------------------------------------------
+
+describe("SprintTracker", () => {
+  it("addProject and listProjects", () => {
+    const bus = new EventBus();
+    const tracker = new SprintTracker(bus);
+
+    const p = tracker.addProject({ name: "Alpha", description: "First project", status: "active" });
+    assert.equal(p.name, "Alpha");
+    assert.ok(typeof p.id === "string" && p.id.length > 0);
+    assert.ok(typeof p.createdAt === "string");
+
+    const list = tracker.listProjects();
+    assert.equal(list.length, 1);
+    assert.equal(list[0]!.id, p.id);
+  });
+
+  it("addItem and listItems with status filter", () => {
+    const bus = new EventBus();
+    const tracker = new SprintTracker(bus);
+
+    const p = tracker.addProject({ name: "Beta", description: "Test project", status: "active" });
+    tracker.addItem({ title: "Story A", type: "story", status: "backlog", priority: "high", projectId: p.id, storyPoints: 5 });
+    tracker.addItem({ title: "Bug B", type: "bug", status: "in-progress", priority: "critical", projectId: p.id, storyPoints: 3 });
+    tracker.addItem({ title: "Task C", type: "task", status: "done", priority: "low", projectId: p.id, storyPoints: 2 });
+
+    assert.equal(tracker.listItems(p.id).length, 3);
+    assert.equal(tracker.listItems(p.id, "backlog").length, 1);
+    assert.equal(tracker.listItems(p.id, "done").length, 1);
+    assert.equal(tracker.listItems(p.id, "in-progress").length, 1);
+    assert.equal(tracker.listItems("non-existent").length, 0);
+  });
+
+  it("updateItemStatus to done emits project.item_completed with storyPoints", () => {
+    const bus = new EventBus();
+    const tracker = new SprintTracker(bus);
+
+    const events: unknown[] = [];
+    bus.subscribe("project.item_completed", (e) => { events.push(e.payload); });
+
+    const p = tracker.addProject({ name: "Gamma", description: "Test", status: "active" });
+    const item = tracker.addItem({ title: "Feature X", type: "story", status: "in-progress", priority: "medium", projectId: p.id, storyPoints: 8 });
+
+    const updated = tracker.updateItemStatus(item.id, "done");
+    assert.ok(updated);
+    assert.equal(updated.status, "done");
+    assert.ok(typeof updated.completedAt === "string");
+
+    assert.equal(events.length, 1);
+    const evt = events[0] as { itemId: string; storyPoints: number; projectId: string };
+    assert.equal(evt.itemId, item.id);
+    assert.equal(evt.storyPoints, 8);
+    assert.equal(evt.projectId, p.id);
+  });
+
+  it("assignItemToSprint links item to sprint", () => {
+    const bus = new EventBus();
+    const tracker = new SprintTracker(bus);
+
+    const p = tracker.addProject({ name: "Delta", description: "Test", status: "active" });
+    const sprint = tracker.addSprint({ id: "s1", projectId: p.id, name: "Sprint 1", startDate: "2026-06-01", endDate: "2026-06-14", status: "active", plannedPoints: 20 });
+    const item = tracker.addItem({ title: "Feature Y", type: "story", status: "backlog", priority: "high", projectId: p.id, storyPoints: 5 });
+
+    assert.equal(item.sprintId, undefined);
+    const linked = tracker.assignItemToSprint(item.id, sprint.id);
+    assert.ok(linked);
+    assert.equal(linked.sprintId, sprint.id);
+  });
+
+  it("completeSprint computes velocity and emits sprint.completed", () => {
+    const bus = new EventBus();
+    const tracker = new SprintTracker(bus);
+
+    const sprintEvents: unknown[] = [];
+    bus.subscribe("sprint.completed", (e) => { sprintEvents.push(e.payload); });
+
+    const p = tracker.addProject({ name: "Epsilon", description: "Test", status: "active" });
+    tracker.addSprint({ id: "s2", projectId: p.id, name: "Sprint 2", startDate: "2026-06-01", endDate: "2026-06-14", status: "active", plannedPoints: 40, completedPoints: 32 });
+
+    const completed = tracker.completeSprint("s2");
+    assert.ok(completed);
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.velocity, 32 / 40);
+
+    assert.equal(sprintEvents.length, 1);
+    const evt = sprintEvents[0] as { sprintId: string; velocity: number; plannedPoints: number; completedPoints: number };
+    assert.equal(evt.sprintId, "s2");
+    assert.equal(evt.plannedPoints, 40);
+    assert.equal(evt.completedPoints, 32);
+    assert.equal(evt.velocity, 0.8);
+  });
+
+  it("projectSummary aggregates counts and velocity", () => {
+    const bus = new EventBus();
+    const tracker = new SprintTracker(bus);
+
+    const p = tracker.addProject({ name: "Zeta", description: "Test", status: "active" });
+
+    // Completed sprint with known velocity
+    tracker.addSprint({ id: "s3", projectId: p.id, name: "Sprint 3", startDate: "2026-05-01", endDate: "2026-05-14", status: "completed", plannedPoints: 20, completedPoints: 18, velocity: 0.9 });
+    // Active sprint
+    tracker.addSprint({ id: "s4", projectId: p.id, name: "Sprint 4", startDate: "2026-06-01", endDate: "2026-06-14", status: "active", plannedPoints: 20 });
+
+    tracker.addItem({ title: "A", type: "story", status: "backlog", priority: "low", projectId: p.id, storyPoints: 3 });
+    tracker.addItem({ title: "B", type: "story", status: "in-progress", priority: "medium", projectId: p.id, storyPoints: 5 });
+    const item3 = tracker.addItem({ title: "C", type: "bug", status: "in-progress", priority: "high", projectId: p.id, storyPoints: 2 });
+    tracker.updateItemStatus(item3.id, "done");
+
+    const summary = tracker.projectSummary(p.id);
+    assert.ok(summary);
+    assert.equal(summary.totalItems, 3);
+    assert.equal(summary.completedItems, 1);
+    assert.equal(summary.inProgressItems, 1);
+    assert.equal(summary.backlogItems, 1);
+    assert.equal(summary.completedStoryPoints, 2);
+    assert.equal(summary.averageVelocity, 0.9);
+    assert.ok(summary.activeSprint);
+    assert.equal(summary.activeSprint.id, "s4");
+
+    // Non-existent project returns undefined
+    assert.equal(tracker.projectSummary("no-such"), undefined);
   });
 });

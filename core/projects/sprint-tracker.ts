@@ -132,7 +132,7 @@ export class SprintTracker {
     return updated;
   }
 
-  addSprint(input: Omit<Sprint, "completedPoints" | "velocity"> & { completedPoints?: number }): Sprint {
+  addSprint(input: Omit<Sprint, "completedPoints" | "velocity"> & { completedPoints?: number; velocity?: number }): Sprint {
     const sprint: Sprint = {
       id: input.id,
       projectId: input.projectId,
@@ -142,6 +142,7 @@ export class SprintTracker {
       status: input.status,
       plannedPoints: input.plannedPoints,
       completedPoints: input.completedPoints ?? 0,
+      velocity: input.velocity,
     };
     this.sprints.set(sprint.id, sprint);
     return sprint;

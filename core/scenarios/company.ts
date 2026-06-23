@@ -38,6 +38,7 @@ export function seedCompany(olympus: Olympus): void {
   seedOkr(olympus);
   seedVendors(olympus);
   seedPeople(olympus);
+  seedProjects(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -401,4 +402,96 @@ function seedOkr(olympus: Olympus): void {
   //   NRR: 105  → 114    = 60% of the way to 120.
   okr.recordMetric("arr", 4_300_000);
   okr.recordMetric("nrr", 114);
+}
+
+function seedProjects(olympus: Olympus): void {
+  const tracker = olympus.sprints;
+
+  // --- Project 1: Platform v2 ---
+  const platform = tracker.addProject({
+    id: "proj-platform-v2",
+    name: "Platform v2",
+    description: "Next-generation fleet autonomy platform with improved reliability and observability.",
+    status: "active",
+    ownerId: "emp-alice",
+  });
+
+  // Completed sprint (Sprint 1) — shows historical velocity
+  tracker.addSprint({
+    id: "sprint-platform-1",
+    projectId: platform.id,
+    name: "Sprint 1 — Foundation",
+    startDate: isoDate(daysAgo(42)),
+    endDate: isoDate(daysAgo(28)),
+    status: "completed",
+    plannedPoints: 40,
+    completedPoints: 36,
+    velocity: 0.9,
+  });
+
+  // Active sprint (Sprint 2)
+  tracker.addSprint({
+    id: "sprint-platform-2",
+    projectId: platform.id,
+    name: "Sprint 2 — Core APIs",
+    startDate: isoDate(daysAgo(14)),
+    endDate: isoDate(daysAgo(-0)),
+    status: "active",
+    plannedPoints: 38,
+  });
+
+  // Work items for Sprint 2
+  const doneItem1 = tracker.addItem({ id: "item-p2-1", title: "Design REST API schema for fleet telemetry", type: "story", status: "in-progress", priority: "high", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 5, assigneeId: "emp-priya" });
+  const doneItem2 = tracker.addItem({ id: "item-p2-2", title: "Implement telemetry ingestion endpoint", type: "story", status: "in-progress", priority: "high", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 8, assigneeId: "emp-priya" });
+  tracker.addItem({ id: "item-p2-3", title: "Add authentication middleware", type: "task", status: "in-progress", priority: "critical", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 5, assigneeId: "emp-lei" });
+  tracker.addItem({ id: "item-p2-4", title: "Fix race condition in state machine transitions", type: "bug", status: "in-progress", priority: "critical", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 3, assigneeId: "emp-lei" });
+  tracker.addItem({ id: "item-p2-5", title: "Write integration tests for telemetry pipeline", type: "task", status: "review", priority: "medium", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 5, assigneeId: "emp-priya" });
+  tracker.addItem({ id: "item-p2-6", title: "Update API documentation", type: "task", status: "backlog", priority: "low", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 2, assigneeId: "emp-daniel" });
+
+  // Mark done items
+  tracker.updateItemStatus(doneItem1.id, "done");
+  tracker.updateItemStatus(doneItem2.id, "done");
+
+  // Backlog items not in a sprint yet
+  tracker.addItem({ id: "item-p2-7", title: "Implement WebSocket streaming for real-time telemetry", type: "story", status: "backlog", priority: "high", projectId: platform.id, storyPoints: 13 });
+  tracker.addItem({ id: "item-p2-8", title: "Performance benchmarking — 10k concurrent fleets", type: "story", status: "backlog", priority: "medium", projectId: platform.id, storyPoints: 8 });
+
+  // --- Project 2: Developer Experience ---
+  const dx = tracker.addProject({
+    id: "proj-dx",
+    name: "Developer Experience",
+    description: "Improve internal tooling, onboarding docs, and CI/CD pipelines.",
+    status: "active",
+    ownerId: "emp-bob",
+  });
+
+  // One completed sprint with perfect velocity
+  tracker.addSprint({
+    id: "sprint-dx-1",
+    projectId: dx.id,
+    name: "Sprint 1 — CI/CD Overhaul",
+    startDate: isoDate(daysAgo(28)),
+    endDate: isoDate(daysAgo(14)),
+    status: "completed",
+    plannedPoints: 20,
+    completedPoints: 20,
+    velocity: 1.0,
+  });
+
+  // Active sprint
+  tracker.addSprint({
+    id: "sprint-dx-2",
+    projectId: dx.id,
+    name: "Sprint 2 — Onboarding",
+    startDate: isoDate(daysAgo(7)),
+    endDate: isoDate(daysAgo(-7)),
+    status: "active",
+    plannedPoints: 18,
+  });
+
+  const dxDoneItem = tracker.addItem({ id: "item-dx-1", title: "Create new-hire onboarding runbook", type: "task", status: "in-progress", priority: "high", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 3, assigneeId: "emp-bob" });
+  tracker.addItem({ id: "item-dx-2", title: "Set up preview environments for PRs", type: "story", status: "in-progress", priority: "high", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 8, assigneeId: "emp-lei" });
+  tracker.addItem({ id: "item-dx-3", title: "Add lint and type-check to pre-commit hooks", type: "task", status: "backlog", priority: "medium", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 3 });
+
+  tracker.updateItemStatus(dxDoneItem.id, "done");
 }
