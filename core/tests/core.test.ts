@@ -2827,7 +2827,7 @@ describe("ProductAnalytics", () => {
     pa.registerFeature({ key: "api_v2", name: "API v2", launchedAt: "2026-01-01", gated: false });
 
     const milestones: unknown[] = [];
-    bus.subscribe("product.milestone_reached", (e) => { milestones.push(e.payload); });
+    bus.subscribe("product.milestone_reached", (e) => { milestones.push(e.payload); return; });
 
     for (let i = 0; i < 10; i++) pa.recordUsage("api_v2", "power-user");
 

@@ -40,6 +40,7 @@ export function seedCompany(olympus: Olympus): void {
   seedPeople(olympus);
   seedProjects(olympus);
   seedCustomerSuccess(olympus);
+  seedProductAnalytics(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -495,6 +496,71 @@ function seedProjects(olympus: Olympus): void {
   tracker.addItem({ id: "item-dx-3", title: "Add lint and type-check to pre-commit hooks", type: "task", status: "backlog", priority: "medium", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 3 });
 
   tracker.updateItemStatus(dxDoneItem.id, "done");
+}
+
+function seedProductAnalytics(olympus: Olympus): void {
+  const product = olympus.product;
+
+  // Set total tracked accounts denominator
+  product.setTotalAccounts(12);
+
+  // Register features
+  product.registerFeature({
+    key: "sso",
+    name: "Single Sign-On",
+    description: "SAML/OIDC-based SSO for enterprise accounts.",
+    launchedAt: isoDate(daysAgo(180)),
+    gated: false,
+  });
+
+  product.registerFeature({
+    key: "api_v2",
+    name: "API v2",
+    description: "Next-generation REST API with improved pagination and webhooks.",
+    launchedAt: isoDate(daysAgo(90)),
+    gated: false,
+  });
+
+  product.registerFeature({
+    key: "bulk_export",
+    name: "Bulk Export",
+    description: "Export large datasets as CSV or JSON in the background.",
+    launchedAt: isoDate(daysAgo(60)),
+    gated: false,
+  });
+
+  product.registerFeature({
+    key: "advanced_analytics",
+    name: "Advanced Analytics",
+    description: "Custom dashboards and cohort analysis (beta, gated to select accounts).",
+    launchedAt: isoDate(daysAgo(30)),
+    gated: true,
+    allowedAccounts: ["cs-acme", "cs-northwind"],
+  });
+
+  // Record usage across accounts
+  const accounts = ["cs-acme", "cs-northwind", "cs-cascade", "cs-pinnacle"];
+
+  // SSO: broadly used by 4 accounts
+  for (const acc of accounts) {
+    for (let i = 0; i < 5; i++) product.recordUsage("sso", acc);
+  }
+
+  // API v2: heavy usage by 3 accounts
+  for (const acc of ["cs-acme", "cs-northwind", "cs-cascade"]) {
+    for (let i = 0; i < 8; i++) product.recordUsage("api_v2", acc);
+  }
+
+  // Bulk export: light usage by 2 accounts
+  product.recordUsage("bulk_export", "cs-acme");
+  product.recordUsage("bulk_export", "cs-acme");
+  product.recordUsage("bulk_export", "cs-northwind");
+
+  // Advanced analytics: gated — only allowed accounts can use it
+  for (let i = 0; i < 6; i++) product.recordUsage("advanced_analytics", "cs-acme");
+  for (let i = 0; i < 4; i++) product.recordUsage("advanced_analytics", "cs-northwind");
+  // cs-cascade is not in allowedAccounts — this call is silently rejected
+  product.recordUsage("advanced_analytics", "cs-cascade");
 }
 
 function seedCustomerSuccess(olympus: Olympus): void {
