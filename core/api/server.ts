@@ -155,6 +155,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/marketing", handler: (_req, res) => res.json(200, { summary: this.olympus.marketing.summary(), campaigns: this.olympus.marketing.listCampaigns() }) },
       { method: "GET", pattern: "/v1/forecast", handler: (_req, res) => res.json(200, this.olympus.forecasting.list()) },
       { method: "GET", pattern: "/v1/data-pipeline", handler: (_req, res) => res.json(200, { summary: this.olympus.dataPipeline.summary(), pipelines: this.olympus.dataPipeline.listPipelines() }) },
+      { method: "GET", pattern: "/v1/support", handler: (_req, res) => res.json(200, { metrics: this.olympus.support.metrics(), openTickets: this.olympus.support.list("open") }) },
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
           startingArrUsd: 3_200_000,

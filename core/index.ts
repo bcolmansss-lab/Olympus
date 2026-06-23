@@ -48,6 +48,7 @@ import { IncidentManager } from "./incidents/incident-manager.js";
 import { MarketingAttributionEngine } from "./marketing/attribution-engine.js";
 import { ForecastEngine } from "./forecasting/forecast-engine.js";
 import { DataPipelineManager } from "./pipeline/data-pipeline.js";
+import { SupportTicketManager } from "./support/ticket-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -125,6 +126,8 @@ export class Olympus {
   readonly forecasting: ForecastEngine;
   /** Data pipeline manager — ingestion sources, transforms, lineage tracking, and quality scoring. */
   readonly dataPipeline: DataPipelineManager;
+  /** Support ticket manager — helpdesk lifecycle, SLA enforcement, CSAT, and agent workload. */
+  readonly support: SupportTicketManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -165,6 +168,7 @@ export class Olympus {
     this.marketing = new MarketingAttributionEngine(this.bus);
     this.forecasting = new ForecastEngine(this.bus);
     this.dataPipeline = new DataPipelineManager(this.bus);
+    this.support = new SupportTicketManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -212,3 +216,4 @@ export { IncidentManager, type Incident, type Postmortem, type IncidentMetrics, 
 export { MarketingAttributionEngine, type AttributionModel, type ChannelType, type TouchPoint, type Conversion as MarketingConversion, type Campaign as MarketingCampaign, type ChannelSummary, type AttributionSummary } from "./marketing/index.js";
 export { ForecastEngine, type ForecastScenario, type ForecastDriver, type ForecastAssumptions, type MonthlyProjection, type ForecastResult, type ScenarioComparison, type SensitivityResult } from "./forecasting/index.js";
 export { DataPipelineManager, type SourceType, type PipelineStatus, type RunStatus, type QualityDimension, type DataSource, type Transform, type DataPipeline, type PipelineRun, type DataQualityScore, type LineageNode, type DataPipelineSummary } from "./pipeline/index.js";
+export { SupportTicketManager, type TicketPriority, type TicketStatus, type TicketCategory, type Ticket as SupportTicket, type SLAConfig as SupportSLAConfig, type TicketMetrics as SupportTicketMetrics } from "./support/index.js";

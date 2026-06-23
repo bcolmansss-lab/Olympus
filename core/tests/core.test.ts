@@ -3739,3 +3739,168 @@ describe("DataPipelineManager", () => {
     assert.equal(s.avgQualityScore, 90);
   });
 });
+
+// ── SupportTicketManager ───────────────────────────────────────────────────────
+import { SupportTicketManager } from "../support/ticket-manager.js";
+
+describe("SupportTicketManager", () => {
+  it("openTicket emits support.ticket_opened", () => {
+    const bus = new EventBus();
+    const mgr = new SupportTicketManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("support.ticket_opened", (e) => { events.push(e.payload); });
+
+    const ticket = mgr.openTicket({
+      subject: "Login broken",
+      description: "Cannot log in",
+      priority: "high",
+      category: "bug",
+      customerId: "cust-1",
+    });
+    assert.equal(ticket.status, "open");
+    assert.equal(ticket.slaBreached, false);
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { ticketId: string }).ticketId, ticket.id);
+    assert.equal((events[0] as { priority: string }).priority, "high");
+  });
+
+  it("recordFirstReply marks sla breach when FRT exceeded", () => {
+    const bus = new EventBus();
+    const mgr = new SupportTicketManager(bus);
+    const breaches: unknown[] = [];
+    bus.subscribe("support.sla_breached", (e) => { breaches.push(e.payload); });
+
+    const now = Date.now();
+    const ticket = mgr.openTicket({
+      subject: "Slow response",
+      description: "System is unresponsive",
+      priority: "critical",
+      category: "performance",
+      customerId: "cust-2",
+      createdAt: new Date(now - 2 * 3600000).toISOString(), // 2h ago
+    });
+    // FRT SLA for critical is 1h; reply at 2h => breach
+    mgr.recordFirstReply(ticket.id, new Date(now).toISOString());
+
+    const updated = mgr.get(ticket.id)!;
+    assert.equal(updated.slaBreached, true);
+    assert.equal(breaches.length, 1);
+    assert.equal((breaches[0] as { breachType: string }).breachType, "frt");
+  });
+
+  it("resolveTicket emits support.ticket_resolved with metrics", () => {
+    const bus = new EventBus();
+    const mgr = new SupportTicketManager(bus);
+    const resolved: unknown[] = [];
+    bus.subscribe("support.ticket_resolved", (e) => { resolved.push(e.payload); });
+
+    const now = Date.now();
+    const ticket = mgr.openTicket({
+      subject: "Password reset not working",
+      description: "Reset email not sent",
+      priority: "medium",
+      category: "access",
+      customerId: "cust-3",
+      createdAt: new Date(now - 10 * 3600000).toISOString(),
+    });
+    mgr.recordFirstReply(ticket.id, new Date(now - 9 * 3600000).toISOString());
+    mgr.resolveTicket(ticket.id, new Date(now).toISOString());
+
+    assert.equal(resolved.length, 1);
+    const payload = resolved[0] as { ticketId: string; frtMs: number; resolutionMs: number };
+    assert.equal(payload.ticketId, ticket.id);
+    assert.ok(payload.frtMs > 0);
+    assert.ok(payload.resolutionMs > 0);
+    assert.equal(mgr.get(ticket.id)!.status, "resolved");
+  });
+
+  it("resolveTicket marks sla breach on resolution time exceeded", () => {
+    const bus = new EventBus();
+    const mgr = new SupportTicketManager(bus);
+    const breaches: unknown[] = [];
+    bus.subscribe("support.sla_breached", (e) => { breaches.push(e.payload); });
+
+    const now = Date.now();
+    const ticket = mgr.openTicket({
+      subject: "Critical outage",
+      description: "Total system outage",
+      priority: "critical",
+      category: "bug",
+      customerId: "cust-4",
+      createdAt: new Date(now - 6 * 3600000).toISOString(), // 6h ago
+    });
+    // Critical resolution SLA is 4h; resolving at 6h => breach
+    mgr.resolveTicket(ticket.id, new Date(now).toISOString());
+
+    const updated = mgr.get(ticket.id)!;
+    assert.equal(updated.slaBreached, true);
+    assert.equal(breaches.length, 1);
+    assert.equal((breaches[0] as { breachType: string }).breachType, "resolution");
+  });
+
+  it("submitCsat stores score and emits event", () => {
+    const bus = new EventBus();
+    const mgr = new SupportTicketManager(bus);
+    const csatEvents: unknown[] = [];
+    bus.subscribe("support.csat_submitted", (e) => { csatEvents.push(e.payload); });
+
+    const ticket = mgr.openTicket({
+      subject: "Billing question",
+      description: "Confused about invoice",
+      priority: "low",
+      category: "billing",
+      customerId: "cust-5",
+    });
+    mgr.submitCsat(ticket.id, 4, "Great support!");
+
+    const updated = mgr.get(ticket.id)!;
+    assert.equal(updated.csatScore, 4);
+    assert.equal(updated.csatComment, "Great support!");
+    assert.equal(csatEvents.length, 1);
+    assert.equal((csatEvents[0] as { score: number }).score, 4);
+    assert.equal((csatEvents[0] as { ticketId: string }).ticketId, ticket.id);
+  });
+
+  it("metrics returns correct aggregates", () => {
+    const bus = new EventBus();
+    const mgr = new SupportTicketManager(bus);
+
+    const now = Date.now();
+    const h = 3600000;
+
+    // Ticket 1: resolved with CSAT
+    const t1 = mgr.openTicket({
+      subject: "Issue A",
+      description: "desc",
+      priority: "high",
+      category: "bug",
+      customerId: "cust-a",
+      createdAt: new Date(now - 10 * h).toISOString(),
+    });
+    mgr.recordFirstReply(t1.id, new Date(now - 9 * h).toISOString());
+    mgr.resolveTicket(t1.id, new Date(now).toISOString());
+    mgr.submitCsat(t1.id, 5);
+
+    // Ticket 2: open, no reply
+    mgr.openTicket({
+      subject: "Issue B",
+      description: "desc",
+      priority: "low",
+      category: "feature_request",
+      customerId: "cust-b",
+    });
+
+    const m = mgr.metrics();
+    assert.equal(m.totalTickets, 2);
+    assert.equal(m.openTickets, 1);
+    assert.ok(m.avgFrtMs > 0);
+    assert.ok(m.avgResolutionMs > 0);
+    assert.equal(m.avgCsat, 5);
+    assert.equal(m.byPriority.high, 1);
+    assert.equal(m.byPriority.low, 1);
+    assert.equal(m.byCategory.bug, 1);
+    assert.equal(m.byCategory.feature_request, 1);
+    assert.equal(m.byStatus.resolved, 1);
+    assert.equal(m.byStatus.open, 1);
+  });
+});

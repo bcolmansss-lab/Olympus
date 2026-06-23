@@ -48,6 +48,7 @@ export function seedCompany(olympus: Olympus): void {
   seedMarketing(olympus);
   seedForecasting(olympus);
   seedDataPipeline(olympus);
+  seedSupport(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1039,4 +1040,85 @@ function seedDataPipeline(olympus: Olympus): void {
   // Quality scores
   dp.recordQuality("crm_contacts", { completeness: 92, freshness: 88, validity: 95, uniqueness: 99, consistency: 91 });
   dp.recordQuality("events_summary", { completeness: 78, freshness: 95, validity: 65, uniqueness: 88, consistency: 72 });
+}
+
+export function seedSupport(olympus: Olympus): void {
+  const support = olympus.support;
+
+  const now = Date.now();
+  const h = 3600000; // 1 hour in ms
+
+  // 1. Critical bug — API authentication failing — resolved quickly within SLA, CSAT 5
+  const t1 = support.openTicket({
+    subject: "API authentication failing",
+    description: "Users unable to authenticate via API tokens.",
+    priority: "critical",
+    category: "bug",
+    customerId: "cascade-corp",
+    createdAt: new Date(now - 3 * h).toISOString(),
+  });
+  support.assignTicket(t1.id, "eng-alice");
+  support.recordFirstReply(t1.id, new Date(now - 2.8 * h).toISOString()); // ~12 min FRT, within 1h
+  support.resolveTicket(t1.id, new Date(now - 1 * h).toISOString()); // 2h resolution, within 4h
+  support.submitCsat(t1.id, 5);
+
+  // 2. High — Export to CSV broken — resolved in 20h (within 24h SLA), CSAT 4
+  const t2 = support.openTicket({
+    subject: "Export to CSV broken",
+    description: "CSV export button produces empty files.",
+    priority: "high",
+    category: "bug",
+    customerId: "pinnacle-inc",
+    createdAt: new Date(now - 22 * h).toISOString(),
+  });
+  support.assignTicket(t2.id, "eng-bob");
+  support.recordFirstReply(t2.id, new Date(now - 21 * h).toISOString()); // ~1h FRT, within 4h
+  support.resolveTicket(t2.id, new Date(now - 2 * h).toISOString()); // 20h resolution, within 24h
+  support.submitCsat(t2.id, 4);
+
+  // 3. Medium — Dashboard loading slowly — in_progress, no resolution yet
+  const t3 = support.openTicket({
+    subject: "Dashboard loading slowly",
+    description: "Main dashboard takes 15+ seconds to load.",
+    priority: "medium",
+    category: "performance",
+    customerId: "vertex-tech",
+    createdAt: new Date(now - 5 * h).toISOString(),
+  });
+  support.assignTicket(t3.id, "eng-alice");
+  support.recordFirstReply(t3.id, new Date(now - 4 * h).toISOString()); // ~1h FRT, within 8h
+
+  // 4. High — Billing discrepancy Q2 invoice — open, no assignee (SLA risk)
+  support.openTicket({
+    subject: "Billing discrepancy Q2 invoice",
+    description: "Invoice for Q2 shows incorrect charges.",
+    priority: "high",
+    category: "billing",
+    customerId: "cascade-corp",
+    createdAt: new Date(now - 6 * h).toISOString(),
+  });
+
+  // 5. Low — Feature request: dark mode — open
+  support.openTicket({
+    subject: "Feature request: dark mode",
+    description: "Please add a dark mode option to the UI.",
+    priority: "low",
+    category: "feature_request",
+    customerId: "nova-systems",
+    createdAt: new Date(now - 2 * h).toISOString(),
+  });
+
+  // 6. Critical — Data export completely broken — resolved in 6h (breaches 4h SLA), CSAT 2
+  const t6 = support.openTicket({
+    subject: "Data export completely broken",
+    description: "All data export functionality returns 500 errors.",
+    priority: "critical",
+    category: "bug",
+    customerId: "vertex-tech",
+    createdAt: new Date(now - 8 * h).toISOString(),
+  });
+  support.assignTicket(t6.id, "eng-bob");
+  support.recordFirstReply(t6.id, new Date(now - 7.5 * h).toISOString()); // ~30 min FRT, within 1h
+  support.resolveTicket(t6.id, new Date(now - 2 * h).toISOString()); // 6h resolution, breaches 4h SLA
+  support.submitCsat(t6.id, 2);
 }
