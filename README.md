@@ -49,6 +49,7 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `POST` | `/v1/ask` | Reasoned Q&A — runs the full closed loop, returns thesis + evidence + autonomy gate |
 | `POST` · `GET` | `/v1/decisions` · `/v1/decisions/:id` | Open / list / fetch decision records |
 | `POST` | `/v1/simulate` | Run a digital-twin simulation (P10/P50/P90 + tail risk) |
+| `POST` | `/v1/compare` | Side-by-side scenario comparison (two interventions → metric winners + composite score) |
 | `POST` | `/v1/diagnose` | GraphRAG grounded context bundle (graph + vector + semantic + aggregate, with provenance) |
 | `GET` | `/v1/briefing` | Proactive executive briefing synthesized from the live system state |
 | `GET` · `PUT` | `/v1/autonomy/grants` | Inspect / set per-domain L0–L7 capability grants |

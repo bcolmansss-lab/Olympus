@@ -23,6 +23,7 @@ import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
 import { seedChurnScenario } from "../scenarios/churn.js";
 import { seedPricingScenario, PRICING_SCENARIO_SEED } from "../scenarios/pricing.js";
 import { seedHiringScenario, HIRING_SCENARIO_SEED } from "../scenarios/hiring.js";
+import { compareScenarios } from "../simulation/scenario-compare.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1139,5 +1140,66 @@ describe("AnomalyDetector", () => {
     result = detector.observe("metric", 1000);
 
     assert.ok(result !== undefined && result > 3, `zScore should be > 3, got ${result}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 25. ScenarioComparison
+// ---------------------------------------------------------------------------
+
+describe("ScenarioComparison", () => {
+  const makeTwin = () => new DigitalTwin({
+    metric: "revenue",
+    coefficients: { conversion: 1_000_000 },
+    baseline: { conversion: 0.2 },
+    noiseFraction: 0.05,
+  });
+
+  it("compareScenarios returns ComparisonResult with overallWinner", () => {
+    const twin = makeTwin();
+    const specA = { label: "baseline", intervention: { variable: "conversion", delta: 0.05 }, seed: 1 };
+    const specB = { label: "aggressive", intervention: { variable: "conversion", delta: 0.20 }, seed: 2 };
+    const result = compareScenarios(twin, specA, specB);
+
+    assert.ok(["a", "b", "tie"].includes(result.overallWinner), "overallWinner must be a, b, or tie");
+    assert.ok(result.metrics.length > 0, "metrics must have at least one entry");
+    assert.ok(typeof result.comparedAt === "string", "comparedAt must be a string");
+  });
+
+  it("symmetric: swapping a/b flips winner", () => {
+    const twin = makeTwin();
+    const specA = { label: "low", intervention: { variable: "conversion", delta: 0.0 }, seed: 1 };
+    const specB = { label: "high", intervention: { variable: "conversion", delta: 0.5 }, seed: 2 };
+    const first = compareScenarios(twin, specA, specB);
+    const second = compareScenarios(twin, specB, specA);
+
+    if (first.overallWinner === "a") {
+      assert.equal(second.overallWinner, "b");
+    } else if (first.overallWinner === "b") {
+      assert.equal(second.overallWinner, "a");
+    } else {
+      assert.equal(second.overallWinner, "tie");
+    }
+  });
+
+  it("POST /v1/compare returns 400 without twin", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    // No twin configured
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/compare`, {
+        method: "POST",
+        body: JSON.stringify({
+          a: { label: "baseline", intervention: { variable: "x", delta: 0.1 }, seed: 1 },
+          b: { label: "aggressive", intervention: { variable: "x", delta: 0.3 }, seed: 2 },
+        }),
+      });
+      assert.equal(r.status, 400);
+      const body = await r.json() as { error: string };
+      assert.ok(body.error.includes("digital twin"), `expected 'digital twin' in error, got: ${body.error}`);
+    } finally {
+      await api.close();
+    }
   });
 });

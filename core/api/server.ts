@@ -26,6 +26,7 @@ import type { Domain } from "../knowledge/graph/schema.js";
 import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
 import type { AskOptions } from "../reasoning/executive-reasoning-engine.js";
 import { DASHBOARD_HTML } from "./dashboard.js";
+import { compareScenarios } from "../simulation/scenario-compare.js";
 
 interface Route {
   method: string;
@@ -118,6 +119,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/decisions/:id", handler: (req, res) => this.handleGetDecision(req, res) },
 
       { method: "POST", pattern: "/v1/simulate", handler: (req, res) => this.handleSimulate(req, res) },
+      { method: "POST", pattern: "/v1/compare", handler: (req, res) => this.handleCompare(req, res) },
       { method: "POST", pattern: "/v1/diagnose", handler: (req, res) => this.handleDiagnose(req, res) },
 
       { method: "GET", pattern: "/v1/autonomy/grants", handler: (_req, res) => this.handleListGrants(res) },
@@ -232,6 +234,21 @@ export class OlympusApiServer {
       seed: body.seed ?? 42,
     });
     res.json(200, sim);
+  }
+
+  private handleCompare(req: ApiRequest, res: ApiResponse): void {
+    if (!this.olympus.twin) return res.json(400, { error: "No digital twin configured" });
+    const body = (req.body ?? {}) as {
+      a?: { label?: string; intervention?: { variable: string; delta: number }; seed?: number };
+      b?: { label?: string; intervention?: { variable: string; delta: number }; seed?: number };
+    };
+    if (!body.a?.intervention || !body.b?.intervention) {
+      return res.json(400, { error: "a.intervention and b.intervention are required" });
+    }
+    const specA = { label: body.a.label ?? "a", intervention: body.a.intervention, seed: body.a.seed };
+    const specB = { label: body.b.label ?? "b", intervention: body.b.intervention, seed: body.b.seed };
+    const result = compareScenarios(this.olympus.twin, specA, specB);
+    res.json(200, result);
   }
 
   private handleDiagnose(req: ApiRequest, res: ApiResponse): void {
