@@ -403,6 +403,14 @@ export class OlympusApiServer {
       }
     }
 
+    // Executive board report — rendered Markdown, not JSON.
+    if ((raw.method ?? "GET") === "GET" && url.pathname === "/v1/report") {
+      const markdown = this.olympus.boardReport.render({ companyName: "Helios Robotics" });
+      rawRes.writeHead(200, { "content-type": "text/markdown; charset=utf-8" });
+      rawRes.end(markdown);
+      return;
+    }
+
     // Live event stream — Server-Sent Events over plain HTTP (zero deps).
     // The BLUEPRINT specifies a WebSocket; SSE is the dependency-free reference
     // for one-way event push and swaps cleanly for WS in production.

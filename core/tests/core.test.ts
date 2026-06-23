@@ -2162,6 +2162,51 @@ describe("seedCompany", () => {
   });
 });
 
+describe("BoardReportGenerator", () => {
+  it("renders markdown with all sections on a seeded company", async () => {
+    const { seedCompany } = await import("../scenarios/company.js");
+    const olympus = new Olympus();
+    seedCompany(olympus);
+    const report = olympus.boardReport.render();
+    assert.ok(report.includes("# Board Report"));
+    assert.ok(report.includes("Executive Summary"));
+    assert.ok(report.includes("Financial Position"));
+    assert.ok(report.includes("Top Risks"));
+    assert.ok(report.includes("Goals"));
+    assert.ok(report.includes("Health Dimensions"));
+  });
+
+  it("uses the provided company name", async () => {
+    const { seedCompany } = await import("../scenarios/company.js");
+    const olympus = new Olympus();
+    seedCompany(olympus);
+    const report = olympus.boardReport.render({ companyName: "Helios Robotics" });
+    assert.ok(report.includes("Helios Robotics"));
+  });
+
+  it("handles an empty company gracefully", () => {
+    const olympus = new Olympus();
+    const report = olympus.boardReport.render();
+    assert.equal(typeof report, "string");
+    assert.ok(report.includes("# Board Report"));
+    assert.ok(report.includes("No data."));
+  });
+
+  it("GET /v1/report returns 200 markdown", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/report`);
+      assert.equal(r.status, 200);
+      const body = await r.text();
+      assert.ok(body.includes("# Board Report"));
+    } finally {
+      await api.close();
+    }
+  });
+});
+
 describe("OutcomeTracker", () => {
   it("recordOutcome returns undefined for unknown decision", () => {
     const o = new Olympus();

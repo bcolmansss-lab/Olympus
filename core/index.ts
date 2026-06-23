@@ -38,6 +38,7 @@ import { DealPipeline } from "./crm/pipeline.js";
 import { RiskRegister } from "./risk/risk-register.js";
 import { HealthScorer } from "./health/health-score.js";
 import { OutcomeTracker } from "./learning/outcome-tracker.js";
+import { BoardReportGenerator } from "./reporting/board-report.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -89,6 +90,8 @@ export class Olympus {
   readonly riskRegister: RiskRegister;
   /** Unified company health index (0–100) aggregating every business module. */
   readonly health: HealthScorer;
+  /** Synthesizes every module into a single executive board report in Markdown. */
+  readonly boardReport: BoardReportGenerator;
   /** Closes the predict-act-observe-learn loop into the calibration flywheel. */
   readonly outcomes: OutcomeTracker;
 
@@ -121,6 +124,7 @@ export class Olympus {
     this.pipeline = new DealPipeline(this.bus);
     this.riskRegister = new RiskRegister(this.bus);
     this.health = new HealthScorer(this);
+    this.boardReport = new BoardReportGenerator(this);
   }
 }
 
@@ -154,3 +158,4 @@ export { DealPipeline, type Deal, type DealStage, type PipelineSummary } from ".
 export { RiskRegister, type RiskEntry, type RiskStatus, type RiskCategory } from "./risk/index.js";
 export { HealthScorer, type HealthReport, type HealthDimension, type HealthGrade } from "./health/index.js";
 export { OutcomeTracker, type PredictionRecord, type OutcomeRecord } from "./learning/index.js";
+export { BoardReportGenerator, type BoardReportOptions } from "./reporting/index.js";
