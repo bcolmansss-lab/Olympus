@@ -42,6 +42,8 @@ import { BoardReportGenerator } from "./reporting/board-report.js";
 import { VendorRegistry } from "./procurement/vendor-registry.js";
 import { PeopleRegistry } from "./hr/people-registry.js";
 import { SprintTracker } from "./projects/sprint-tracker.js";
+import { CustomerSuccessTracker } from "./customer-success/account-health.js";
+import { ProductAnalytics } from "./product/index.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -103,6 +105,10 @@ export class Olympus {
   readonly people: PeopleRegistry;
   /** Sprint tracker — project work items, sprints, velocity, and burn-down. */
   readonly sprints: SprintTracker;
+  /** Customer success — account health scoring, churn risk, NPS, and QBR cadence. */
+  readonly customerSuccess: CustomerSuccessTracker;
+  /** Product analytics — feature adoption, gated flags, usage tracking, and milestone events. */
+  readonly product: ProductAnalytics;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -135,6 +141,8 @@ export class Olympus {
     this.vendors = new VendorRegistry(this.bus);
     this.people = new PeopleRegistry(this.bus);
     this.sprints = new SprintTracker(this.bus);
+    this.customerSuccess = new CustomerSuccessTracker(this.bus);
+    this.product = new ProductAnalytics(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -174,3 +182,5 @@ export { BoardReportGenerator, type BoardReportOptions } from "./reporting/index
 export { VendorRegistry, type VendorCategory, type ContractStatus, type Vendor, type AddVendorInput, type ProcurementSummary } from "./procurement/index.js";
 export { PeopleRegistry, type Employee, type EmployeeLevel, type EmploymentStatus, type OpenRole, type DepartmentSummary, type OrgSummary } from "./hr/index.js";
 export { SprintTracker, type WorkItem, type Sprint, type Project as SprintProject, type ProjectSummary, type ItemStatus, type ItemType, type ItemPriority } from "./projects/index.js";
+export { CustomerSuccessTracker, type RiskTier, type NPSCategory, type PaymentStatus, type AccountHealth, type AddAccountInput, type CSSummary } from "./customer-success/index.js";
+export { ProductAnalytics, type Feature, type UsageEvent, type FeatureAdoption, type RetentionCohort } from "./product/index.js";

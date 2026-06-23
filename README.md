@@ -67,6 +67,7 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `GET` | `/v1/vendors` | Vendor / procurement registry — full catalog, spend totals, renewal alerts, and summary by category |
 | `GET` | `/v1/people` | HR / People registry — active employees, open roles, and org summary with headcount and comp by department |
 | `GET` | `/v1/projects` | Sprint tracker — active and completed projects with work items, sprints, and velocity |
+| `GET` | `/v1/customer-success` | Customer success — account health scores, churn risk accounts (sorted by ARR), and summary by risk tier |
 
 **Auth & rate limiting.** `/v1/*` routes accept optional Bearer-token auth and per-caller rate limiting; the console (`/`) and `/healthz` stay public. Both are off by default (zero-config demo). Enable via env:
 

@@ -39,6 +39,7 @@ export function seedCompany(olympus: Olympus): void {
   seedVendors(olympus);
   seedPeople(olympus);
   seedProjects(olympus);
+  seedCustomerSuccess(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -494,4 +495,62 @@ function seedProjects(olympus: Olympus): void {
   tracker.addItem({ id: "item-dx-3", title: "Add lint and type-check to pre-commit hooks", type: "task", status: "backlog", priority: "medium", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 3 });
 
   tracker.updateItemStatus(dxDoneItem.id, "done");
+}
+
+function seedCustomerSuccess(olympus: Olympus): void {
+  const cs = olympus.customerSuccess;
+
+  // Healthy accounts: engaged, current payment, recent QBR
+  cs.addAccount({
+    accountId: "cs-acme",
+    name: "Acme Manufacturing",
+    arrUsd: 240_000,
+    openTickets: 1,
+    daysSinceLastActivity: 2,
+    paymentStatus: "current",
+    npsScore: 85,
+    lastQbrDate: isoDate(daysAgo(30)),
+  });
+
+  cs.addAccount({
+    accountId: "cs-northwind",
+    name: "Northwind Logistics",
+    arrUsd: 180_000,
+    openTickets: 0,
+    daysSinceLastActivity: 5,
+    paymentStatus: "current",
+    npsScore: 72,
+    lastQbrDate: isoDate(daysAgo(45)),
+  });
+
+  // At-risk: inactive, no recent QBR
+  cs.addAccount({
+    accountId: "cs-cascade",
+    name: "Cascade Foods",
+    arrUsd: 95_000,
+    openTickets: 3,
+    daysSinceLastActivity: 40,
+    paymentStatus: "current",
+    lastQbrDate: isoDate(daysAgo(100)),
+  });
+
+  // Red-zone: overdue payment, many tickets
+  cs.addAccount({
+    accountId: "cs-pinnacle",
+    name: "Pinnacle Health",
+    arrUsd: 60_000,
+    openTickets: 5,
+    daysSinceLastActivity: 20,
+    paymentStatus: "overdue",
+  });
+
+  // Churned: suspended, very inactive
+  cs.addAccount({
+    accountId: "cs-vertex",
+    name: "Vertex Components",
+    arrUsd: 42_000,
+    openTickets: 6,
+    daysSinceLastActivity: 90,
+    paymentStatus: "suspended",
+  });
 }

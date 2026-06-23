@@ -34,6 +34,7 @@ import { DealPipeline } from "../crm/pipeline.js";
 import { RiskRegister } from "../risk/risk-register.js";
 import { VendorRegistry } from "../procurement/vendor-registry.js";
 import { SprintTracker } from "../projects/sprint-tracker.js";
+import { CustomerSuccessTracker } from "../customer-success/account-health.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2653,5 +2654,94 @@ describe("SprintTracker", () => {
 
     // Non-existent project returns undefined
     assert.equal(tracker.projectSummary("no-such"), undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CustomerSuccessTracker
+// ---------------------------------------------------------------------------
+
+describe("CustomerSuccessTracker", () => {
+  it("addAccount computes health score and riskTier", () => {
+    const bus = new EventBus();
+    const cs = new CustomerSuccessTracker(bus);
+    const account = cs.addAccount({
+      name: "Acme Corp",
+      arrUsd: 100_000,
+      openTickets: 0,
+      daysSinceLastActivity: 3,
+      paymentStatus: "current",
+      npsScore: 80,
+      lastQbrDate: new Date().toISOString().split("T")[0]!,
+    });
+    assert.ok(account.healthScore > 70, `healthScore should be healthy, got ${account.healthScore}`);
+    assert.equal(account.riskTier, "healthy");
+  });
+
+  it("payment overdue reduces health score", () => {
+    const bus = new EventBus();
+    const cs = new CustomerSuccessTracker(bus);
+    const current = cs.addAccount({ name: "A", arrUsd: 50_000, openTickets: 0, daysSinceLastActivity: 0, paymentStatus: "current" });
+    const overdue = cs.addAccount({ name: "B", arrUsd: 50_000, openTickets: 0, daysSinceLastActivity: 0, paymentStatus: "overdue" });
+    assert.ok(overdue.healthScore < current.healthScore, "overdue payment should lower health score");
+  });
+
+  it("churn risk event emitted when score below threshold", () => {
+    const bus = new EventBus();
+    const cs = new CustomerSuccessTracker(bus, { churnRiskThreshold: 40 });
+    const events: unknown[] = [];
+    bus.subscribe("cs.churn_risk_flagged", (e) => { events.push(e); });
+    // Suspended payment + many tickets + inactive = very low score
+    cs.addAccount({
+      name: "Risky Co",
+      arrUsd: 80_000,
+      openTickets: 6,
+      daysSinceLastActivity: 60,
+      paymentStatus: "suspended",
+    });
+    assert.ok(events.length > 0, "cs.churn_risk_flagged should be emitted for at-risk account");
+  });
+
+  it("recordNPS updates npsScore and recomputes", () => {
+    const bus = new EventBus();
+    const cs = new CustomerSuccessTracker(bus);
+    const account = cs.addAccount({ name: "Loyal Corp", arrUsd: 100_000, openTickets: 0, daysSinceLastActivity: 1, paymentStatus: "current" });
+    const before = account.healthScore;
+    const npsEvents: unknown[] = [];
+    bus.subscribe("cs.nps_recorded", (e) => { npsEvents.push(e); });
+    const updated = cs.recordNPS(account.accountId, 90);
+    assert.ok(updated !== undefined, "updated account should exist");
+    assert.equal(updated!.npsScore, 90);
+    assert.ok(updated!.healthScore >= before, "high NPS should not decrease health score");
+    assert.ok(npsEvents.length > 0, "cs.nps_recorded event should be emitted");
+  });
+
+  it("summary aggregates by risk tier", () => {
+    const bus = new EventBus();
+    const cs = new CustomerSuccessTracker(bus);
+    // Healthy
+    cs.addAccount({ name: "H1", arrUsd: 200_000, openTickets: 0, daysSinceLastActivity: 1, paymentStatus: "current", npsScore: 90, lastQbrDate: new Date().toISOString().split("T")[0]! });
+    // Churned
+    cs.addAccount({ name: "C1", arrUsd: 50_000, openTickets: 6, daysSinceLastActivity: 90, paymentStatus: "suspended" });
+    const s = cs.summary();
+    assert.equal(s.totalAccounts, 2);
+    assert.equal(s.totalArrUsd, 250_000);
+    assert.ok(s.byRiskTier["healthy"].count >= 1);
+    assert.ok(s.churnRiskArrUsd >= 0);
+    assert.ok(s.averageHealthScore > 0);
+  });
+
+  it("churnRiskAccounts sorted by ARR descending", () => {
+    const bus = new EventBus();
+    const cs = new CustomerSuccessTracker(bus);
+    // All at-risk or worse
+    cs.addAccount({ name: "Small", arrUsd: 20_000, openTickets: 5, daysSinceLastActivity: 50, paymentStatus: "overdue" });
+    cs.addAccount({ name: "Large", arrUsd: 200_000, openTickets: 5, daysSinceLastActivity: 50, paymentStatus: "overdue" });
+    cs.addAccount({ name: "Medium", arrUsd: 100_000, openTickets: 5, daysSinceLastActivity: 50, paymentStatus: "overdue" });
+    const risky = cs.churnRiskAccounts();
+    assert.ok(risky.length >= 2, "should return at-risk accounts");
+    for (let i = 1; i < risky.length; i++) {
+      assert.ok(risky[i - 1]!.arrUsd >= risky[i]!.arrUsd, "accounts should be sorted by ARR descending");
+    }
   });
 });
