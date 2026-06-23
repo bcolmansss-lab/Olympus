@@ -29,6 +29,7 @@ import { WorkflowEngine } from "./workflow/workflow-engine.js";
 import { CalibrationMonitor } from "./autonomy/calibration-monitor.js";
 import { AnomalyDetector } from "./anomaly/anomaly-detector.js";
 import { PolicyEngine } from "./policy/policy-engine.js";
+import { NotificationRouter, InMemoryChannel } from "./notifications/notification-router.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -62,6 +63,10 @@ export class Olympus {
   readonly anomalyDetector: AnomalyDetector;
   /** Operator-defined business rule enforcement at the autonomy gate. */
   readonly policy: PolicyEngine;
+  /** Alerting backbone — fans high-signal events out to registered channels. */
+  readonly notifications: NotificationRouter;
+  /** In-memory alert log wired into the notification router by default. */
+  readonly alertLog: InMemoryChannel;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -82,6 +87,8 @@ export class Olympus {
     this.calibrationMonitor = new CalibrationMonitor(this.memory, this.autonomy, this.bus).attach();
     this.anomalyDetector = new AnomalyDetector(this.bus, this.okg).attach();
     this.policy = new PolicyEngine(this.bus);
+    this.alertLog = new InMemoryChannel();
+    this.notifications = new NotificationRouter(this.bus).addChannel(this.alertLog).attach();
   }
 }
 
@@ -106,3 +113,4 @@ export { MockLLM, type LLMClient, type LLMRequest, type LLMResponse, type Cognit
 export { TenantRegistry, type TenantConfig, type Tenant } from "./tenancy/index.js";
 export { resolveOrgId, resolveTenant } from "./tenancy/index.js";
 export { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy, type Policy, type PolicyContext, type PolicyViolation } from "./policy/index.js";
+export { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert, type AlertChannel, type AlertSeverity } from "./notifications/index.js";

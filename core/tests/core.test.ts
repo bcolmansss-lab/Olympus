@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
 
 import { EventBus } from "../events/event-bus.js";
+import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
 import { MockLLM } from "../llm/client.js";
@@ -1278,5 +1279,70 @@ describe("PolicyEngine", () => {
     assert.deepEqual(engine.list(), []);
     const result = engine.evaluate({ capability: "reallocate_budget", domain: "finance", exposureAmount: 600_000 });
     assert.equal(result, undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 27. NotificationRouter
+// ---------------------------------------------------------------------------
+
+describe("NotificationRouter", () => {
+  const mockAlert = (title: string): Alert => ({
+    id: "a1", topic: "test", severity: "info", title, body: "", payload: {}, createdAt: new Date().toISOString()
+  });
+
+  it("InMemoryChannel stores alerts in order", () => {
+    const ch = new InMemoryChannel();
+    ch.send(mockAlert("first"));
+    ch.send(mockAlert("second"));
+    ch.send(mockAlert("third"));
+    assert.equal(ch.count(), 3);
+    assert.equal(ch.alerts()[0]!.title, "first");
+  });
+
+  it("NotificationRouter routes anomaly.detected to channel", () => {
+    const bus = new EventBus();
+    const ch = new InMemoryChannel();
+    const router = new NotificationRouter(bus);
+    router.addChannel(ch).attach();
+    bus.publish("anomaly.detected", { key: "revenue", value: 999, zScore: 4.5, mean: 100, stddev: 10 });
+    assert.equal(ch.count(), 1);
+    assert.equal(ch.alerts()[0]!.severity, "warning");
+  });
+
+  it("NotificationRouter routes policy.blocked to channel", () => {
+    const bus = new EventBus();
+    const ch = new InMemoryChannel();
+    const router = new NotificationRouter(bus);
+    router.addChannel(ch).attach();
+    bus.publish("policy.blocked", { policyName: "cap-500k", description: "over limit" });
+    assert.equal(ch.count(), 1);
+    assert.equal(ch.alerts()[0]!.severity, "critical");
+  });
+
+  it("WebhookChannel records calls", () => {
+    const wh = new WebhookChannel("https://example.com/hook");
+    wh.send(mockAlert("one"));
+    wh.send(mockAlert("two"));
+    assert.equal(wh.calls.length, 2);
+    assert.equal(wh.calls[0]!.url, "https://example.com/hook");
+  });
+
+  it("detach stops routing", () => {
+    const bus = new EventBus();
+    const ch = new InMemoryChannel();
+    const router = new NotificationRouter(bus);
+    router.addChannel(ch).attach();
+    router.detach();
+    bus.publish("anomaly.detected", { key: "revenue", value: 999, zScore: 4.5, mean: 100, stddev: 10 });
+    assert.equal(ch.count(), 0);
+  });
+
+  it("InMemoryChannel respects maxSize cap", () => {
+    const ch = new InMemoryChannel(3);
+    for (let i = 0; i < 5; i++) {
+      ch.send(mockAlert(`alert-${i}`));
+    }
+    assert.equal(ch.count(), 3);
   });
 });
