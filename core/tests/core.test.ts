@@ -5,6 +5,7 @@
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
+import type { IncomingMessage } from "node:http";
 
 import { EventBus } from "../events/event-bus.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -966,5 +967,71 @@ describe("Hiring scenario", () => {
       "HeadcountGap risk node must exist",
     );
     assert.ok(scenario.anchors.headcountGap, "headcountGap anchor must be set");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 23. TenantRegistry
+// ---------------------------------------------------------------------------
+
+describe("TenantRegistry", () => {
+  it("provisions isolated Olympus instances per tenant", async () => {
+    const { TenantRegistry } = await import("../tenancy/index.js");
+    const registry = new TenantRegistry();
+    const t1 = registry.provision({ orgId: "org-1", name: "Acme", plan: "starter", createdAt: new Date().toISOString() });
+    const t2 = registry.provision({ orgId: "org-2", name: "Beta", plan: "growth", createdAt: new Date().toISOString() });
+    assert.ok(t1.olympus.okg !== t2.olympus.okg, "each tenant must have its own OKG instance");
+  });
+
+  it("throws on duplicate orgId", async () => {
+    const { TenantRegistry } = await import("../tenancy/index.js");
+    const registry = new TenantRegistry();
+    registry.provision({ orgId: "dup", name: "Dup", plan: "starter", createdAt: new Date().toISOString() });
+    assert.throws(
+      () => registry.provision({ orgId: "dup", name: "Dup2", plan: "starter", createdAt: new Date().toISOString() }),
+      /already exists/,
+    );
+  });
+
+  it("deprovisions tenant", async () => {
+    const { TenantRegistry } = await import("../tenancy/index.js");
+    const registry = new TenantRegistry();
+    registry.provision({ orgId: "to-remove", name: "Gone", plan: "starter", createdAt: new Date().toISOString() });
+    assert.equal(registry.count(), 1);
+    registry.deprovision("to-remove");
+    assert.equal(registry.count(), 0);
+    assert.equal(registry.get("to-remove"), undefined);
+  });
+
+  it("list returns all tenant configs", async () => {
+    const { TenantRegistry } = await import("../tenancy/index.js");
+    const registry = new TenantRegistry();
+    registry.provision({ orgId: "a", name: "A", plan: "starter", createdAt: new Date().toISOString() });
+    registry.provision({ orgId: "b", name: "B", plan: "growth", createdAt: new Date().toISOString() });
+    registry.provision({ orgId: "c", name: "C", plan: "enterprise", createdAt: new Date().toISOString() });
+    const configs = registry.list();
+    assert.equal(configs.length, 3);
+    const ids = configs.map((c) => c.orgId);
+    assert.ok(ids.includes("a") && ids.includes("b") && ids.includes("c"));
+  });
+
+  it("require throws for unknown tenant", async () => {
+    const { TenantRegistry } = await import("../tenancy/index.js");
+    const registry = new TenantRegistry();
+    assert.throws(() => registry.require("no-such-org"), /not found/);
+  });
+
+  it("resolveOrgId prefers header over query param", async () => {
+    const { resolveOrgId } = await import("../tenancy/index.js");
+    const mockReq = (headers: Record<string, string>, url = "/") =>
+      ({ headers, url } as unknown as IncomingMessage);
+
+    // Header takes precedence.
+    const withHeader = mockReq({ "x-org-id": "header-org" }, "/?orgId=query-org");
+    assert.equal(resolveOrgId(withHeader), "header-org");
+
+    // Falls back to query param when no header.
+    const withQuery = mockReq({}, "/?orgId=abc");
+    assert.equal(resolveOrgId(withQuery), "abc");
   });
 });

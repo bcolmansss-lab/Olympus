@@ -94,3 +94,5 @@ export { WorkflowEngine } from "./workflow/workflow-engine.js";
 export { CalibrationMonitor } from "./autonomy/calibration-monitor.js";
 export { ClaudeClient, DEFAULT_TIER_MODELS } from "./llm/claude-client.js";
 export { MockLLM, type LLMClient, type LLMRequest, type LLMResponse, type CognitiveTier } from "./llm/client.js";
+export { TenantRegistry, type TenantConfig, type Tenant } from "./tenancy/index.js";
+export { resolveOrgId, resolveTenant } from "./tenancy/index.js";
