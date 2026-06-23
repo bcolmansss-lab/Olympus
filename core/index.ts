@@ -4,10 +4,8 @@
  * Wires the foundational layers into a single Olympus instance:
  *   event bus -> OKG -> LLM -> memory -> RAG -> twin -> autonomy ->
  *   agent roster -> reasoning engine -> MCP server.
- *
  * The reasoning engine closes the loop: a single ask() flows
  *   reason -> simulate (twin) -> risk veto -> autonomy gate -> (execute | escalate).
- *
  * Swap any implementation (LLM, graph store, bus) behind its interface without
  * touching the layers above.
  */
@@ -48,6 +46,7 @@ import { ComplianceTracker } from "./compliance/index.js";
 import { CompetitiveIntel } from "./competitive/index.js";
 import { IncidentManager } from "./incidents/incident-manager.js";
 import { MarketingAttributionEngine } from "./marketing/attribution-engine.js";
+import { ForecastEngine } from "./forecasting/forecast-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -121,6 +120,8 @@ export class Olympus {
   readonly incidents: IncidentManager;
   /** Marketing attribution engine — multi-touch attribution, channel ROI, and campaign performance. */
   readonly marketing: MarketingAttributionEngine;
+  /** Financial forecast engine — ARR projections, scenario modeling, and sensitivity analysis. */
+  readonly forecasting: ForecastEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -159,6 +160,7 @@ export class Olympus {
     this.competitive = new CompetitiveIntel(this.bus);
     this.incidents = new IncidentManager(this.bus);
     this.marketing = new MarketingAttributionEngine(this.bus);
+    this.forecasting = new ForecastEngine(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -204,3 +206,4 @@ export { ComplianceTracker, type Control, type Evidence, type ControlStatus, typ
 export { CompetitiveIntel, type SignalType, type Sentiment, type WinLossOutcome, type Competitor, type CompetitiveSignal, type WinLossRecord, type CompetitorSummary } from "./competitive/index.js";
 export { IncidentManager, type Incident, type Postmortem, type IncidentMetrics, type IncidentSeverity, type IncidentStatus } from "./incidents/index.js";
 export { MarketingAttributionEngine, type AttributionModel, type ChannelType, type TouchPoint, type Conversion as MarketingConversion, type Campaign as MarketingCampaign, type ChannelSummary, type AttributionSummary } from "./marketing/index.js";
+export { ForecastEngine, type ForecastScenario, type ForecastDriver, type ForecastAssumptions, type MonthlyProjection, type ForecastResult, type ScenarioComparison, type SensitivityResult } from "./forecasting/index.js";

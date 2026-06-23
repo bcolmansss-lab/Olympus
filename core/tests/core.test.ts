@@ -40,6 +40,8 @@ import { CompetitiveIntel } from "../competitive/index.js";
 import { IncidentManager } from "../incidents/incident-manager.js";
 import { MarketingAttributionEngine } from "../marketing/attribution-engine.js";
 import type { TouchPoint } from "../marketing/attribution-engine.js";
+import { ForecastEngine } from "../forecasting/forecast-engine.js";
+import type { ForecastAssumptions } from "../forecasting/forecast-engine.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -3471,5 +3473,179 @@ describe("MarketingAttributionEngine", () => {
       revenueUsd: 50_000,
     });
     assert.equal(events.length, 1, "marketing.conversion event must be emitted");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ForecastEngine
+// ---------------------------------------------------------------------------
+
+describe("ForecastEngine", () => {
+  const makeAssumptions = (): ForecastAssumptions => ({
+    startingArrUsd: 1_200_000,
+    startingCashUsd: 2_000_000,
+    arrGrowthRate: 0.04,
+    churnRate: 0.01,
+    avgDealSizeUsd: 50_000,
+    newDealsPerMonth: 2,
+    monthlyOpexUsd: 50_000,
+    opexGrowthRate: 0.01,
+    monthlyPayrollUsd: 150_000,
+    headcountGrowthRate: 0.02,
+    grossMargin: 0.72,
+  });
+
+  it("generate returns projection for each month", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const result = engine.generate(makeAssumptions(), 18);
+    assert.strictEqual(result.projections.length, 18);
+    assert.strictEqual(result.months, 18);
+  });
+
+  it("ARR compounds correctly month over month", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const assumptions = makeAssumptions();
+    const result = engine.generate(assumptions, 3);
+    const m1 = result.projections[0];
+    const m2 = result.projections[1];
+    // ARR should grow from month 1 to month 2
+    assert.ok(m2!.arrUsd > m1!.arrUsd, "ARR should grow month over month");
+  });
+
+  it("cashOutMonth is null when cash stays positive", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const assumptions: ForecastAssumptions = {
+      ...makeAssumptions(),
+      startingCashUsd: 10_000_000,
+      grossMargin: 0.9,
+      monthlyPayrollUsd: 50_000,
+      monthlyOpexUsd: 10_000,
+    };
+    const result = engine.generate(assumptions, 18);
+    assert.strictEqual(result.cashOutMonth, null);
+  });
+
+  it("cashOutMonth detected when burn exceeds revenue", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const assumptions: ForecastAssumptions = {
+      ...makeAssumptions(),
+      startingCashUsd: 100_000,
+      startingArrUsd: 60_000,
+      arrGrowthRate: 0.01,
+      grossMargin: 0.1,
+      monthlyPayrollUsd: 200_000,
+      monthlyOpexUsd: 100_000,
+    };
+    const result = engine.generate(assumptions, 18);
+    assert.ok(result.cashOutMonth !== null, "Should detect cash out month");
+  });
+
+  it("compareScenarios optimistic ARR > base > pessimistic", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const comparison = engine.compareScenarios(makeAssumptions(), 12);
+    assert.ok(comparison.optimistic.projectedArrUsd > comparison.base.projectedArrUsd, "optimistic ARR > base ARR");
+    assert.ok(comparison.base.projectedArrUsd > comparison.pessimistic.projectedArrUsd, "base ARR > pessimistic ARR");
+  });
+
+  it("sensitivityAnalysis returns sorted results", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const results = engine.sensitivityAnalysis(makeAssumptions(), 12);
+    assert.ok(results.length > 0, "Should return sensitivity results");
+    for (let i = 1; i < results.length; i++) {
+      assert.ok(
+        Math.abs(results[i - 1]!.arrImpactPct) >= Math.abs(results[i]!.arrImpactPct),
+        "Results should be sorted by abs arrImpactPct desc"
+      );
+    }
+  });
+});
+
+// ── ForecastEngine ────────────────────────────────────────────────────────────
+describe("ForecastEngine", () => {
+  const baseAssumptions: ForecastAssumptions = {
+    startingArrUsd: 3_200_000,
+    startingCashUsd: 4_200_000,
+    arrGrowthRate: 0.04,
+    churnRate: 0.012,
+    avgDealSizeUsd: 85_000,
+    newDealsPerMonth: 2,
+    monthlyOpexUsd: 95_000,
+    opexGrowthRate: 0.02,
+    monthlyPayrollUsd: 380_000,
+    headcountGrowthRate: 0.03,
+    grossMargin: 0.72,
+  };
+
+  it("generate returns projection for each month", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const result = engine.generate(baseAssumptions, 12);
+    assert.equal(result.projections.length, 12);
+    assert.equal(result.months, 12);
+  });
+
+  it("ARR compounds correctly month over month", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const result = engine.generate(baseAssumptions, 3);
+    const m1 = result.projections[0]!;
+    const m2 = result.projections[1]!;
+    assert.ok(m2.arrUsd > m1.arrUsd, "ARR should grow month over month");
+  });
+
+  it("cashOutMonth is null when cash stays positive", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    // High gross margin + low burn => profitable
+    const result = engine.generate({
+      ...baseAssumptions,
+      grossMargin: 0.90,
+      monthlyPayrollUsd: 50_000,
+      monthlyOpexUsd: 20_000,
+    }, 18);
+    assert.equal(result.cashOutMonth, null, "should not run out of cash");
+  });
+
+  it("cashOutMonth detected when burn exceeds revenue", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const result = engine.generate({
+      ...baseAssumptions,
+      startingArrUsd: 100_000,
+      startingCashUsd: 200_000,
+      monthlyPayrollUsd: 500_000,
+      monthlyOpexUsd: 200_000,
+      grossMargin: 0.10,
+    }, 18);
+    assert.ok(result.cashOutMonth !== null, "high burn should exhaust cash");
+    assert.ok(result.cashOutMonth! >= 1 && result.cashOutMonth! <= 18);
+  });
+
+  it("compareScenarios optimistic ARR > base > pessimistic", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const comparison = engine.compareScenarios(baseAssumptions, 12);
+    assert.ok(comparison.optimistic.projectedArrUsd > comparison.base.projectedArrUsd, "optimistic > base");
+    assert.ok(comparison.base.projectedArrUsd > comparison.pessimistic.projectedArrUsd, "base > pessimistic");
+  });
+
+  it("sensitivityAnalysis returns sorted results", () => {
+    const bus = new EventBus();
+    const engine = new ForecastEngine(bus);
+    const results = engine.sensitivityAnalysis(baseAssumptions, 6);
+    assert.ok(results.length > 0, "should return sensitivity results");
+    // Verify sorted by abs impact descending
+    for (let i = 1; i < results.length; i++) {
+      assert.ok(
+        Math.abs(results[i - 1]!.arrImpactPct) >= Math.abs(results[i]!.arrImpactPct),
+        "results should be sorted by impact descending",
+      );
+    }
   });
 });

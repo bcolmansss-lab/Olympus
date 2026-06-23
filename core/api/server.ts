@@ -153,6 +153,23 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/competitive", handler: (_req, res) => res.json(200, { competitors: this.olympus.competitive.listCompetitors(), recentSignals: this.olympus.competitive.recentSignals(5) }) },
       { method: "GET", pattern: "/v1/incidents", handler: (_req, res) => res.json(200, { incidents: this.olympus.incidents.list(), open: this.olympus.incidents.openIncidents(), metrics: this.olympus.incidents.metrics() }) },
       { method: "GET", pattern: "/v1/marketing", handler: (_req, res) => res.json(200, { summary: this.olympus.marketing.summary(), campaigns: this.olympus.marketing.listCampaigns() }) },
+      { method: "GET", pattern: "/v1/forecast", handler: (_req, res) => res.json(200, this.olympus.forecasting.list()) },
+      { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
+        const heliosAssumptions = {
+          startingArrUsd: 3_200_000,
+          startingCashUsd: 4_200_000,
+          arrGrowthRate: 0.04,
+          churnRate: 0.012,
+          avgDealSizeUsd: 85_000,
+          newDealsPerMonth: 2,
+          monthlyOpexUsd: 95_000,
+          opexGrowthRate: 0.02,
+          monthlyPayrollUsd: 380_000,
+          headcountGrowthRate: 0.03,
+          grossMargin: 0.72,
+        };
+        return res.json(200, this.olympus.forecasting.compareScenarios(heliosAssumptions));
+      } },
     );
   }
 

@@ -12,6 +12,7 @@
  */
 
 import type { Olympus } from "../index.js";
+import type { ForecastAssumptions } from "../forecasting/forecast-engine.js";
 
 /** Format a Date as an ISO date (YYYY-MM-DD). */
 function isoDate(d: Date): string {
@@ -45,6 +46,7 @@ export function seedCompany(olympus: Olympus): void {
   seedCompetitiveIntel(olympus);
   seedIncidents(olympus);
   seedMarketing(olympus);
+  seedForecasting(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -958,4 +960,35 @@ function seedMarketing(olympus: Olympus): void {
     revenueUsd: 130_000,
     model: "last_touch",
   });
+}
+
+function seedForecasting(olympus: Olympus): void {
+  const heliosAssumptions: ForecastAssumptions = {
+    startingArrUsd: 3_200_000,
+    startingCashUsd: 4_200_000,
+    arrGrowthRate: 0.04,
+    churnRate: 0.012,
+    avgDealSizeUsd: 85_000,
+    newDealsPerMonth: 2,
+    monthlyOpexUsd: 95_000,
+    opexGrowthRate: 0.02,
+    monthlyPayrollUsd: 380_000,
+    headcountGrowthRate: 0.03,
+    grossMargin: 0.72,
+  };
+
+  // Base 18-month forecast
+  olympus.forecasting.generate(heliosAssumptions, 18, "base");
+
+  // Optimistic 12-month forecast
+  olympus.forecasting.generate(
+    {
+      ...heliosAssumptions,
+      arrGrowthRate: 0.07,
+      avgDealSizeUsd: 110_000,
+      churnRate: 0.008,
+    },
+    12,
+    "optimistic"
+  );
 }
