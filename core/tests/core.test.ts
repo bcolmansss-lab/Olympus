@@ -28,6 +28,7 @@ import { seedPricingScenario, PRICING_SCENARIO_SEED } from "../scenarios/pricing
 import { seedHiringScenario, HIRING_SCENARIO_SEED } from "../scenarios/hiring.js";
 import { compareScenarios } from "../simulation/scenario-compare.js";
 import { CapacityPlanner } from "../capacity/capacity-planner.js";
+import { FinancialLedger } from "../finance/ledger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1543,5 +1544,126 @@ describe("CapacityPlanner", () => {
     // r2 fine: 0.8
     planner.allocate({ resourceId: "r2", projectId: "p1", utilization: 0.8 });
     assert.equal(planner.overallocatedResources().length, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 30. FinancialLedger
+// ---------------------------------------------------------------------------
+
+describe("FinancialLedger", () => {
+  it("post entry updates account balances", () => {
+    const bus = new EventBus();
+    const ledger = new FinancialLedger(bus);
+    ledger.addAccount({ id: "cash", name: "Cash", type: "asset" });
+    ledger.addAccount({ id: "revenue", name: "Revenue", type: "revenue" });
+
+    ledger.post({
+      date: new Date().toISOString().split("T")[0]!,
+      description: "Customer payment",
+      debitAccountId: "cash",
+      creditAccountId: "revenue",
+      amount: 10000,
+    });
+
+    assert.equal(ledger.getAccount("cash")!.balance, 10000);
+    assert.equal(ledger.getAccount("revenue")!.balance, 10000);
+  });
+
+  it("post entry emits finance.entry_posted event", () => {
+    const bus = new EventBus();
+    const ledger = new FinancialLedger(bus);
+    ledger.addAccount({ id: "cash", name: "Cash", type: "asset" });
+    ledger.addAccount({ id: "revenue", name: "Revenue", type: "revenue" });
+
+    const events: unknown[] = [];
+    bus.subscribe("finance.entry_posted", (e) => { events.push(e); });
+
+    ledger.post({
+      date: new Date().toISOString().split("T")[0]!,
+      description: "Sale",
+      debitAccountId: "cash",
+      creditAccountId: "revenue",
+      amount: 5000,
+    });
+
+    assert.equal(events.length, 1);
+    const payload = (events[0] as { payload: { amount: number } }).payload;
+    assert.equal(payload.amount, 5000);
+  });
+
+  it("burnRate returns Infinity runway when no expenses", () => {
+    const bus = new EventBus();
+    const ledger = new FinancialLedger(bus);
+    ledger.addAccount({ id: "cash", name: "Cash", type: "asset" });
+    ledger.addAccount({ id: "revenue", name: "Revenue", type: "revenue" });
+
+    ledger.post({
+      date: new Date().toISOString().split("T")[0]!,
+      description: "Revenue only",
+      debitAccountId: "cash",
+      creditAccountId: "revenue",
+      amount: 50000,
+    });
+
+    assert.equal(ledger.burnRate().runwayMonths, Infinity);
+  });
+
+  it("burnRate computes monthly burn and runway", () => {
+    const bus = new EventBus();
+    const ledger = new FinancialLedger(bus);
+    ledger.addAccount({ id: "cash", name: "Cash", type: "asset", balance: 60000 });
+    ledger.addAccount({ id: "expense", name: "Expenses", type: "expense" });
+    ledger.addAccount({ id: "ap", name: "Accounts Payable", type: "liability" });
+
+    const today = new Date().toISOString().split("T")[0]!;
+    // Post 3 expense entries totaling 30000
+    for (let i = 0; i < 3; i++) {
+      ledger.post({
+        date: today,
+        description: `Expense ${i}`,
+        debitAccountId: "expense",
+        creditAccountId: "ap",
+        amount: 10000,
+      });
+    }
+
+    const report = ledger.burnRate();
+    assert.ok(report.monthlyBurn > 0, "monthly burn must be positive");
+    assert.ok(isFinite(report.runwayMonths) && report.runwayMonths > 0, "runway must be finite and positive");
+  });
+
+  it("netIncome = revenue - expenses", () => {
+    const bus = new EventBus();
+    const ledger = new FinancialLedger(bus);
+    ledger.addAccount({ id: "cash", name: "Cash", type: "asset" });
+    ledger.addAccount({ id: "revenue", name: "Revenue", type: "revenue" });
+    ledger.addAccount({ id: "expense", name: "Expenses", type: "expense" });
+    ledger.addAccount({ id: "ap", name: "Accounts Payable", type: "liability" });
+
+    const today = new Date().toISOString().split("T")[0]!;
+    ledger.post({ date: today, description: "Revenue", debitAccountId: "cash", creditAccountId: "revenue", amount: 50000 });
+    ledger.post({ date: today, description: "Expense", debitAccountId: "expense", creditAccountId: "ap", amount: 20000 });
+
+    assert.equal(ledger.netIncome(), 30000);
+  });
+
+  it("emits runway_warning when runway < threshold", () => {
+    const bus = new EventBus();
+    // Set threshold to 6 months
+    const ledger = new FinancialLedger(bus, { runwayWarningThreshold: 6 });
+    // Cash balance 5000, expenses will be high enough to produce < 6 months runway
+    ledger.addAccount({ id: "cash", name: "Cash", type: "asset", balance: 5000 });
+    ledger.addAccount({ id: "expense", name: "Expenses", type: "expense" });
+    ledger.addAccount({ id: "ap", name: "Accounts Payable", type: "liability" });
+
+    const warnings: unknown[] = [];
+    bus.subscribe("finance.runway_warning", (e) => { warnings.push(e); });
+
+    const today = new Date().toISOString().split("T")[0]!;
+    // 3000/month burn → runway = 5000/1000 = 5 months < 6 threshold
+    ledger.post({ date: today, description: "High expense", debitAccountId: "expense", creditAccountId: "ap", amount: 3000 });
+
+    assert.ok(warnings.length >= 1, "finance.runway_warning must be emitted when runway < threshold");
   });
 });

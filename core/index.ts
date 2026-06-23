@@ -32,6 +32,7 @@ import { PolicyEngine } from "./policy/policy-engine.js";
 import { NotificationRouter, InMemoryChannel } from "./notifications/notification-router.js";
 import { OKRTracker } from "./goals/okr-tracker.js";
 import { CapacityPlanner } from "./capacity/capacity-planner.js";
+import { FinancialLedger } from "./finance/ledger.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -73,6 +74,8 @@ export class Olympus {
   readonly okr: OKRTracker;
   /** Capacity planner — models team headcount, project demands, and detects overallocation. */
   readonly capacity: CapacityPlanner;
+  /** Financial ledger — double-entry bookkeeping, burn rate, and runway projection. */
+  readonly ledger: FinancialLedger;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -97,6 +100,7 @@ export class Olympus {
     this.notifications = new NotificationRouter(this.bus).addChannel(this.alertLog).attach();
     this.okr = new OKRTracker(this.bus).attach();
     this.capacity = new CapacityPlanner(this.bus);
+    this.ledger = new FinancialLedger(this.bus);
   }
 }
 
@@ -124,3 +128,4 @@ export { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFre
 export { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert, type AlertChannel, type AlertSeverity } from "./notifications/index.js";
 export { OKRTracker, type Objective, type KeyResult, type KRStatus } from "./goals/index.js";
 export { CapacityPlanner, type Resource, type Project, type Allocation, type OverallocationReport } from "./capacity/index.js";
+export { FinancialLedger, type Account, type AccountType, type JournalEntry, type BurnRateReport } from "./finance/index.js";
