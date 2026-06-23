@@ -2162,6 +2162,92 @@ describe("seedCompany", () => {
   });
 });
 
+describe("OutcomeTracker", () => {
+  it("recordOutcome returns undefined for unknown decision", () => {
+    const o = new Olympus();
+    assert.equal(o.outcomes.recordOutcome("nope", 5), undefined);
+  });
+
+  it("recordOutcome computes absError and signedError", () => {
+    const o = new Olympus();
+    o.outcomes.recordPrediction("d1", "finance", 100);
+    const r = o.outcomes.recordOutcome("d1", 120);
+    assert.ok(r);
+    assert.equal(r.absError, 20);
+    assert.equal(r.signedError, 20);
+  });
+
+  it("negative signedError when actual below predicted", () => {
+    const o = new Olympus();
+    o.outcomes.recordPrediction("d1", "finance", 100);
+    const r = o.outcomes.recordOutcome("d1", 80);
+    assert.ok(r);
+    assert.equal(r.signedError, -20);
+    assert.equal(r.absError, 20);
+  });
+
+  it("emits outcome.recorded event", () => {
+    const o = new Olympus();
+    let seen: { decisionId?: string } | undefined;
+    o.bus.subscribe("outcome.recorded", (e) => {
+      seen = e.payload as { decisionId?: string };
+    });
+    o.outcomes.recordPrediction("d1", "finance", 100);
+    o.outcomes.recordOutcome("d1", 110);
+    assert.ok(seen);
+    assert.equal(seen.decisionId, "d1");
+  });
+
+  it("feeds the calibration flywheel", () => {
+    const o = new Olympus();
+    o.outcomes.recordPrediction("d1", "finance", 100);
+    o.outcomes.recordOutcome("d1", 180);
+    assert.ok((o.memory.maeByDomain()["finance"] ?? 0) > 0);
+  });
+
+  it("meanAbsError averages errors for a domain", () => {
+    const o = new Olympus();
+    o.outcomes.recordPrediction("s1", "sales", 100);
+    o.outcomes.recordOutcome("s1", 110); // err 10
+    o.outcomes.recordPrediction("s2", "sales", 100);
+    o.outcomes.recordOutcome("s2", 130); // err 30
+    assert.equal(o.outcomes.meanAbsError("sales"), 20);
+  });
+
+  it("pendingPredictions excludes resolved", () => {
+    const o = new Olympus();
+    o.outcomes.recordPrediction("d1", "finance", 100);
+    o.outcomes.recordPrediction("d2", "finance", 100);
+    o.outcomes.recordOutcome("d1", 105);
+    const pending = o.outcomes.pendingPredictions();
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.decisionId, "d2");
+  });
+
+  it("drift in outcomes can trigger autonomy demotion via CalibrationMonitor", () => {
+    const o = new Olympus();
+    // Grant finance some autonomy above L0.
+    o.autonomy.setGrant({ domain: "finance", capability: "reforecast", level: 4 });
+    assert.equal(o.autonomy.getGrant("finance", "reforecast")?.level, 4);
+
+    let demotionFired = false;
+    o.bus.subscribe("autonomy.calibration_demotion", () => {
+      demotionFired = true;
+    });
+
+    // Record enough high-error outcomes to exceed maeThreshold (0.5) after
+    // minObservations (3). Errors of 50 each => MAE 50 >> 0.5.
+    for (let i = 0; i < 4; i++) {
+      o.outcomes.recordPrediction(`f${i}`, "finance", 100);
+      o.outcomes.recordOutcome(`f${i}`, 150);
+    }
+
+    assert.ok((o.memory.maeByDomain()["finance"] ?? 0) > 0.5);
+    assert.ok(demotionFired, "expected calibration demotion event");
+    assert.equal(o.autonomy.getGrant("finance", "reforecast")?.level, 0);
+  });
+});
+
 describe("Operator console panels", () => {
   it("dashboard HTML surfaces the Company Health hero and Business Modules grid", async () => {
     const { DASHBOARD_HTML } = await import("../api/dashboard.js");

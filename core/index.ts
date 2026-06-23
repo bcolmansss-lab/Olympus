@@ -37,6 +37,7 @@ import { SLATracker } from "./contracts/sla-tracker.js";
 import { DealPipeline } from "./crm/pipeline.js";
 import { RiskRegister } from "./risk/risk-register.js";
 import { HealthScorer } from "./health/health-score.js";
+import { OutcomeTracker } from "./learning/outcome-tracker.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -88,6 +89,8 @@ export class Olympus {
   readonly riskRegister: RiskRegister;
   /** Unified company health index (0–100) aggregating every business module. */
   readonly health: HealthScorer;
+  /** Closes the predict-act-observe-learn loop into the calibration flywheel. */
+  readonly outcomes: OutcomeTracker;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -95,6 +98,7 @@ export class Olympus {
     this.llm = opts.llm ?? new MockLLM();
     this.roster = opts.roster ?? defaultRoster();
     this.memory = new MemoryStore(this.bus);
+    this.outcomes = new OutcomeTracker(this.bus, this.memory);
     this.rag = new GraphRAG(this.okg, this.memory);
     this.autonomy = new AutonomyEngine(this.bus);
     this.twin = opts.twin;
@@ -149,3 +153,4 @@ export { SLATracker, type SLADefinition, type SLAState, type SLADirection, type 
 export { DealPipeline, type Deal, type DealStage, type PipelineSummary } from "./crm/index.js";
 export { RiskRegister, type RiskEntry, type RiskStatus, type RiskCategory } from "./risk/index.js";
 export { HealthScorer, type HealthReport, type HealthDimension, type HealthGrade } from "./health/index.js";
+export { OutcomeTracker, type PredictionRecord, type OutcomeRecord } from "./learning/index.js";
