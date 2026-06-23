@@ -18,6 +18,7 @@ import { defaultRoster } from "../agents/executive-agent.js";
 import { Orchestrator } from "../agents/orchestrator/orchestrator.js";
 import type { AgentContext, DecisionBrief } from "../agents/types.js";
 import { Olympus } from "../index.js";
+import { AnomalyDetector } from "../anomaly/anomaly-detector.js";
 import type { AutonomyLevel } from "../autonomy/autonomy-engine.js";
 import { seedChurnScenario } from "../scenarios/churn.js";
 import { seedPricingScenario, PRICING_SCENARIO_SEED } from "../scenarios/pricing.js";
@@ -1033,5 +1034,110 @@ describe("TenantRegistry", () => {
     // Falls back to query param when no header.
     const withQuery = mockReq({}, "/?orgId=abc");
     assert.equal(resolveOrgId(withQuery), "abc");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 24. AnomalyDetector
+// ---------------------------------------------------------------------------
+
+describe("AnomalyDetector", () => {
+  it("no alert before minObservations", () => {
+    const bus = new EventBus();
+    const okg = new OKG(bus);
+    const detector = new AnomalyDetector(bus, okg);
+    detector.attach();
+
+    for (let i = 0; i < 4; i++) {
+      bus.publish("metric.observed", { key: "cpu", value: 100 });
+    }
+
+    const riskNodes = okg.nodesByType("Risk");
+    const anomalyNodes = riskNodes.filter((n) =>
+      (n.props as Record<string, unknown>)["label"]?.toString().startsWith("Anomaly:"),
+    );
+    assert.equal(anomalyNodes.length, 0, "no anomaly Risk nodes before minObservations");
+  });
+
+  it("no alert for in-range values", () => {
+    const bus = new EventBus();
+    const okg = new OKG(bus);
+    const detector = new AnomalyDetector(bus, okg);
+    detector.attach();
+
+    for (let i = 0; i < 10; i++) {
+      bus.publish("metric.observed", { key: "cpu", value: 100 });
+    }
+
+    const riskNodes = okg.nodesByType("Risk");
+    const anomalyNodes = riskNodes.filter((n) =>
+      (n.props as Record<string, unknown>)["label"]?.toString().startsWith("Anomaly:"),
+    );
+    assert.equal(anomalyNodes.length, 0, "no anomaly raised when all values are identical (zero variance)");
+  });
+
+  it("raises Risk node and emits event on 3-sigma deviation", () => {
+    const bus = new EventBus();
+    const okg = new OKG(bus);
+    const detector = new AnomalyDetector(bus, okg);
+
+    const detected: unknown[] = [];
+    bus.subscribe("anomaly.detected", (e) => { detected.push(e); });
+
+    detector.attach();
+
+    // 20 normal observations with slight natural variance to establish baseline
+    const baseline = [98, 101, 99, 102, 100, 103, 97, 101, 100, 99,
+                      102, 98, 101, 100, 99, 103, 97, 102, 100, 101];
+    for (const v of baseline) {
+      detector.observe("revenue", v);
+    }
+    // 1 extreme outlier — far beyond 3 sigma
+    detector.observe("revenue", 500);
+
+    const riskNodes = okg.nodesByType("Risk");
+    const anomalyNodes = riskNodes.filter((n) =>
+      (n.props as Record<string, unknown>)["label"]?.toString().startsWith("Anomaly:"),
+    );
+    assert.ok(anomalyNodes.length >= 1, "a Risk node with Anomaly: label must be raised");
+    assert.ok(detected.length >= 1, "anomaly.detected event must be emitted");
+  });
+
+  it("attach/detach — no alerts after detach", () => {
+    const bus = new EventBus();
+    const okg = new OKG(bus);
+    const detector = new AnomalyDetector(bus, okg);
+
+    const detected: unknown[] = [];
+    bus.subscribe("anomaly.detected", (e) => { detected.push(e); });
+
+    detector.attach();
+    detector.detach();
+
+    // 10 normal + 1 extreme, all via bus — detector is detached so should ignore them
+    for (let i = 0; i < 10; i++) {
+      bus.publish("metric.observed", { key: "latency", value: 50 });
+    }
+    bus.publish("metric.observed", { key: "latency", value: 50000 });
+
+    assert.equal(detected.length, 0, "no anomaly.detected events after detach");
+  });
+
+  it("observe() returns zScore on anomaly", () => {
+    const bus = new EventBus();
+    const okg = new OKG(bus);
+    const detector = new AnomalyDetector(bus, okg);
+
+    let result: number | undefined;
+    // 20 observations with natural variance to establish baseline
+    const baseline = [48, 51, 49, 52, 50, 53, 47, 51, 50, 49,
+                      52, 48, 51, 50, 49, 53, 47, 52, 50, 51];
+    for (const v of baseline) {
+      result = detector.observe("metric", v);
+    }
+    // Extreme outlier: far beyond 3 sigma
+    result = detector.observe("metric", 1000);
+
+    assert.ok(result !== undefined && result > 3, `zScore should be > 3, got ${result}`);
   });
 });
