@@ -603,6 +603,81 @@ describe("OlympusApiServer — /v1/diagnose", () => {
   });
 });
 
+describe("Business module API endpoints", () => {
+  it("GET /v1/risks returns 200 with a risks array", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/risks`);
+      assert.equal(r.status, 200);
+      const body = await r.json() as { risks: unknown[] };
+      assert.ok(Array.isArray(body.risks));
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("GET /v1/finance returns 200 with a burnRate object", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/finance`);
+      assert.equal(r.status, 200);
+      const body = await r.json() as { burnRate: unknown };
+      assert.equal(typeof body.burnRate, "object");
+      assert.ok(body.burnRate !== null);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("GET /v1/pipeline returns 200 with a summary object", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/pipeline`);
+      assert.equal(r.status, 200);
+      const body = await r.json() as { summary: unknown };
+      assert.equal(typeof body.summary, "object");
+      assert.ok(body.summary !== null);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("GET /v1/sla returns 200 with an slas array", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/sla`);
+      assert.equal(r.status, 200);
+      const body = await r.json() as { slas: unknown[] };
+      assert.ok(Array.isArray(body.slas));
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("GET /v1/capacity returns 200 with a summary object", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/capacity`);
+      assert.equal(r.status, 200);
+      const body = await r.json() as { summary: unknown };
+      assert.equal(typeof body.summary, "object");
+      assert.ok(body.summary !== null);
+    } finally {
+      await api.close();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 15. Persistence — durable log survives a simulated restart
 // ---------------------------------------------------------------------------

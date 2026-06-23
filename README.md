@@ -56,6 +56,11 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `GET` · `POST` | `/v1/inbox` · `/v1/inbox/:id/resolve` | Decision Inbox feed (items needing human attention) + resolve |
 | `GET` | `/v1/stream` | Live event stream (Server-Sent Events; `?topic=decision.*` to filter) |
 | `GET` | `/v1/events` · `/v1/audit` | The event spine log and the tamper-evident audit chain |
+| `GET` | `/v1/risks` | Risk register — full catalog plus the top 5 risks by P×I score |
+| `GET` | `/v1/finance` | Financial ledger — burn rate, accounts, and net income |
+| `GET` | `/v1/pipeline` | CRM deal pipeline — weighted summary and the full deal list |
+| `GET` | `/v1/sla` | SLA tracker — all SLAs, those at risk, and total penalties |
+| `GET` | `/v1/capacity` | Capacity planner — utilization summary and overallocated resources |
 
 **Auth & rate limiting.** `/v1/*` routes accept optional Bearer-token auth and per-caller rate limiting; the console (`/`) and `/healthz` stay public. Both are off by default (zero-config demo). Enable via env:
 

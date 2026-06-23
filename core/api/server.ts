@@ -136,6 +136,12 @@ export class OlympusApiServer {
 
       { method: "GET", pattern: "/v1/okr", handler: (_req, res) => res.json(200, this.olympus.okr.list()) },
       { method: "POST", pattern: "/v1/okr", handler: (req, res) => this.handleAddObjective(req, res) },
+
+      { method: "GET", pattern: "/v1/risks", handler: (_req, res) => res.json(200, { risks: this.olympus.riskRegister.list(), top: this.olympus.riskRegister.topRisks(5) }) },
+      { method: "GET", pattern: "/v1/finance", handler: (_req, res) => res.json(200, { burnRate: this.olympus.ledger.burnRate(), accounts: this.olympus.ledger.listAccounts(), netIncome: this.olympus.ledger.netIncome() }) },
+      { method: "GET", pattern: "/v1/pipeline", handler: (_req, res) => res.json(200, { summary: this.olympus.pipeline.summary(), deals: this.olympus.pipeline.list() }) },
+      { method: "GET", pattern: "/v1/sla", handler: (_req, res) => res.json(200, { slas: this.olympus.sla.list(), atRisk: this.olympus.sla.atRisk(), totalPenalties: this.olympus.sla.totalPenalties() }) },
+      { method: "GET", pattern: "/v1/capacity", handler: (_req, res) => res.json(200, { summary: this.olympus.capacity.capacitySummary(), overallocated: this.olympus.capacity.overallocatedResources() }) },
     );
   }
 
