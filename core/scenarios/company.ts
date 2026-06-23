@@ -41,6 +41,7 @@ export function seedCompany(olympus: Olympus): void {
   seedProjects(olympus);
   seedCustomerSuccess(olympus);
   seedProductAnalytics(olympus);
+  seedCompliance(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -618,5 +619,88 @@ function seedCustomerSuccess(olympus: Olympus): void {
     openTickets: 6,
     daysSinceLastActivity: 90,
     paymentStatus: "suspended",
+  });
+}
+
+function seedCompliance(olympus: Olympus): void {
+  const c = olympus.compliance;
+
+  // 1. SOC2 CC6.1 — Logical Access Controls (recent evidence → compliant)
+  const ctrl1 = c.addControl({
+    id: "ctrl-soc2-cc6-1",
+    title: "Logical Access Controls",
+    description: "Restrict logical access to systems and data to authorized users.",
+    framework: "SOC2",
+    category: "Access Control",
+    reviewCycleDays: 90,
+    owner: "security-team",
+  });
+  c.recordEvidence(ctrl1.id, {
+    type: "log_export",
+    description: "IAM access review — all accounts audited and confirmed.",
+    collectedAt: isoDate(daysAgo(10)),
+    collectedBy: "security-team",
+  });
+
+  // 2. SOC2 CC6.2 — Authentication (stale evidence → non-compliant)
+  const ctrl2 = c.addControl({
+    id: "ctrl-soc2-cc6-2",
+    title: "Authentication",
+    description: "Multi-factor authentication enforced for all privileged accounts.",
+    framework: "SOC2",
+    category: "Access Control",
+    reviewCycleDays: 90,
+    owner: "security-team",
+  });
+  c.recordEvidence(ctrl2.id, {
+    type: "screenshot",
+    description: "MFA enforcement screenshot from admin console.",
+    collectedAt: "2026-03-15",
+    collectedBy: "security-team",
+  });
+
+  // 3. ISO27001 A.12.6 — Patch Management (recent evidence → compliant)
+  const ctrl3 = c.addControl({
+    id: "ctrl-iso-a12-6",
+    title: "Patch Management",
+    description: "Technical vulnerabilities managed and patched in a timely manner.",
+    framework: "ISO27001",
+    category: "Operations Security",
+    reviewCycleDays: 30,
+    owner: "it-ops",
+  });
+  c.recordEvidence(ctrl3.id, {
+    type: "report",
+    description: "Patch compliance report — 100% of critical CVEs remediated within SLA.",
+    collectedAt: isoDate(daysAgo(5)),
+    collectedBy: "it-ops",
+  });
+
+  // 4. GDPR Art.32 — Encryption at Rest (recent evidence → compliant)
+  const ctrl4 = c.addControl({
+    id: "ctrl-gdpr-art32",
+    title: "Encryption at Rest",
+    description: "Personal data encrypted at rest using AES-256 or equivalent.",
+    framework: "GDPR",
+    category: "Data Security",
+    reviewCycleDays: 180,
+    owner: "engineering",
+  });
+  c.recordEvidence(ctrl4.id, {
+    type: "attestation",
+    description: "Engineering attestation: all datastores use AES-256 encryption at rest.",
+    collectedAt: isoDate(daysAgo(30)),
+    collectedBy: "engineering",
+  });
+
+  // 5. internal — Incident Response Plan (no evidence → not-started)
+  c.addControl({
+    id: "ctrl-internal-irp",
+    title: "Incident Response Plan",
+    description: "Documented and tested incident response plan covering detection, containment, and recovery.",
+    framework: "internal",
+    category: "Incident Management",
+    reviewCycleDays: 365,
+    owner: "security-team",
   });
 }

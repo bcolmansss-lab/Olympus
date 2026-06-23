@@ -35,6 +35,7 @@ import { RiskRegister } from "../risk/risk-register.js";
 import { VendorRegistry } from "../procurement/vendor-registry.js";
 import { SprintTracker } from "../projects/sprint-tracker.js";
 import { CustomerSuccessTracker } from "../customer-success/account-health.js";
+import { ComplianceTracker } from "../compliance/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2855,5 +2856,126 @@ describe("ProductAnalytics", () => {
     assert.equal(top[0]!.featureKey, "b");
     assert.equal(top[1]!.featureKey, "a");
     assert.equal(top[2]!.featureKey, "c");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ComplianceTracker
+// ---------------------------------------------------------------------------
+
+describe("ComplianceTracker", () => {
+  it("addControl starts as not-started", () => {
+    const bus = new EventBus();
+    const ct = new ComplianceTracker(bus);
+    const ctrl = ct.addControl({
+      title: "Test Control",
+      description: "A test control.",
+      framework: "SOC2",
+      category: "Access",
+      owner: "security-team",
+    });
+    assert.equal(ctrl.status, "not-started");
+  });
+
+  it("recordEvidence sets status to compliant", () => {
+    const bus = new EventBus();
+    const ct = new ComplianceTracker(bus);
+    const ctrl = ct.addControl({
+      title: "Auth Control",
+      description: "MFA enforcement.",
+      framework: "SOC2",
+      category: "Access",
+      reviewCycleDays: 90,
+      owner: "security-team",
+    });
+    // Record evidence just now
+    ct.recordEvidence(ctrl.id, {
+      type: "screenshot",
+      description: "MFA screenshot",
+      collectedAt: new Date().toISOString(),
+      collectedBy: "security-team",
+    });
+    assert.equal(ct.get(ctrl.id)!.status, "compliant");
+  });
+
+  it("stale evidence triggers non-compliant status and gap_detected event", () => {
+    const bus = new EventBus();
+    const ct = new ComplianceTracker(bus);
+    const ctrl = ct.addControl({
+      title: "Patch Management",
+      description: "Timely patching.",
+      framework: "ISO27001",
+      category: "Operations",
+      reviewCycleDays: 20,
+      owner: "it-ops",
+    });
+    // Record evidence 40 days ago
+    const staleDate = new Date(new Date("2026-06-23").getTime() - 40 * 24 * 60 * 60 * 1000);
+    ct.recordEvidence(ctrl.id, {
+      type: "report",
+      description: "Old patch report",
+      collectedAt: staleDate.toISOString(),
+      collectedBy: "it-ops",
+    });
+
+    const gapEvents: unknown[] = [];
+    bus.subscribe("compliance.gap_detected", (e) => { gapEvents.push(e.payload); });
+
+    const status = ct.checkControl(ctrl.id, new Date("2026-06-23"));
+    assert.equal(status, "non-compliant");
+    assert.equal(ct.get(ctrl.id)!.status, "non-compliant");
+    assert.ok(gapEvents.length > 0, "gap_detected event should have been emitted");
+  });
+
+  it("checkGaps returns only non-compliant controls", () => {
+    const bus = new EventBus();
+    const ct = new ComplianceTracker(bus);
+    // Compliant control
+    const c1 = ct.addControl({ title: "C1", description: "d", framework: "SOC2", category: "cat", reviewCycleDays: 90, owner: "team" });
+    ct.recordEvidence(c1.id, { type: "report", description: "recent", collectedAt: new Date().toISOString(), collectedBy: "team" });
+    // Not-started control
+    ct.addControl({ title: "C2", description: "d", framework: "SOC2", category: "cat", reviewCycleDays: 90, owner: "team" });
+    // Non-compliant control
+    const c3 = ct.addControl({ title: "C3", description: "d", framework: "ISO27001", category: "cat", reviewCycleDays: 30, owner: "team" });
+    const stale = new Date(Date.now() - 50 * 24 * 60 * 60 * 1000);
+    ct.recordEvidence(c3.id, { type: "report", description: "stale", collectedAt: stale.toISOString(), collectedBy: "team" });
+
+    const gaps = ct.checkGaps();
+    assert.equal(gaps.length, 1);
+    assert.equal(gaps[0]!.id, c3.id);
+  });
+
+  it("summary computes overallScore", () => {
+    const bus = new EventBus();
+    const ct = new ComplianceTracker(bus);
+    // 2 compliant
+    for (let i = 0; i < 2; i++) {
+      const c = ct.addControl({ title: `C${i}`, description: "d", framework: "SOC2", category: "cat", reviewCycleDays: 90, owner: "team" });
+      ct.recordEvidence(c.id, { type: "report", description: "recent", collectedAt: new Date().toISOString(), collectedBy: "team" });
+    }
+    // 2 not-started
+    for (let i = 0; i < 2; i++) {
+      ct.addControl({ title: `N${i}`, description: "d", framework: "GDPR", category: "cat", reviewCycleDays: 90, owner: "team" });
+    }
+    const s = ct.summary();
+    assert.equal(s.totalControls, 4);
+    assert.equal(s.compliant, 2);
+    assert.equal(s.notStarted, 2);
+    assert.equal(s.overallScore, 50);
+  });
+
+  it("list with framework filter", () => {
+    const bus = new EventBus();
+    const ct = new ComplianceTracker(bus);
+    ct.addControl({ title: "SOC2 ctrl", description: "d", framework: "SOC2", category: "cat", owner: "team" });
+    ct.addControl({ title: "GDPR ctrl", description: "d", framework: "GDPR", category: "cat", owner: "team" });
+    ct.addControl({ title: "SOC2 ctrl2", description: "d", framework: "SOC2", category: "cat", owner: "team" });
+
+    const soc2 = ct.list("SOC2");
+    assert.equal(soc2.length, 2);
+    assert.ok(soc2.every((c) => c.framework === "SOC2"));
+
+    const all = ct.list();
+    assert.equal(all.length, 3);
   });
 });

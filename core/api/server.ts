@@ -149,6 +149,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/projects", handler: (_req, res) => res.json(200, { projects: this.olympus.sprints.listProjects() }) },
       { method: "GET", pattern: "/v1/customer-success", handler: (_req, res) => res.json(200, { accounts: this.olympus.customerSuccess.list(), churnRisk: this.olympus.customerSuccess.churnRiskAccounts(), summary: this.olympus.customerSuccess.summary() }) },
       { method: "GET", pattern: "/v1/product", handler: (_req, res) => res.json(200, { features: this.olympus.product.listFeatures(), adoption: this.olympus.product.listAdoption(), top: this.olympus.product.topFeatures() }) },
+      { method: "GET", pattern: "/v1/compliance", handler: (_req, res) => res.json(200, { controls: this.olympus.compliance.list(), gaps: this.olympus.compliance.checkGaps(), summary: this.olympus.compliance.summary() }) },
     );
   }
 
