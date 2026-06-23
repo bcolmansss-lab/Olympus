@@ -37,6 +37,7 @@ import { SprintTracker } from "../projects/sprint-tracker.js";
 import { CustomerSuccessTracker } from "../customer-success/account-health.js";
 import { ComplianceTracker } from "../compliance/index.js";
 import { CompetitiveIntel } from "../competitive/index.js";
+import { IncidentManager } from "../incidents/incident-manager.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -3130,5 +3131,215 @@ describe("CompetitiveIntel", () => {
 
     assert.equal(result, undefined);
     assert.equal(ci.recentSignals().length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IncidentManager
+// ---------------------------------------------------------------------------
+
+describe("IncidentManager", () => {
+  it("openIncident emits incident.opened", () => {
+    const bus = new EventBus();
+    const mgr = new IncidentManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("incident.opened", (e) => { events.push(e.payload); });
+
+    const inc = mgr.openIncident({
+      title: "Database down",
+      description: "All queries failing",
+      severity: "SEV1",
+      occurredAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      detectedAt: new Date().toISOString(),
+      affectedServices: ["api"],
+    });
+
+    assert.equal(events.length, 1);
+    const payload = events[0] as { incidentId: string; title: string; severity: string };
+    assert.equal(payload.incidentId, inc.id);
+    assert.equal(payload.title, "Database down");
+    assert.equal(payload.severity, "SEV1");
+    assert.equal(inc.status, "detected");
+  });
+
+  it("acknowledge → mitigate → resolve lifecycle sets timestamps", () => {
+    const bus = new EventBus();
+    const mgr = new IncidentManager(bus);
+
+    const inc = mgr.openIncident({
+      title: "High latency",
+      description: "p99 > 2s",
+      severity: "SEV2",
+      occurredAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      detectedAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+      affectedServices: ["api"],
+    });
+
+    const acked = mgr.acknowledge(inc.id, "Alice");
+    assert.ok(acked, "acknowledge should return incident");
+    assert.equal(acked!.status, "acknowledged");
+    assert.ok(acked!.acknowledgedAt, "acknowledgedAt should be set");
+    assert.equal(acked!.commander, "Alice");
+
+    const mitigated = mgr.mitigate(inc.id);
+    assert.ok(mitigated);
+    assert.equal(mitigated!.status, "mitigated");
+    assert.ok(mitigated!.mitigatedAt, "mitigatedAt should be set");
+
+    const resolved = mgr.resolve(inc.id);
+    assert.ok(resolved);
+    assert.equal(resolved!.status, "resolved");
+    assert.ok(resolved!.resolvedAt, "resolvedAt should be set");
+  });
+
+  it("resolve emits incident.resolved with mttr computed", () => {
+    const bus = new EventBus();
+    const mgr = new IncidentManager(bus);
+
+    const resolvedEvents: unknown[] = [];
+    bus.subscribe("incident.resolved", (e) => { resolvedEvents.push(e.payload); });
+
+    const occurredAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    const detectedAt = new Date(Date.now() - 55 * 60_000).toISOString();
+
+    const inc = mgr.openIncident({
+      title: "Cache miss storm",
+      description: "Redis evictions causing cascade",
+      severity: "SEV2",
+      occurredAt,
+      detectedAt,
+      affectedServices: ["cache"],
+    });
+
+    mgr.resolve(inc.id);
+
+    assert.equal(resolvedEvents.length, 1);
+    const payload = resolvedEvents[0] as { incidentId: string; mttrMs: number; mttdMs: number };
+    assert.equal(payload.incidentId, inc.id);
+    assert.ok(payload.mttrMs > 0, "mttrMs must be positive");
+    assert.ok(payload.mttdMs > 0, "mttdMs must be positive");
+  });
+
+  it("publishPostmortem attaches to incident and emits event", () => {
+    const bus = new EventBus();
+    const mgr = new IncidentManager(bus);
+
+    const pmEvents: unknown[] = [];
+    bus.subscribe("incident.postmortem_published", (e) => { pmEvents.push(e.payload); });
+
+    const inc = mgr.openIncident({
+      title: "Memory leak",
+      description: "Worker OOM",
+      severity: "SEV3",
+      occurredAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+      detectedAt: new Date(Date.now() - 1 * 3_600_000).toISOString(),
+      affectedServices: ["worker"],
+    });
+    mgr.resolve(inc.id);
+
+    const pm = mgr.publishPostmortem(inc.id, {
+      summary: "Memory leak in worker process",
+      rootCause: "Unbounded event listener accumulation",
+      timeline: "Detected → Resolved in 1h",
+      actionItems: ["Add listener count monitoring", "Fix leak in worker.ts"],
+      publishedBy: "Bob",
+    });
+
+    assert.ok(pm, "postmortem should be returned");
+    assert.equal(pm!.incidentId, inc.id);
+    assert.ok(pm!.publishedAt, "publishedAt should be set");
+
+    const fetched = mgr.get(inc.id);
+    assert.ok(fetched!.postmortem, "postmortem should be attached to incident");
+    assert.equal(fetched!.postmortem!.publishedBy, "Bob");
+
+    assert.equal(pmEvents.length, 1);
+    const payload = pmEvents[0] as { incidentId: string; actionItems: string[] };
+    assert.equal(payload.incidentId, inc.id);
+    assert.equal(payload.actionItems.length, 2);
+  });
+
+  it("metrics computes mttd/mtta/mttr averages from resolved incidents", () => {
+    const bus = new EventBus();
+    const mgr = new IncidentManager(bus);
+
+    const now = Date.now();
+    // Incident 1: mttd=5min, mtta=10min, mttr=60min
+    const inc1 = mgr.openIncident({
+      title: "Inc1",
+      description: "",
+      severity: "SEV1",
+      occurredAt: new Date(now - 75 * 60_000).toISOString(),
+      detectedAt: new Date(now - 70 * 60_000).toISOString(),
+      affectedServices: [],
+    });
+    mgr.acknowledge(inc1.id);
+    // Manually set acknowledgedAt to be deterministic
+    inc1.acknowledgedAt = new Date(now - 60 * 60_000).toISOString();
+    mgr.resolve(inc1.id);
+    inc1.resolvedAt = new Date(now - 10 * 60_000).toISOString();
+
+    // Incident 2: resolved, no acknowledge
+    const inc2 = mgr.openIncident({
+      title: "Inc2",
+      description: "",
+      severity: "SEV2",
+      occurredAt: new Date(now - 40 * 60_000).toISOString(),
+      detectedAt: new Date(now - 30 * 60_000).toISOString(),
+      affectedServices: [],
+    });
+    mgr.resolve(inc2.id);
+
+    const m = mgr.metrics();
+    assert.equal(m.totalIncidents, 2);
+    assert.ok(m.mttdMs > 0, "mttdMs should be positive");
+    assert.ok(m.mttrMs > 0, "mttrMs should be positive");
+    assert.equal(m.bySeverity["SEV1"], 1);
+    assert.equal(m.bySeverity["SEV2"], 1);
+    assert.equal(m.openIncidents, 0);
+  });
+
+  it("openIncidents excludes resolved and closed", () => {
+    const bus = new EventBus();
+    const mgr = new IncidentManager(bus);
+
+    const now = Date.now();
+
+    const open1 = mgr.openIncident({
+      title: "Open SEV3",
+      description: "",
+      severity: "SEV3",
+      occurredAt: new Date(now - 60 * 60_000).toISOString(),
+      detectedAt: new Date(now - 30 * 60_000).toISOString(),
+      affectedServices: [],
+    });
+
+    const open2 = mgr.openIncident({
+      title: "Acknowledged SEV2",
+      description: "",
+      severity: "SEV2",
+      occurredAt: new Date(now - 120 * 60_000).toISOString(),
+      detectedAt: new Date(now - 110 * 60_000).toISOString(),
+      affectedServices: [],
+    });
+    mgr.acknowledge(open2.id);
+
+    const closed = mgr.openIncident({
+      title: "Resolved SEV1",
+      description: "",
+      severity: "SEV1",
+      occurredAt: new Date(now - 200 * 60_000).toISOString(),
+      detectedAt: new Date(now - 190 * 60_000).toISOString(),
+      affectedServices: [],
+    });
+    mgr.resolve(closed.id);
+    mgr.close(closed.id);
+
+    const openList = mgr.openIncidents();
+    assert.equal(openList.length, 2, "only detected and acknowledged incidents are open");
+    const openIds = new Set(openList.map((i) => i.id));
+    assert.ok(openIds.has(open1.id));
+    assert.ok(openIds.has(open2.id));
+    assert.ok(!openIds.has(closed.id));
   });
 });

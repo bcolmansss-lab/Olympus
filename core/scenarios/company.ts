@@ -43,6 +43,7 @@ export function seedCompany(olympus: Olympus): void {
   seedProductAnalytics(olympus);
   seedCompliance(olympus);
   seedCompetitiveIntel(olympus);
+  seedIncidents(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -671,6 +672,83 @@ function seedCompetitiveIntel(olympus: Olympus): void {
 
   // LegacyCorp: 1 loss → 0% win rate (customer chose legacy vendor familiarity)
   ci.recordWinLoss({ dealId: "deal-pinnacle", competitorId: legacy.id, outcome: "loss", reason: "Customer locked into existing LegacyCorp contracts for 2 more years", dealArrUsd: 60_000 });
+}
+
+function seedIncidents(olympus: Olympus): void {
+  const mgr = olympus.incidents;
+
+  // SEV1 — 45 days ago, fully resolved with postmortem
+  const sev1OccurredAt = new Date(Date.now() - 45 * 864e5);
+  const sev1DetectedAt = new Date(sev1OccurredAt.getTime() + 5 * 60_000);
+  const sev1AcknowledgedAt = new Date(sev1OccurredAt.getTime() + 15 * 60_000);
+  const sev1ResolvedAt = new Date(sev1OccurredAt.getTime() + 2 * 3_600_000);
+  const sev1ClosedAt = new Date(sev1OccurredAt.getTime() + 864e5);
+
+  const sev1 = mgr.openIncident({
+    title: "Total API outage — database connection pool exhausted",
+    description: "All API endpoints returned 503 due to exhausted PostgreSQL connection pool.",
+    severity: "SEV1",
+    occurredAt: sev1OccurredAt.toISOString(),
+    detectedAt: sev1DetectedAt.toISOString(),
+    affectedServices: ["api", "database"],
+    tags: ["database", "connection-pool"],
+  });
+  sev1.acknowledgedAt = sev1AcknowledgedAt.toISOString();
+  sev1.status = "acknowledged";
+  sev1.commander = "Alice Chen";
+  sev1.mitigatedAt = new Date(sev1OccurredAt.getTime() + 90 * 60_000).toISOString();
+  sev1.status = "mitigated";
+  sev1.resolvedAt = sev1ResolvedAt.toISOString();
+  sev1.status = "resolved";
+  sev1.closedAt = sev1ClosedAt.toISOString();
+  sev1.status = "closed";
+
+  mgr.publishPostmortem(sev1.id, {
+    summary: "Connection pool exhaustion caused a complete API outage lasting ~2 hours.",
+    rootCause: "A missing index on a high-frequency query caused runaway connections under peak load.",
+    timeline: "Occurred 00:00 → Detected 00:05 → Acknowledged 00:15 → Mitigated 01:30 → Resolved 02:00 → Closed +24h",
+    actionItems: [
+      "Add missing index on orders.user_id",
+      "Set per-tenant connection pool caps",
+      "Add connection saturation alerting at 80% threshold",
+    ],
+    publishedBy: "Alice Chen",
+  });
+
+  // SEV2 — 10 days ago, resolved, no postmortem
+  const sev2OccurredAt = new Date(Date.now() - 10 * 864e5);
+  const sev2DetectedAt = new Date(sev2OccurredAt.getTime() + 8 * 60_000);
+  const sev2AcknowledgedAt = new Date(sev2OccurredAt.getTime() + 20 * 60_000);
+  const sev2ResolvedAt = new Date(sev2OccurredAt.getTime() + 75 * 60_000);
+
+  const sev2 = mgr.openIncident({
+    title: "Elevated p99 latency — telemetry ingestion pipeline",
+    description: "p99 API latency spiked to 4s due to a backlog in the telemetry ingestion pipeline.",
+    severity: "SEV2",
+    occurredAt: sev2OccurredAt.toISOString(),
+    detectedAt: sev2DetectedAt.toISOString(),
+    affectedServices: ["telemetry", "api"],
+    tags: ["latency", "pipeline"],
+  });
+  sev2.acknowledgedAt = sev2AcknowledgedAt.toISOString();
+  sev2.status = "acknowledged";
+  sev2.commander = "Bob Kim";
+  sev2.resolvedAt = sev2ResolvedAt.toISOString();
+  sev2.status = "resolved";
+
+  // SEV3 — 2 days ago, still open (detected)
+  const sev3OccurredAt = new Date(Date.now() - 2 * 864e5);
+  const sev3DetectedAt = new Date(sev3OccurredAt.getTime() + 30 * 60_000);
+
+  mgr.openIncident({
+    title: "Intermittent 404s on /v1/fleet/:id endpoint",
+    description: "A subset of fleet device requests return 404 intermittently due to a cache invalidation race.",
+    severity: "SEV3",
+    occurredAt: sev3OccurredAt.toISOString(),
+    detectedAt: sev3DetectedAt.toISOString(),
+    affectedServices: ["api", "cache"],
+    tags: ["cache", "race-condition"],
+  });
 }
 
 function seedCompliance(olympus: Olympus): void {
