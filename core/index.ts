@@ -35,6 +35,7 @@ import { CapacityPlanner } from "./capacity/capacity-planner.js";
 import { FinancialLedger } from "./finance/ledger.js";
 import { SLATracker } from "./contracts/sla-tracker.js";
 import { DealPipeline } from "./crm/pipeline.js";
+import { RiskRegister } from "./risk/risk-register.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -82,6 +83,8 @@ export class Olympus {
   readonly sla: SLATracker;
   /** CRM deal pipeline — tracks deals through sales stages with weighted ARR projection. */
   readonly pipeline: DealPipeline;
+  /** Risk register — formal risk catalog with P×I scoring, mitigation tracking, and auto-escalation. */
+  readonly riskRegister: RiskRegister;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -109,6 +112,7 @@ export class Olympus {
     this.ledger = new FinancialLedger(this.bus);
     this.sla = new SLATracker(this.bus);
     this.pipeline = new DealPipeline(this.bus);
+    this.riskRegister = new RiskRegister(this.bus);
   }
 }
 
@@ -139,3 +143,4 @@ export { CapacityPlanner, type Resource, type Project, type Allocation, type Ove
 export { FinancialLedger, type Account, type AccountType, type JournalEntry, type BurnRateReport } from "./finance/index.js";
 export { SLATracker, type SLADefinition, type SLAState, type SLADirection, type SLAStatus } from "./contracts/index.js";
 export { DealPipeline, type Deal, type DealStage, type PipelineSummary } from "./crm/index.js";
+export { RiskRegister, type RiskEntry, type RiskStatus, type RiskCategory } from "./risk/index.js";

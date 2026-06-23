@@ -31,6 +31,7 @@ import { CapacityPlanner } from "../capacity/capacity-planner.js";
 import { FinancialLedger } from "../finance/ledger.js";
 import { SLATracker } from "../contracts/sla-tracker.js";
 import { DealPipeline } from "../crm/pipeline.js";
+import { RiskRegister } from "../risk/risk-register.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1842,5 +1843,149 @@ describe("DealPipeline", () => {
     const qualified = pipeline.list("qualified");
     assert.equal(qualified.length, 2);
     assert.ok(qualified.every((d) => d.stage === "qualified"));
+  });
+});
+
+describe("RiskRegister", () => {
+  it("raise creates risk entry with inherentScore", () => {
+    const bus = new EventBus();
+    const register = new RiskRegister(bus);
+
+    const risk = register.raise({
+      title: "Vendor outage",
+      description: "Key vendor may go offline",
+      category: "operational",
+      domain: "infra",
+      probability: 0.8,
+      impact: 4,
+      owner: "alice",
+    });
+
+    assert.equal(risk.inherentScore, 3.2);
+    assert.equal(risk.status, "open");
+    assert.ok(register.get(risk.id) !== undefined, "risk must be retrievable");
+  });
+
+  it("raise emits risk.raised event", () => {
+    const bus = new EventBus();
+    const register = new RiskRegister(bus);
+
+    const events: unknown[] = [];
+    bus.subscribe("risk.raised", (e) => { events.push(e); });
+
+    const risk = register.raise({
+      title: "Data breach",
+      description: "Possible exposure",
+      category: "compliance",
+      domain: "security",
+      probability: 0.3,
+      impact: 5,
+      owner: "bob",
+    });
+
+    assert.equal(events.length, 1, "risk.raised event must be emitted");
+    const payload = (events[0] as { payload: { riskId: string } }).payload;
+    assert.equal(payload.riskId, risk.id);
+  });
+
+  it("raise auto-escalates when score > threshold", () => {
+    const bus = new EventBus();
+    const register = new RiskRegister(bus);
+
+    const events: unknown[] = [];
+    bus.subscribe("risk.escalated", (e) => { events.push(e); });
+
+    register.raise({
+      title: "Regulatory penalty",
+      description: "High likelihood, high impact",
+      category: "compliance",
+      domain: "legal",
+      probability: 0.9,
+      impact: 4,
+      owner: "carol",
+    });
+
+    assert.equal(events.length, 1, "risk.escalated event must be emitted when score 3.6 > 3.0");
+    const payload = (events[0] as { payload: { inherentScore: number } }).payload;
+    assert.ok(payload.inherentScore > 3.0);
+  });
+
+  it("addMitigation sets status to mitigating", () => {
+    const bus = new EventBus();
+    const register = new RiskRegister(bus);
+
+    const risk = register.raise({
+      title: "Talent loss",
+      description: "Key engineer may leave",
+      category: "operational",
+      domain: "hr",
+      probability: 0.4,
+      impact: 3,
+      owner: "dave",
+    });
+
+    register.addMitigation(risk.id, {
+      description: "Retention bonus",
+      owner: "dave",
+      dueDate: "2026-09-01",
+    });
+
+    const updated = register.get(risk.id);
+    assert.equal(updated?.status, "mitigating");
+    assert.equal(updated?.mitigations.length, 1);
+  });
+
+  it("setResidual emits risk.mitigated and updates score", () => {
+    const bus = new EventBus();
+    const register = new RiskRegister(bus);
+
+    const events: unknown[] = [];
+    bus.subscribe("risk.mitigated", (e) => { events.push(e); });
+
+    const risk = register.raise({
+      title: "Supply chain disruption",
+      description: "Component shortage",
+      category: "operational",
+      domain: "supply",
+      probability: 0.8,
+      impact: 5,
+      owner: "erin",
+    });
+
+    const updated = register.setResidual(risk.id, 0.2, 2);
+
+    assert.equal(updated?.status, "mitigated");
+    assert.equal(updated?.residualScore, 0.4);
+    assert.equal(events.length, 1, "risk.mitigated event must be emitted");
+    const payload = (events[0] as { payload: { residualScore: number } }).payload;
+    assert.equal(payload.residualScore, 0.4);
+  });
+
+  it("topRisks sorts by residualScore descending", () => {
+    const bus = new EventBus();
+    const register = new RiskRegister(bus);
+
+    register.raise({ title: "Low", description: "", category: "strategic", domain: "a", probability: 0.2, impact: 2, owner: "x" });
+    register.raise({ title: "High", description: "", category: "strategic", domain: "b", probability: 0.9, impact: 5, owner: "y" });
+    register.raise({ title: "Mid", description: "", category: "strategic", domain: "c", probability: 0.5, impact: 3, owner: "z" });
+
+    const top = register.topRisks();
+    assert.equal(top[0]?.title, "High");
+    assert.ok(top[0]!.residualScore >= top[1]!.residualScore);
+    assert.ok(top[1]!.residualScore >= top[2]!.residualScore);
+  });
+
+  it("list with status filter", () => {
+    const bus = new EventBus();
+    const register = new RiskRegister(bus);
+
+    const r1 = register.raise({ title: "R1", description: "", category: "financial", domain: "a", probability: 0.2, impact: 2, owner: "x" });
+    register.raise({ title: "R2", description: "", category: "financial", domain: "b", probability: 0.3, impact: 2, owner: "y" });
+
+    register.updateStatus(r1.id, "accepted");
+
+    const open = register.list("open");
+    assert.equal(open.length, 1);
+    assert.ok(open.every((r) => r.status === "open"));
   });
 });
