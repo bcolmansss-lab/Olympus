@@ -37,6 +37,7 @@ export function seedCompany(olympus: Olympus): void {
   seedCapacity(olympus);
   seedOkr(olympus);
   seedVendors(olympus);
+  seedPeople(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -246,6 +247,130 @@ function seedVendors(olympus: Olympus): void {
 
   v.recordSpend(aws.id, 42_000);
   v.recordSpend(dd.id, 8_200);
+}
+
+function seedPeople(olympus: Olympus): void {
+  const p = olympus.people;
+
+  // Leadership
+  const alice = p.hire({
+    id: "emp-alice",
+    name: "Alice Chen",
+    role: "Chief Technology Officer",
+    department: "engineering",
+    level: "exec",
+    baseCompUsd: 280_000,
+    startDate: isoDate(daysAgo(730)),
+    tags: ["leadership", "c-suite"],
+  });
+
+  const bob = p.hire({
+    id: "emp-bob",
+    name: "Bob Kim",
+    role: "Engineering Manager",
+    department: "engineering",
+    level: "m1",
+    baseCompUsd: 195_000,
+    managerId: alice.id,
+    startDate: isoDate(daysAgo(540)),
+  });
+
+  p.hire({
+    id: "emp-priya",
+    name: "Priya Shah",
+    role: "Senior Software Engineer",
+    department: "engineering",
+    level: "ic4",
+    baseCompUsd: 175_000,
+    managerId: bob.id,
+    startDate: isoDate(daysAgo(365)),
+    tags: ["robotics", "controls"],
+  });
+
+  p.hire({
+    id: "emp-lei",
+    name: "Lei Zhang",
+    role: "Software Engineer",
+    department: "engineering",
+    level: "ic3",
+    baseCompUsd: 145_000,
+    managerId: bob.id,
+    startDate: isoDate(daysAgo(200)),
+  });
+
+  // Product
+  const maya = p.hire({
+    id: "emp-maya",
+    name: "Maya Okonkwo",
+    role: "VP of Product",
+    department: "product",
+    level: "m2",
+    baseCompUsd: 220_000,
+    startDate: isoDate(daysAgo(600)),
+    tags: ["leadership"],
+  });
+
+  p.hire({
+    id: "emp-daniel",
+    name: "Daniel Torres",
+    role: "Product Manager",
+    department: "product",
+    level: "ic3",
+    baseCompUsd: 155_000,
+    managerId: maya.id,
+    startDate: isoDate(daysAgo(290)),
+  });
+
+  // Sales
+  p.hire({
+    id: "emp-dana",
+    name: "Dana Reyes",
+    role: "Account Executive",
+    department: "sales",
+    level: "ic3",
+    baseCompUsd: 130_000,
+    startDate: isoDate(daysAgo(400)),
+    tags: ["enterprise"],
+  });
+
+  // Operations
+  p.hire({
+    id: "emp-omar-ops",
+    name: "Omar Haddad",
+    role: "Head of Operations",
+    department: "operations",
+    level: "m1",
+    baseCompUsd: 180_000,
+    startDate: isoDate(daysAgo(500)),
+  });
+
+  // Open roles
+  p.addOpenRole({
+    id: "role-ic5-eng",
+    title: "Staff Software Engineer",
+    department: "engineering",
+    level: "ic5",
+    targetCompUsd: 210_000,
+    openedAt: isoDate(daysAgo(30)),
+  });
+
+  p.addOpenRole({
+    id: "role-ic2-sales",
+    title: "Sales Development Representative",
+    department: "sales",
+    level: "ic2",
+    targetCompUsd: 90_000,
+    openedAt: isoDate(daysAgo(14)),
+  });
+
+  p.addOpenRole({
+    id: "role-ic3-product",
+    title: "Product Manager — Autonomy",
+    department: "product",
+    level: "ic3",
+    targetCompUsd: 160_000,
+    openedAt: isoDate(daysAgo(21)),
+  });
 }
 
 function seedOkr(olympus: Olympus): void {

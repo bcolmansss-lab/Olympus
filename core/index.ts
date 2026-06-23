@@ -40,6 +40,8 @@ import { HealthScorer } from "./health/health-score.js";
 import { OutcomeTracker } from "./learning/outcome-tracker.js";
 import { BoardReportGenerator } from "./reporting/board-report.js";
 import { VendorRegistry } from "./procurement/vendor-registry.js";
+import { PeopleRegistry } from "./hr/people-registry.js";
+import { SprintTracker } from "./projects/sprint-tracker.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -97,6 +99,8 @@ export class Olympus {
   readonly outcomes: OutcomeTracker;
   /** Vendor / procurement registry — catalog, contracts, spend tracking, and renewal alerts. */
   readonly vendors: VendorRegistry;
+  /** HR / People registry — employee headcount, org structure, and compensation bands. */
+  readonly people: PeopleRegistry;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -127,6 +131,7 @@ export class Olympus {
     this.pipeline = new DealPipeline(this.bus);
     this.riskRegister = new RiskRegister(this.bus);
     this.vendors = new VendorRegistry(this.bus);
+    this.people = new PeopleRegistry(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -164,3 +169,4 @@ export { HealthScorer, type HealthReport, type HealthDimension, type HealthGrade
 export { OutcomeTracker, type PredictionRecord, type OutcomeRecord } from "./learning/index.js";
 export { BoardReportGenerator, type BoardReportOptions } from "./reporting/index.js";
 export { VendorRegistry, type VendorCategory, type ContractStatus, type Vendor, type AddVendorInput, type ProcurementSummary } from "./procurement/index.js";
+export { PeopleRegistry, type Employee, type EmployeeLevel, type EmploymentStatus, type OpenRole, type DepartmentSummary, type OrgSummary } from "./hr/index.js";

@@ -2391,6 +2391,127 @@ describe("VendorRegistry", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// PeopleRegistry
+// ---------------------------------------------------------------------------
+
+import { PeopleRegistry } from "../hr/people-registry.js";
+
+describe("PeopleRegistry", () => {
+  it("hire adds employee and emits hr.employee_joined", () => {
+    const bus = new EventBus();
+    const reg = new PeopleRegistry(bus);
+    const events: unknown[] = [];
+    bus.subscribe("hr.employee_joined", (e) => { events.push(e.payload); });
+
+    const emp = reg.hire({
+      name: "Alice Chen",
+      role: "CTO",
+      department: "engineering",
+      level: "exec",
+      baseCompUsd: 280_000,
+      startDate: "2024-01-01",
+    });
+
+    assert.equal(emp.status, "active");
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { name: string }).name, "Alice Chen");
+  });
+
+  it("listActive excludes departed employees", () => {
+    const bus = new EventBus();
+    const reg = new PeopleRegistry(bus);
+
+    const alice = reg.hire({ name: "Alice", role: "CTO", department: "eng", level: "exec", baseCompUsd: 200_000, startDate: "2024-01-01" });
+    reg.hire({ name: "Bob", role: "SWE", department: "eng", level: "ic3", baseCompUsd: 150_000, startDate: "2024-01-01" });
+    reg.depart(alice.id, "resigned");
+
+    const active = reg.listActive();
+    assert.equal(active.length, 1);
+    assert.equal(active[0]!.name, "Bob");
+  });
+
+  it("depart sets status departed and emits hr.employee_departed", () => {
+    const bus = new EventBus();
+    const reg = new PeopleRegistry(bus);
+    const events: unknown[] = [];
+    bus.subscribe("hr.employee_departed", (e) => { events.push(e.payload); });
+
+    const emp = reg.hire({ name: "Carol", role: "PM", department: "product", level: "ic3", baseCompUsd: 140_000, startDate: "2024-01-01" });
+    const departed = reg.depart(emp.id, "laid off");
+
+    assert.equal(departed?.status, "departed");
+    assert.ok(departed?.endDate);
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { reason: string }).reason, "laid off");
+  });
+
+  it("addOpenRole and listOpenRoles", () => {
+    const bus = new EventBus();
+    const reg = new PeopleRegistry(bus);
+
+    reg.addOpenRole({ title: "Staff Engineer", department: "engineering", level: "ic5", targetCompUsd: 210_000, openedAt: "2025-01-01" });
+    reg.addOpenRole({ title: "PM", department: "product", level: "ic3", targetCompUsd: 160_000, openedAt: "2025-01-01" });
+
+    assert.equal(reg.listOpenRoles().length, 2);
+    assert.equal(reg.listOpenRoles("engineering").length, 1);
+    assert.equal(reg.listOpenRoles("product").length, 1);
+    assert.equal(reg.listOpenRoles("sales").length, 0);
+  });
+
+  it("orgSummary aggregates headcount and comp by department", () => {
+    const bus = new EventBus();
+    const reg = new PeopleRegistry(bus);
+
+    reg.hire({ name: "Alice", role: "CTO", department: "engineering", level: "exec", baseCompUsd: 200_000, startDate: "2024-01-01" });
+    reg.hire({ name: "Bob", role: "SWE", department: "engineering", level: "ic3", baseCompUsd: 150_000, startDate: "2024-01-01" });
+    reg.hire({ name: "Carol", role: "PM", department: "product", level: "ic3", baseCompUsd: 140_000, startDate: "2024-01-01" });
+    reg.addOpenRole({ title: "SWE", department: "engineering", level: "ic4", targetCompUsd: 180_000, openedAt: "2025-01-01" });
+
+    const summary = reg.orgSummary();
+    assert.equal(summary.totalHeadcount, 3);
+    assert.equal(summary.totalOpenRoles, 1);
+    assert.equal(summary.totalAnnualCompUsd, 490_000);
+
+    const engDept = summary.byDepartment.find((d) => d.department === "engineering")!;
+    assert.equal(engDept.headcount, 2);
+    assert.equal(engDept.totalCompUsd, 350_000);
+    assert.equal(engDept.averageCompUsd, 175_000);
+    assert.equal(engDept.openRoles, 1);
+  });
+
+  it("reportingChain follows managerId upward", () => {
+    const bus = new EventBus();
+    const reg = new PeopleRegistry(bus);
+
+    const cto = reg.hire({ id: "cto", name: "Alice", role: "CTO", department: "engineering", level: "exec", baseCompUsd: 280_000, startDate: "2024-01-01" });
+    const mgr = reg.hire({ id: "mgr", name: "Bob", role: "EM", department: "engineering", level: "m1", baseCompUsd: 195_000, managerId: cto.id, startDate: "2024-01-01" });
+    const ic = reg.hire({ id: "ic1", name: "Priya", role: "SWE", department: "engineering", level: "ic4", baseCompUsd: 175_000, managerId: mgr.id, startDate: "2024-01-01" });
+
+    const chain = reg.reportingChain(ic.id);
+    assert.equal(chain.length, 3);
+    assert.equal(chain[0]!.id, ic.id);
+    assert.equal(chain[1]!.id, mgr.id);
+    assert.equal(chain[2]!.id, cto.id);
+  });
+
+  it("fillOpenRole removes the role", () => {
+    const bus = new EventBus();
+    const reg = new PeopleRegistry(bus);
+
+    const role = reg.addOpenRole({ id: "role-1", title: "Engineer", department: "engineering", level: "ic3", targetCompUsd: 150_000, openedAt: "2025-01-01" });
+    const emp = reg.hire({ name: "New Hire", role: "Engineer", department: "engineering", level: "ic3", baseCompUsd: 150_000, startDate: "2025-01-01" });
+
+    assert.equal(reg.listOpenRoles().length, 1);
+    const filled = reg.fillOpenRole(role.id, emp.id);
+    assert.equal(filled, true);
+    assert.equal(reg.listOpenRoles().length, 0);
+
+    // Returns false when role not found
+    assert.equal(reg.fillOpenRole("nonexistent", emp.id), false);
+  });
+});
+
 describe("Operator console panels", () => {
   it("dashboard HTML surfaces the Company Health hero and Business Modules grid", async () => {
     const { DASHBOARD_HTML } = await import("../api/dashboard.js");
