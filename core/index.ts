@@ -36,6 +36,7 @@ import { FinancialLedger } from "./finance/ledger.js";
 import { SLATracker } from "./contracts/sla-tracker.js";
 import { DealPipeline } from "./crm/pipeline.js";
 import { RiskRegister } from "./risk/risk-register.js";
+import { HealthScorer } from "./health/health-score.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -85,6 +86,8 @@ export class Olympus {
   readonly pipeline: DealPipeline;
   /** Risk register — formal risk catalog with P×I scoring, mitigation tracking, and auto-escalation. */
   readonly riskRegister: RiskRegister;
+  /** Unified company health index (0–100) aggregating every business module. */
+  readonly health: HealthScorer;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -113,6 +116,7 @@ export class Olympus {
     this.sla = new SLATracker(this.bus);
     this.pipeline = new DealPipeline(this.bus);
     this.riskRegister = new RiskRegister(this.bus);
+    this.health = new HealthScorer(this);
   }
 }
 
@@ -144,3 +148,4 @@ export { FinancialLedger, type Account, type AccountType, type JournalEntry, typ
 export { SLATracker, type SLADefinition, type SLAState, type SLADirection, type SLAStatus } from "./contracts/index.js";
 export { DealPipeline, type Deal, type DealStage, type PipelineSummary } from "./crm/index.js";
 export { RiskRegister, type RiskEntry, type RiskStatus, type RiskCategory } from "./risk/index.js";
+export { HealthScorer, type HealthReport, type HealthDimension, type HealthGrade } from "./health/index.js";

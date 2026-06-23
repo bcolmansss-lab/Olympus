@@ -61,6 +61,7 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `GET` | `/v1/pipeline` | CRM deal pipeline — weighted summary and the full deal list |
 | `GET` | `/v1/sla` | SLA tracker — all SLAs, those at risk, and total penalties |
 | `GET` | `/v1/capacity` | Capacity planner — utilization summary and overallocated resources |
+| `GET` | `/v1/health` | Company health score — unified 0–100 executive index across all modules |
 
 **Auth & rate limiting.** `/v1/*` routes accept optional Bearer-token auth and per-caller rate limiting; the console (`/`) and `/healthz` stay public. Both are off by default (zero-config demo). Enable via env:
 

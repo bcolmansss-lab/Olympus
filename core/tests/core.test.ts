@@ -678,6 +678,64 @@ describe("Business module API endpoints", () => {
   });
 });
 
+describe("HealthScorer", () => {
+  const validGrades = ["excellent", "good", "fair", "poor", "critical"];
+
+  it("score returns composite 0-100 with grade", () => {
+    const olympus = new Olympus();
+    const report = olympus.health.score();
+    assert.ok(report.composite >= 0 && report.composite <= 100);
+    assert.ok(validGrades.includes(report.grade));
+    assert.equal(report.dimensions.length, 6);
+  });
+
+  it("empty system scores well on untracked dimensions", () => {
+    const olympus = new Olympus();
+    const report = olympus.health.score();
+    const byName = (n: string) => report.dimensions.find((d) => d.name === n)!;
+    assert.equal(byName("reliability").score, 100);
+    assert.equal(byName("capacity").score, 100);
+    assert.equal(byName("goals").score, 100);
+    assert.equal(typeof report.composite, "number");
+  });
+
+  it("high risk lowers composite", () => {
+    const a = new Olympus();
+    const reportA = a.health.score();
+
+    const b = new Olympus();
+    b.riskRegister.raise({
+      title: "Severe outage risk",
+      description: "Catastrophic failure scenario",
+      category: "operational",
+      domain: "operations",
+      probability: 1.0,
+      impact: 5,
+      owner: "ops",
+    });
+    const reportB = b.health.score();
+
+    const riskA = reportA.dimensions.find((d) => d.name === "risk")!;
+    const riskB = reportB.dimensions.find((d) => d.name === "risk")!;
+    assert.ok(riskB.score < riskA.score);
+  });
+
+  it("GET /v1/health returns 200 with composite", async () => {
+    const { OlympusApiServer } = await import("../api/server.js");
+    const api = new OlympusApiServer();
+    const port = await api.listen(0);
+    try {
+      const r = await fetch(`http://localhost:${port}/v1/health`);
+      assert.equal(r.status, 200);
+      const body = await r.json() as { composite: number; dimensions: unknown[] };
+      assert.equal(typeof body.composite, "number");
+      assert.ok(Array.isArray(body.dimensions));
+    } finally {
+      await api.close();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 15. Persistence — durable log survives a simulated restart
 // ---------------------------------------------------------------------------

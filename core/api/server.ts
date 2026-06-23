@@ -128,6 +128,8 @@ export class OlympusApiServer {
 
       { method: "GET", pattern: "/v1/briefing", handler: (_req, res) => res.json(200, this.olympus.briefing.generate()) },
 
+      { method: "GET", pattern: "/v1/health", handler: (_req, res) => res.json(200, this.olympus.health.score()) },
+
       { method: "GET", pattern: "/v1/inbox", handler: (req, res) => this.handleInbox(req, res) },
       { method: "POST", pattern: "/v1/inbox/:id/resolve", handler: (req, res) => this.handleResolveInbox(req, res) },
 
