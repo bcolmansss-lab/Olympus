@@ -2745,3 +2745,115 @@ describe("CustomerSuccessTracker", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// ProductAnalytics
+// ---------------------------------------------------------------------------
+
+describe("ProductAnalytics", () => {
+  it("registerFeature and listFeatures", async () => {
+    const { ProductAnalytics } = await import("../product/product-analytics.js");
+    const bus = new EventBus();
+    const pa = new ProductAnalytics(bus);
+    pa.registerFeature({ key: "sso", name: "Single Sign-On", launchedAt: "2026-01-01", gated: false });
+    pa.registerFeature({ key: "api_v2", name: "API v2", launchedAt: "2026-02-01", gated: false });
+    const features = pa.listFeatures();
+    assert.equal(features.length, 2);
+    assert.ok(features.some((f) => f.key === "sso"));
+    assert.ok(features.some((f) => f.key === "api_v2"));
+  });
+
+  it("recordUsage emits product.feature_used", async () => {
+    const { ProductAnalytics } = await import("../product/product-analytics.js");
+    const bus = new EventBus();
+    const pa = new ProductAnalytics(bus);
+    pa.registerFeature({ key: "bulk_export", name: "Bulk Export", launchedAt: "2026-01-01", gated: false });
+
+    const emitted: unknown[] = [];
+    bus.subscribe("product.feature_used", (e) => { emitted.push(e.payload); return; });
+
+    const event = pa.recordUsage("bulk_export", "acct-1");
+    assert.ok(event, "should return a UsageEvent");
+    assert.equal(emitted.length, 1);
+    assert.deepEqual((emitted[0] as Record<string, unknown>).featureKey, "bulk_export");
+    assert.deepEqual((emitted[0] as Record<string, unknown>).accountId, "acct-1");
+  });
+
+  it("gated feature blocks unallowed accounts", async () => {
+    const { ProductAnalytics } = await import("../product/product-analytics.js");
+    const bus = new EventBus();
+    const pa = new ProductAnalytics(bus);
+    pa.registerFeature({ key: "advanced", name: "Advanced", launchedAt: "2026-01-01", gated: true, allowedAccounts: ["acct-allowed"] });
+
+    const result = pa.recordUsage("advanced", "acct-blocked");
+    assert.equal(result, undefined, "blocked account should get undefined");
+    const allowed = pa.recordUsage("advanced", "acct-allowed");
+    assert.ok(allowed, "allowed account should succeed");
+  });
+
+  it("grantAccess allows previously blocked account", async () => {
+    const { ProductAnalytics } = await import("../product/product-analytics.js");
+    const bus = new EventBus();
+    const pa = new ProductAnalytics(bus);
+    pa.registerFeature({ key: "beta", name: "Beta Feature", launchedAt: "2026-01-01", gated: true });
+
+    assert.equal(pa.recordUsage("beta", "acct-new"), undefined, "should be blocked before grant");
+    pa.grantAccess("beta", "acct-new");
+    const event = pa.recordUsage("beta", "acct-new");
+    assert.ok(event, "should succeed after grant");
+  });
+
+  it("getAdoption computes adoptionRate", async () => {
+    const { ProductAnalytics } = await import("../product/product-analytics.js");
+    const bus = new EventBus();
+    const pa = new ProductAnalytics(bus);
+    pa.registerFeature({ key: "sso", name: "SSO", launchedAt: "2026-01-01", gated: false });
+    pa.setTotalAccounts(10);
+    pa.recordUsage("sso", "acct-1");
+    pa.recordUsage("sso", "acct-2");
+    pa.recordUsage("sso", "acct-2"); // duplicate account
+
+    const adoption = pa.getAdoption("sso");
+    assert.ok(adoption);
+    assert.equal(adoption.totalUses, 3);
+    assert.equal(adoption.uniqueAccounts, 2);
+    assert.equal(adoption.adoptionRate, 0.2); // 2 / 10
+  });
+
+  it("milestone_reached emitted at 10 uses", async () => {
+    const { ProductAnalytics } = await import("../product/product-analytics.js");
+    const bus = new EventBus();
+    const pa = new ProductAnalytics(bus);
+    pa.registerFeature({ key: "api_v2", name: "API v2", launchedAt: "2026-01-01", gated: false });
+
+    const milestones: unknown[] = [];
+    bus.subscribe("product.milestone_reached", (e) => { milestones.push(e.payload); });
+
+    for (let i = 0; i < 10; i++) pa.recordUsage("api_v2", "power-user");
+
+    assert.equal(milestones.length, 1);
+    const m = milestones[0] as Record<string, unknown>;
+    assert.equal(m.milestone, 10);
+    assert.equal(m.featureKey, "api_v2");
+    assert.equal(m.accountId, "power-user");
+    assert.equal(m.usageCount, 10);
+  });
+
+  it("topFeatures sorted by totalUses", async () => {
+    const { ProductAnalytics } = await import("../product/product-analytics.js");
+    const bus = new EventBus();
+    const pa = new ProductAnalytics(bus);
+    pa.registerFeature({ key: "a", name: "A", launchedAt: "2026-01-01", gated: false });
+    pa.registerFeature({ key: "b", name: "B", launchedAt: "2026-01-01", gated: false });
+    pa.registerFeature({ key: "c", name: "C", launchedAt: "2026-01-01", gated: false });
+
+    for (let i = 0; i < 3; i++) pa.recordUsage("a", "u1");
+    for (let i = 0; i < 7; i++) pa.recordUsage("b", "u1");
+    for (let i = 0; i < 1; i++) pa.recordUsage("c", "u1");
+
+    const top = pa.topFeatures(3);
+    assert.equal(top[0]!.featureKey, "b");
+    assert.equal(top[1]!.featureKey, "a");
+    assert.equal(top[2]!.featureKey, "c");
+  });
+});
