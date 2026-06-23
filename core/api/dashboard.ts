@@ -109,6 +109,30 @@ export const DASHBOARD_HTML = `<!doctype html>
   .module-card .mt { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); }
   .module-card .mv { font-family: var(--mono); font-size: 20px; font-weight: 650; margin: 4px 0 2px; }
   .module-card .ms { font-size: 11.5px; color: var(--dim); }
+  /* Board Report modal */
+  .overlay { position: fixed; inset: 0; background: rgba(3,6,11,.72); display: none;
+    align-items: center; justify-content: center; z-index: 20; padding: 24px; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    width: 100%; max-width: 860px; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px;
+    border-bottom: 1px solid var(--line); }
+  .modal-head h2 { margin: 0; font-size: 14px; letter-spacing: .3px; color: var(--ink); }
+  .modal-close { background: transparent; border: 0; color: var(--dim); font-size: 22px; line-height: 1;
+    cursor: pointer; padding: 0 4px; }
+  .modal-close:hover { color: var(--ink); }
+  .report-body { padding: 18px 24px; overflow-y: auto; font-size: 13.5px; }
+  .report-body h1 { font-size: 22px; color: var(--accent); margin: 0 0 12px; }
+  .report-body h2 { font-size: 17px; color: var(--ink); margin: 20px 0 8px; padding: 0;
+    border: 0; text-transform: none; letter-spacing: 0; }
+  .report-body h3 { font-size: 14px; color: var(--accent); margin: 16px 0 6px; }
+  .report-body p { margin: 8px 0; }
+  .report-body ul { margin: 8px 0; padding-left: 22px; }
+  .report-body li { margin: 3px 0; }
+  .report-body strong { color: var(--ink); font-weight: 700; }
+  .report-body table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 12.5px; }
+  .report-body th, .report-body td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  .report-body th { color: var(--dim); text-transform: uppercase; letter-spacing: .4px; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -116,6 +140,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <h1>⛰ Olympus</h1>
   <span class="sub">Autonomous Business Operating System — Operator Console</span>
   <button class="demo" id="run">Run a decision</button>
+  <button class="demo" id="report-btn">📋 Board Report</button>
   <span class="pill"><span class="dot" id="dot"></span><span id="status">connecting…</span></span>
 </header>
 <div id="briefing" class="briefing"></div>
@@ -147,6 +172,15 @@ export const DASHBOARD_HTML = `<!doctype html>
     <div class="body" id="facts"><div class="empty">Run a diagnosis to see the grounded context bundle.</div></div>
   </section>
 </main>
+<div class="overlay" id="report-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>📋 Executive Board Report</h2>
+      <button class="modal-close" id="report-close" aria-label="Close">×</button>
+    </div>
+    <div class="report-body" id="report-body"><div class="empty">Loading report…</div></div>
+  </div>
+</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const fmt = (ts) => new Date(ts).toLocaleTimeString();
@@ -327,6 +361,76 @@ async function diagnose() {
 }
 $('diagnose').onclick = diagnose;
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') diagnose(); });
+
+function mdInline(s) {
+  // Escape first, then apply a tiny set of inline transforms on the safe text.
+  let out = esc(s);
+  out = out.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+  out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
+  return out;
+}
+
+function renderMarkdown(md) {
+  const lines = String(md).replace(/\\r\\n/g, '\\n').split('\\n');
+  const out = [];
+  let para = [];
+  let list = [];
+  const flushPara = () => {
+    if (para.length) { out.push('<p>' + para.map(mdInline).join(' ') + '</p>'); para = []; }
+  };
+  const flushList = () => {
+    if (list.length) { out.push('<ul>' + list.map((li) => '<li>' + mdInline(li) + '</li>').join('') + '</ul>'); list = []; }
+  };
+  const isTableSep = (l) => /^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)+\\|?\\s*$/.test(l);
+  const cells = (l) => l.trim().replace(/^\\|/, '').replace(/\\|$/, '').split('|').map((c) => c.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const t = line.trim();
+    // Table: header row followed by separator row.
+    if (t.startsWith('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      flushPara(); flushList();
+      const header = cells(t);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) { rows.push(cells(lines[i].trim())); i++; }
+      i--;
+      out.push('<table><thead><tr>' + header.map((c) => '<th>' + mdInline(c) + '</th>').join('') + '</tr></thead><tbody>' +
+        rows.map((r) => '<tr>' + r.map((c) => '<td>' + mdInline(c) + '</td>').join('') + '</tr>').join('') +
+        '</tbody></table>');
+      continue;
+    }
+    if (t === '') { flushPara(); flushList(); continue; }
+    let m;
+    if ((m = /^(#{1,3})\\s+(.*)$/.exec(t))) {
+      flushPara(); flushList();
+      const lvl = m[1].length;
+      out.push('<h' + lvl + '>' + mdInline(m[2]) + '</h' + lvl + '>');
+      continue;
+    }
+    if ((m = /^[-*]\\s+(.*)$/.exec(t))) { flushPara(); list.push(m[1]); continue; }
+    flushList();
+    para.push(t);
+  }
+  flushPara(); flushList();
+  return out.join('\\n');
+}
+
+const reportOverlay = $('report-overlay');
+function closeReport() { reportOverlay.classList.remove('open'); }
+$('report-btn').onclick = async () => {
+  reportOverlay.classList.add('open');
+  $('report-body').innerHTML = '<div class="empty">Loading report…</div>';
+  try {
+    const res = await fetch('/v1/report');
+    const md = await res.text();
+    $('report-body').innerHTML = renderMarkdown(md);
+  } catch (e) {
+    $('report-body').innerHTML = '<div class="empty">Report unavailable.</div>';
+  }
+};
+$('report-close').onclick = closeReport;
+reportOverlay.onclick = (e) => { if (e.target === reportOverlay) closeReport(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeReport(); });
 
 refreshInbox();
 refreshBriefing();

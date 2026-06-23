@@ -2301,4 +2301,11 @@ describe("Operator console panels", () => {
     assert.ok(DASHBOARD_HTML.includes("Business Modules"), "expected Business Modules grid");
     assert.ok(DASHBOARD_HTML.includes("refreshModules"), "expected refreshModules fetch fn");
   });
+
+  it("dashboard HTML surfaces the Board Report viewer", async () => {
+    const { DASHBOARD_HTML } = await import("../api/dashboard.js");
+    assert.ok(DASHBOARD_HTML.includes("Board Report"), "expected Board Report button");
+    assert.ok(DASHBOARD_HTML.includes("/v1/report"), "expected /v1/report fetch");
+    assert.ok(DASHBOARD_HTML.includes("renderMarkdown"), "expected renderMarkdown fn");
+  });
 });
