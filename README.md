@@ -2,7 +2,7 @@
 
 **The Autonomous Business Operating System (ABOS).**
 
-Olympus is a unified, AI-native intelligence layer that replaces the entire operational business software stack — CRM, ERP, BI, project management, HRIS, FP&A, and knowledge management — with a single, continuously-reasoning system.
+Olympus is a unified, AI-native intelligence layer that replaces the entire operational business software stack — CRM, ERP, BI, project management, HRIS, FP&A, and knowledge management — with a single, continuously-reasoning system. The reference core already runs the operational backbone end to end: a financial ledger, a CRM deal pipeline, a risk register, SLA tracking, capacity planning, OKR tracking, and a unified company health index — all wired into the same closed decision loop and event spine.
 
 It is built on three pillars:
 
@@ -34,7 +34,7 @@ A runnable TypeScript skeleton of the core lives in [`core/`](./core). It has **
 ```bash
 npm install
 npm run demo        # end-to-end walkthrough with a deterministic mock LLM
-npm test            # 21 invariant tests (node:test, zero extra deps)
+npm test            # 133 invariant tests (node:test, zero extra deps)
 npm run serve       # start the HTTP API on :7777
 npm run typecheck   # strict TypeScript
 ```
@@ -61,6 +61,7 @@ A thin, zero-dependency HTTP surface (`core/api/server.ts`, built on Node's stdl
 | `GET` | `/v1/pipeline` | CRM deal pipeline — weighted summary and the full deal list |
 | `GET` | `/v1/sla` | SLA tracker — all SLAs, those at risk, and total penalties |
 | `GET` | `/v1/capacity` | Capacity planner — utilization summary and overallocated resources |
+| `GET` | `/v1/okr` | OKR tracker — objectives, key results, and overall attainment progress |
 | `GET` | `/v1/health` | Company health score — unified 0–100 executive index across all modules |
 
 **Auth & rate limiting.** `/v1/*` routes accept optional Bearer-token auth and per-caller rate limiting; the console (`/`) and `/healthz` stay public. Both are off by default (zero-config demo). Enable via env:
@@ -99,6 +100,7 @@ curl -s -XPOST localhost:7777/v1/ask -d '{
 | **Reasoning engine** | `core/reasoning/executive-reasoning-engine.ts` | The "reason, don't retrieve" pipeline (decompose → ground → multi-perspective → synthesize → Socratic probe → calibrate) |
 | **MCP layer** | `core/mcp/olympus-mcp-server.ts` | Tool registry with ABAC autonomy gating + tamper-evident hash-chained audit log |
 | **Digital twin** | `core/simulation/digital-twin.ts` | Seeded Monte Carlo + causal do-operator over a structural model → P10/P50/P90, tail risk, sensitivity |
+| **Scenario comparison** | `core/simulation/scenario-compare.ts` | Runs two twin simulations side by side → per-metric winner, delta, and a composite score |
 | **Memory store** | `core/memory/memory-store.ts` | Six-layer memory (episodic, semantic, procedural, strategic, operational, decision); Hebbian reinforcement + decay; calibration flywheel (MAE by domain) |
 | **GraphRAG** | `core/retrieval/graph-rag.ts` | Grounded context bundle: graph traversal (causal edges, MAX 3 hops) + cosine vector search + semantic memory + relational aggregation, all with provenance refs |
 | **Autonomy engine** | `core/autonomy/autonomy-engine.ts` | Per-domain L0–L7 grants, blast-radius enforcement, L3+ simulation precondition, hard ceilings (human accountability tokens), auto-demotion, and a global kill switch |
@@ -106,11 +108,24 @@ curl -s -XPOST localhost:7777/v1/ask -d '{
 | **Decision Inbox** | `core/projections/decision-inbox.ts` | Rebuildable read-model projection over the event log: decisions needing human attention (queued / escalated), auto-executed awareness items, and reconciliation — the canonical "the log is the source of truth" example |
 | **Briefing Engine** | `core/briefing/briefing-engine.ts` | Proactive intelligence — synthesizes the live state (pending decisions, autonomous activity, calibration drift, open risks, autonomy posture) into a single executive briefing |
 | **Workflow Engine** | `core/workflow/workflow-engine.ts` | Executes procedural memory as governed action: each step runs through the MCP ABAC gate + audit chain, fail-fast on the first denied/failing step — the procedural-memory → action loop |
+| **Multi-tenant registry** | `core/tenancy/` | Tenant registry + org-id resolution middleware for isolating state per customer |
+| **Anomaly detector** | `core/anomaly/` | Watches the event spine for metric anomalies and raises Risk nodes in the OKG |
+| **Policy engine** | `core/policy/` | Operator-defined business rules enforced at the autonomy gate (exposure ceilings, blocked capabilities, domain freezes) |
+| **Notification router** | `core/notifications/` | Alerting backbone — fans high-signal events out to registered channels (in-memory log, webhook) by severity |
+| **OKR tracker** | `core/goals/` | Tracks objectives and key results from `metric.observed` events → per-KR status and overall attainment |
+| **Capacity planner** | `core/capacity/` | Models team headcount, project demands, and allocations → utilization summary and overallocation detection |
+| **Financial ledger** | `core/finance/` | Double-entry bookkeeping → accounts, burn rate, net income, and runway projection |
+| **SLA tracker** | `core/contracts/` | Service-level-agreement monitoring with breach detection, at-risk flags, and penalty tracking |
+| **Deal pipeline (CRM)** | `core/crm/` | Tracks deals through sales stages → weighted-ARR projection and full deal list |
+| **Risk register** | `core/risk/` | Formal risk catalog with P×I scoring, mitigation tracking, and auto-escalation |
+| **Health scorer** | `core/health/` | Unified company health index (0–100) aggregating every business module across six weighted dimensions |
 | **Worked scenario** | `core/scenarios/churn.ts` | A causal churn subgraph (reorg → onboarding delay → churn spike → ARR) + a sales digital twin, so GraphRAG can walk causal edges to a fully-grounded diagnosis and simulate "restore 2 onboarding FTE → −0.9pt churn" |
+| **Pricing & hiring scenarios** | `core/scenarios/pricing.ts`, `core/scenarios/hiring.ts` | Two more causal subgraphs + twins (pricing elasticity → ARPU; hiring velocity → revenue per head) for retrieval and simulation |
+| **Company seed** | `core/scenarios/company.ts` | Deterministic "Helios Robotics" dataset populating every business module so the console + Health Score render against real numbers |
 | **Persistence** | `core/persistence/file-event-log.ts` | File-backed append-only JSONL event log (a durable `EventSink`); on restart the log replays and every projection rebuilds — proving "the log is the source of truth" survives a restart |
-| **HTTP API** | `core/api/server.ts` | Zero-dependency stdlib `http` server exposing the BLUEPRINT §21 REST surface (`/v1/ask`, `/v1/decisions`, `/v1/simulate`, `/v1/autonomy/grants`, `/v1/inbox`, `/v1/stream` SSE, `/v1/events`, `/v1/audit`) |
+| **HTTP API** | `core/api/server.ts` | Zero-dependency stdlib `http` server exposing the BLUEPRINT §21 REST surface (`/v1/ask`, `/v1/decisions`, `/v1/simulate`, `/v1/compare`, `/v1/diagnose`, `/v1/briefing`, `/v1/autonomy/grants`, `/v1/inbox`, `/v1/stream` SSE, `/v1/events`, `/v1/audit`, plus the business-module reads `/v1/risks`, `/v1/finance`, `/v1/pipeline`, `/v1/sla`, `/v1/capacity`, `/v1/okr`, `/v1/health`) |
 | **Operator console** | `core/api/dashboard.ts` | Single self-contained HTML page served at `/` — Decision Inbox, live event spine (SSE), a one-click decision runner, and a GraphRAG diagnosis panel that shows the grounded context bundle by retrieval source |
-| **Tests** | `core/tests/core.test.ts` | 21 `node:test` invariant tests: mandatory dissent, audit-chain tamper detection, blast-radius, hard ceilings, kill switch, L3+ sim precondition, bitemporal replay, reconciliation, Hebbian reinforcement, sim reproducibility, closed-loop integration |
+| **Tests** | `core/tests/` | 133 `node:test` invariant tests across 37 suites: mandatory dissent, audit-chain tamper detection, blast-radius, hard ceilings, kill switch, L3+ sim precondition, bitemporal replay, reconciliation, Hebbian reinforcement, sim reproducibility, scenario comparison, policy enforcement, the business modules (finance, CRM, risk, SLA, capacity, OKR, health), and closed-loop integration |
 | **Composition** | `core/index.ts`, `core/demo.ts` | Wires it all together; runnable demo |
 
 The demo shows a multi-agent decision with recorded dissent, a bitemporal decision + reconciliation, an MCP call denied by the autonomy gate, and a verified audit chain.

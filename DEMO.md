@@ -8,7 +8,7 @@ file-backed durable log).
 ```bash
 npm install
 npm run demo     # the full narrative, printed
-npm test         # 30 invariant tests
+npm test         # 133 invariant tests
 npm run serve    # the live operator console at http://localhost:7777
 ```
 
@@ -130,6 +130,39 @@ OLYMPUS_LOG=/tmp/olympus.log npm run serve     # session 1: persists as it runs
 # … make a decision …  then restart:
 OLYMPUS_LOG=/tmp/olympus.log npm run serve     # "Durable log: … (replayed N events)"
 curl -s localhost:7777/v1/inbox | jq '.stats'  # identical to before the restart
+```
+
+---
+
+## A fully-seeded company
+
+`npm run serve` boots a complete, deterministic demo company — **Helios
+Robotics**, a mid-stage SaaS startup — so the console isn't empty on first load.
+Every business module is populated: the financial ledger, the CRM deal pipeline,
+the risk register, SLA tracking, capacity planning, and OKRs.
+
+This drives the console's **Company Health** hero and the **Business Modules**
+grid immediately. The health score is a single composite (0–100) rolled up from
+six weighted dimensions:
+
+| Dimension | Driven by |
+|---|---|
+| financial | runway months from the ledger |
+| risk | top residual risk scores |
+| growth | weighted-ARR pipeline vs target |
+| reliability | fraction of SLAs healthy |
+| capacity | fraction of resources not overallocated |
+| goals | average OKR attainment |
+
+```bash
+npm run serve
+curl -s localhost:7777/v1/health | jq '{score:.score, grade:.grade}'
+```
+
+To start from an empty world instead, set `OLYMPUS_NO_SEED=1`:
+
+```bash
+OLYMPUS_NO_SEED=1 npm run serve
 ```
 
 ---
