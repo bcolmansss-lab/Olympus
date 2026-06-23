@@ -523,6 +523,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Seed the worked churn scenario so /v1/diagnose has a causal graph to walk.
   const { seedChurnScenario } = await import("../scenarios/churn.js");
   seedChurnScenario(api.olympus);
+  // Seed a realistic demo company so the console + Health Score render against
+  // real numbers on first load. Opt out with OLYMPUS_NO_SEED=1.
+  if (!process.env.OLYMPUS_NO_SEED) {
+    const { seedCompany } = await import("../scenarios/company.js");
+    seedCompany(api.olympus);
+  }
   const port = Number(process.env.PORT ?? 7777);
   const actual = await api.listen(port);
   console.log(`Olympus API listening on http://localhost:${actual}`);

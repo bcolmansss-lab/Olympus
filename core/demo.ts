@@ -16,6 +16,7 @@
 import { Olympus } from "./index.js";
 import { DigitalTwin } from "./simulation/digital-twin.js";
 import { seedChurnScenario } from "./scenarios/churn.js";
+import { seedCompany } from "./scenarios/company.js";
 
 async function main(): Promise<void> {
   // A toy structural causal model of quarterly cash given pipeline & spend,
@@ -273,6 +274,16 @@ async function main(): Promise<void> {
   console.log(`Procedure "${run.procedure}" → ${run.status} (${run.steps.length} steps, all gated + audited)`);
   for (const s of run.steps) console.log(`   [${s.status}] ${s.action}`);
   console.log("Audit chain still valid:", olympus.mcp.verifyAuditChain());
+
+  // -------------------------------------------------------------------------
+  console.log("\n=== 12. Company Health: seed the demo company + score it ===");
+  seedCompany(olympus);
+  const health = olympus.health.score();
+  console.log("Headline:", health.headline);
+  console.log(`Composite: ${health.composite}/100 (${health.grade})`);
+  for (const d of health.dimensions) {
+    console.log(`   ${d.name.padEnd(11)} ${d.score.toFixed(0).padStart(3)}/100  ${d.detail}`);
+  }
 
   // -------------------------------------------------------------------------
   console.log("\n=== Event spine (all unique topics) ===");

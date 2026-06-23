@@ -2123,6 +2123,45 @@ describe("RiskRegister", () => {
   });
 });
 
+describe("seedCompany", () => {
+  it("populates all modules", async () => {
+    const { seedCompany } = await import("../scenarios/company.js");
+    const olympus = new Olympus();
+    seedCompany(olympus);
+    assert.ok(olympus.ledger.listAccounts().length > 0);
+    assert.ok(olympus.pipeline.list().length > 0);
+    assert.ok(olympus.riskRegister.list().length > 0);
+    assert.ok(olympus.sla.list().length > 0);
+    assert.ok(olympus.capacity.listResources().length > 0);
+    assert.ok(olympus.okr.list().length > 0);
+  });
+
+  it("produces a finite health composite in a realistic range", async () => {
+    const { seedCompany } = await import("../scenarios/company.js");
+    const olympus = new Olympus();
+    seedCompany(olympus);
+    const { composite } = olympus.health.score();
+    assert.ok(Number.isFinite(composite));
+    assert.ok(composite > 20 && composite < 95, `composite ${composite} out of range`);
+  });
+
+  it("creates a runway between 1 and 24 months", async () => {
+    const { seedCompany } = await import("../scenarios/company.js");
+    const olympus = new Olympus();
+    seedCompany(olympus);
+    const { runwayMonths } = olympus.ledger.burnRate();
+    assert.ok(Number.isFinite(runwayMonths));
+    assert.ok(runwayMonths > 0 && runwayMonths < 24, `runway ${runwayMonths} out of range`);
+  });
+
+  it("has at least one overallocated resource", async () => {
+    const { seedCompany } = await import("../scenarios/company.js");
+    const olympus = new Olympus();
+    seedCompany(olympus);
+    assert.ok(olympus.capacity.overallocatedResources().length >= 1);
+  });
+});
+
 describe("Operator console panels", () => {
   it("dashboard HTML surfaces the Company Health hero and Business Modules grid", async () => {
     const { DASHBOARD_HTML } = await import("../api/dashboard.js");
