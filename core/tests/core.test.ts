@@ -38,6 +38,8 @@ import { CustomerSuccessTracker } from "../customer-success/account-health.js";
 import { ComplianceTracker } from "../compliance/index.js";
 import { CompetitiveIntel } from "../competitive/index.js";
 import { IncidentManager } from "../incidents/incident-manager.js";
+import { MarketingAttributionEngine } from "../marketing/attribution-engine.js";
+import type { TouchPoint } from "../marketing/attribution-engine.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -3341,5 +3343,133 @@ describe("IncidentManager", () => {
     assert.ok(openIds.has(open1.id));
     assert.ok(openIds.has(open2.id));
     assert.ok(!openIds.has(closed.id));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MarketingAttributionEngine
+// ---------------------------------------------------------------------------
+
+describe("MarketingAttributionEngine", () => {
+  it("addCampaign stores and returns campaign", () => {
+    const bus = new EventBus();
+    const engine = new MarketingAttributionEngine(bus);
+    const campaign = engine.addCampaign({
+      name: "Test Campaign",
+      channel: "paid_search",
+      startDate: "2026-01-01",
+      budgetUsd: 5_000,
+      spendUsd: 3_000,
+      impressions: 10_000,
+      clicks: 200,
+      leads: 10,
+    });
+    assert.ok(campaign.id, "campaign must have an id");
+    assert.equal(campaign.name, "Test Campaign");
+    assert.equal(campaign.channel, "paid_search");
+    assert.deepEqual(engine.getCampaign(campaign.id), campaign);
+    assert.equal(engine.listCampaigns().length, 1);
+  });
+
+  it("recordConversion with linear attribution splits evenly", () => {
+    const bus = new EventBus();
+    const engine = new MarketingAttributionEngine(bus);
+    const touchPoints: TouchPoint[] = [
+      { channel: "paid_search", timestamp: new Date(Date.now() - 3 * 864e5).toISOString() },
+      { channel: "email", timestamp: new Date(Date.now() - 2 * 864e5).toISOString() },
+      { channel: "direct", timestamp: new Date(Date.now() - 1 * 864e5).toISOString() },
+    ];
+    const conversion = engine.recordConversion({
+      touchPoints,
+      convertedAt: new Date().toISOString(),
+      revenueUsd: 90_000,
+      model: "linear",
+    });
+    assert.ok(Math.abs((conversion.attribution["paid_search"] ?? 0) - 30_000) < 0.01, "paid_search should get 1/3");
+    assert.ok(Math.abs((conversion.attribution["email"] ?? 0) - 30_000) < 0.01, "email should get 1/3");
+    assert.ok(Math.abs((conversion.attribution["direct"] ?? 0) - 30_000) < 0.01, "direct should get 1/3");
+  });
+
+  it("recordConversion with first_touch gives 100% to first", () => {
+    const bus = new EventBus();
+    const engine = new MarketingAttributionEngine(bus);
+    const touchPoints: TouchPoint[] = [
+      { channel: "organic_search", timestamp: new Date(Date.now() - 5 * 864e5).toISOString() },
+      { channel: "paid_search", timestamp: new Date(Date.now() - 3 * 864e5).toISOString() },
+      { channel: "email", timestamp: new Date(Date.now() - 1 * 864e5).toISOString() },
+    ];
+    const conversion = engine.recordConversion({
+      touchPoints,
+      convertedAt: new Date().toISOString(),
+      revenueUsd: 120_000,
+      model: "first_touch",
+    });
+    assert.ok(Math.abs((conversion.attribution["organic_search"] ?? 0) - 120_000) < 0.01, "first channel gets 100%");
+    assert.equal(conversion.attribution["paid_search"] ?? 0, 0);
+    assert.equal(conversion.attribution["email"] ?? 0, 0);
+  });
+
+  it("recordConversion with time_decay weights recent more", () => {
+    const bus = new EventBus();
+    const engine = new MarketingAttributionEngine(bus);
+    const now = Date.now();
+    const touchPoints: TouchPoint[] = [
+      { channel: "organic_search", timestamp: new Date(now - 14 * 864e5).toISOString() },
+      { channel: "email", timestamp: new Date(now - 1 * 864e5).toISOString() },
+    ];
+    const conversion = engine.recordConversion({
+      touchPoints,
+      convertedAt: new Date(now).toISOString(),
+      revenueUsd: 100_000,
+      model: "time_decay",
+    });
+    const emailCredit = conversion.attribution["email"] ?? 0;
+    const organicCredit = conversion.attribution["organic_search"] ?? 0;
+    assert.ok(emailCredit > organicCredit, "recent channel (email) should get more credit than older channel");
+    assert.ok(Math.abs(emailCredit + organicCredit - 100_000) < 0.01, "total must sum to revenue");
+  });
+
+  it("summary aggregates revenue and ROI by channel", () => {
+    const bus = new EventBus();
+    const engine = new MarketingAttributionEngine(bus);
+    engine.addCampaign({
+      id: "camp-ps",
+      name: "Paid Search",
+      channel: "paid_search",
+      startDate: "2026-01-01",
+      budgetUsd: 10_000,
+      spendUsd: 8_000,
+      impressions: 20_000,
+      clicks: 500,
+      leads: 15,
+    });
+    engine.recordConversion({
+      touchPoints: [
+        { channel: "paid_search", timestamp: new Date(Date.now() - 5 * 864e5).toISOString(), campaignId: "camp-ps" },
+      ],
+      convertedAt: new Date().toISOString(),
+      revenueUsd: 80_000,
+      model: "linear",
+    });
+    const s = engine.summary("linear");
+    assert.equal(s.totalConversions, 1);
+    assert.ok(s.totalRevenue > 0, "total revenue must be positive");
+    assert.ok(s.byChannel.length > 0, "must have at least one channel");
+    const ps = s.byChannel.find((c) => c.channel === "paid_search");
+    assert.ok(ps !== undefined, "paid_search channel must appear");
+    assert.ok(ps.attributedRevenue > 0, "paid_search must have attributed revenue");
+  });
+
+  it("emits marketing.conversion event", () => {
+    const bus = new EventBus();
+    const engine = new MarketingAttributionEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("marketing.conversion", (e) => { events.push(e.payload); });
+    engine.recordConversion({
+      touchPoints: [{ channel: "direct", timestamp: new Date().toISOString() }],
+      convertedAt: new Date().toISOString(),
+      revenueUsd: 50_000,
+    });
+    assert.equal(events.length, 1, "marketing.conversion event must be emitted");
   });
 });

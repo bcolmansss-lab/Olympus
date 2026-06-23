@@ -152,6 +152,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/compliance", handler: (_req, res) => res.json(200, { controls: this.olympus.compliance.list(), gaps: this.olympus.compliance.checkGaps(), summary: this.olympus.compliance.summary() }) },
       { method: "GET", pattern: "/v1/competitive", handler: (_req, res) => res.json(200, { competitors: this.olympus.competitive.listCompetitors(), recentSignals: this.olympus.competitive.recentSignals(5) }) },
       { method: "GET", pattern: "/v1/incidents", handler: (_req, res) => res.json(200, { incidents: this.olympus.incidents.list(), open: this.olympus.incidents.openIncidents(), metrics: this.olympus.incidents.metrics() }) },
+      { method: "GET", pattern: "/v1/marketing", handler: (_req, res) => res.json(200, { summary: this.olympus.marketing.summary(), campaigns: this.olympus.marketing.listCampaigns() }) },
     );
   }
 

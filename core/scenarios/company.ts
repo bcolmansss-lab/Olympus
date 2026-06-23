@@ -44,6 +44,7 @@ export function seedCompany(olympus: Olympus): void {
   seedCompliance(olympus);
   seedCompetitiveIntel(olympus);
   seedIncidents(olympus);
+  seedMarketing(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -831,5 +832,130 @@ function seedCompliance(olympus: Olympus): void {
     category: "Incident Management",
     reviewCycleDays: 365,
     owner: "security-team",
+  });
+}
+
+function seedMarketing(olympus: Olympus): void {
+  const mkt = olympus.marketing;
+
+  // 4 campaigns
+  const googleAds = mkt.addCampaign({
+    id: "mkt-google-ads-q2",
+    name: "Google Ads Q2",
+    channel: "paid_search",
+    startDate: isoDate(daysAgo(90)),
+    endDate: isoDate(daysAgo(-1)),
+    budgetUsd: 15_000,
+    spendUsd: 12_000,
+    impressions: 45_000,
+    clicks: 1_200,
+    leads: 28,
+  });
+
+  const linkedIn = mkt.addCampaign({
+    id: "mkt-linkedin-enterprise",
+    name: "LinkedIn Enterprise",
+    channel: "paid_social",
+    startDate: isoDate(daysAgo(90)),
+    endDate: isoDate(daysAgo(-1)),
+    budgetUsd: 8_000,
+    spendUsd: 7_500,
+    impressions: 22_000,
+    clicks: 340,
+    leads: 12,
+  });
+
+  const seoBlog = mkt.addCampaign({
+    id: "mkt-seo-blog",
+    name: "SEO Blog Initiative",
+    channel: "content",
+    startDate: isoDate(daysAgo(180)),
+    budgetUsd: 3_000,
+    spendUsd: 2_800,
+    impressions: 0,
+    clicks: 5_200,
+    leads: 45,
+  });
+
+  const emailNurture = mkt.addCampaign({
+    id: "mkt-email-nurture-q2",
+    name: "Q2 Nurture Sequence",
+    channel: "email",
+    startDate: isoDate(daysAgo(60)),
+    endDate: isoDate(daysAgo(-1)),
+    budgetUsd: 1_500,
+    spendUsd: 1_400,
+    impressions: 0,
+    clicks: 890,
+    leads: 18,
+  });
+
+  // 5 conversions with realistic touchpoints
+  mkt.recordConversion({
+    id: "conv-acme",
+    dealId: "deal-acme",
+    accountId: "cs-acme",
+    touchPoints: [
+      { channel: "organic_search", timestamp: new Date(Date.now() - 60 * 864e5).toISOString(), campaignId: seoBlog.id },
+      { channel: "paid_search", timestamp: new Date(Date.now() - 45 * 864e5).toISOString(), campaignId: googleAds.id },
+      { channel: "email", timestamp: new Date(Date.now() - 30 * 864e5).toISOString(), campaignId: emailNurture.id },
+      { channel: "direct", timestamp: new Date(Date.now() - 15 * 864e5).toISOString() },
+    ],
+    convertedAt: new Date(Date.now() - 10 * 864e5).toISOString(),
+    revenueUsd: 240_000,
+    model: "linear",
+  });
+
+  mkt.recordConversion({
+    id: "conv-northwind",
+    dealId: "deal-northwind",
+    accountId: "cs-northwind",
+    touchPoints: [
+      { channel: "paid_social", timestamp: new Date(Date.now() - 50 * 864e5).toISOString(), campaignId: linkedIn.id },
+      { channel: "content", timestamp: new Date(Date.now() - 35 * 864e5).toISOString(), campaignId: seoBlog.id },
+      { channel: "email", timestamp: new Date(Date.now() - 20 * 864e5).toISOString(), campaignId: emailNurture.id },
+    ],
+    convertedAt: new Date(Date.now() - 14 * 864e5).toISOString(),
+    revenueUsd: 180_000,
+    model: "time_decay",
+  });
+
+  mkt.recordConversion({
+    id: "conv-cascade",
+    accountId: "cs-cascade",
+    touchPoints: [
+      { channel: "paid_search", timestamp: new Date(Date.now() - 40 * 864e5).toISOString(), campaignId: googleAds.id },
+      { channel: "direct", timestamp: new Date(Date.now() - 10 * 864e5).toISOString() },
+    ],
+    convertedAt: new Date(Date.now() - 5 * 864e5).toISOString(),
+    revenueUsd: 95_000,
+    model: "first_touch",
+  });
+
+  mkt.recordConversion({
+    id: "conv-pinnacle",
+    accountId: "cs-pinnacle",
+    touchPoints: [
+      { channel: "referral", timestamp: new Date(Date.now() - 70 * 864e5).toISOString() },
+      { channel: "paid_social", timestamp: new Date(Date.now() - 55 * 864e5).toISOString(), campaignId: linkedIn.id },
+      { channel: "email", timestamp: new Date(Date.now() - 40 * 864e5).toISOString(), campaignId: emailNurture.id },
+      { channel: "paid_search", timestamp: new Date(Date.now() - 25 * 864e5).toISOString(), campaignId: googleAds.id },
+    ],
+    convertedAt: new Date(Date.now() - 20 * 864e5).toISOString(),
+    revenueUsd: 85_000,
+    model: "position_based",
+  });
+
+  mkt.recordConversion({
+    id: "conv-vertex",
+    accountId: "cs-vertex",
+    touchPoints: [
+      { channel: "content", timestamp: new Date(Date.now() - 90 * 864e5).toISOString(), campaignId: seoBlog.id },
+      { channel: "organic_search", timestamp: new Date(Date.now() - 75 * 864e5).toISOString() },
+      { channel: "email", timestamp: new Date(Date.now() - 50 * 864e5).toISOString(), campaignId: emailNurture.id },
+    ],
+    convertedAt: new Date(Date.now() - 45 * 864e5).toISOString(),
+    revenueUsd: 130_000,
+    model: "last_touch",
   });
 }

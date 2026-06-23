@@ -47,6 +47,7 @@ import { ProductAnalytics } from "./product/index.js";
 import { ComplianceTracker } from "./compliance/index.js";
 import { CompetitiveIntel } from "./competitive/index.js";
 import { IncidentManager } from "./incidents/incident-manager.js";
+import { MarketingAttributionEngine } from "./marketing/attribution-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -118,6 +119,8 @@ export class Olympus {
   readonly competitive: CompetitiveIntel;
   /** Incident manager — production incident lifecycle, post-mortems, and MTTD/MTTA/MTTR metrics. */
   readonly incidents: IncidentManager;
+  /** Marketing attribution engine — multi-touch attribution, channel ROI, and campaign performance. */
+  readonly marketing: MarketingAttributionEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -155,6 +158,7 @@ export class Olympus {
     this.compliance = new ComplianceTracker(this.bus);
     this.competitive = new CompetitiveIntel(this.bus);
     this.incidents = new IncidentManager(this.bus);
+    this.marketing = new MarketingAttributionEngine(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -199,3 +203,4 @@ export { ProductAnalytics, type Feature, type UsageEvent, type FeatureAdoption, 
 export { ComplianceTracker, type Control, type Evidence, type ControlStatus, type EvidenceType, type Framework, type AddControlInput, type ComplianceSummary } from "./compliance/index.js";
 export { CompetitiveIntel, type SignalType, type Sentiment, type WinLossOutcome, type Competitor, type CompetitiveSignal, type WinLossRecord, type CompetitorSummary } from "./competitive/index.js";
 export { IncidentManager, type Incident, type Postmortem, type IncidentMetrics, type IncidentSeverity, type IncidentStatus } from "./incidents/index.js";
+export { MarketingAttributionEngine, type AttributionModel, type ChannelType, type TouchPoint, type Conversion as MarketingConversion, type Campaign as MarketingCampaign, type ChannelSummary, type AttributionSummary } from "./marketing/index.js";
