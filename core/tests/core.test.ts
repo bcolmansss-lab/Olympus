@@ -2122,3 +2122,13 @@ describe("RiskRegister", () => {
     assert.ok(open.every((r) => r.status === "open"));
   });
 });
+
+describe("Operator console panels", () => {
+  it("dashboard HTML surfaces the Company Health hero and Business Modules grid", async () => {
+    const { DASHBOARD_HTML } = await import("../api/dashboard.js");
+    assert.ok(DASHBOARD_HTML.includes("Company Health"), "expected Company Health hero");
+    assert.ok(DASHBOARD_HTML.includes("refreshHealth"), "expected refreshHealth fetch fn");
+    assert.ok(DASHBOARD_HTML.includes("Business Modules"), "expected Business Modules grid");
+    assert.ok(DASHBOARD_HTML.includes("refreshModules"), "expected refreshModules fetch fn");
+  });
+});

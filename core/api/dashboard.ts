@@ -80,6 +80,35 @@ export const DASHBOARD_HTML = `<!doctype html>
     padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
   button.demo:hover { filter: brightness(1.1); }
   button.demo:disabled { opacity: .5; cursor: default; }
+  /* Company Health hero */
+  .health { grid-column: 1 / -1; }
+  .health .body { max-height: none; padding: 14px 16px; }
+  .health-top { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+  .health-score { font-family: var(--mono); font-size: 38px; font-weight: 700; line-height: 1; }
+  .health-score .max { font-size: 16px; color: var(--dim); font-weight: 400; }
+  .health-headline { color: var(--dim); font-size: 13px; flex: 1; min-width: 180px; }
+  .grade { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+    padding: 4px 10px; border-radius: 6px; }
+  .grade.excellent { background: rgba(63,185,80,.18); color: var(--good); }
+  .grade.good { background: rgba(45,212,191,.18); color: #2dd4bf; }
+  .grade.fair { background: rgba(210,153,34,.18); color: var(--warn); }
+  .grade.poor { background: rgba(245,158,66,.18); color: #f59e42; }
+  .grade.critical { background: rgba(248,81,73,.18); color: var(--bad); }
+  .dim-row { margin: 8px 0; }
+  .dim-row .lbl { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
+  .dim-row .lbl .nm { color: var(--ink); }
+  .dim-row .lbl .sc { font-family: var(--mono); color: var(--dim); }
+  .dim-row .track { background: var(--bg); border-radius: 5px; height: 8px; overflow: hidden; }
+  .dim-row .fill { height: 100%; border-radius: 5px; background: var(--accent); transition: width .4s; }
+  .dim-row .detail { font-size: 11.5px; color: var(--dim); margin-top: 3px; }
+  /* Business Modules grid */
+  .modules { grid-column: 1 / -1; }
+  .module-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px; padding: 14px 16px; }
+  .module-card { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 11px 13px; }
+  .module-card .mt { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); }
+  .module-card .mv { font-family: var(--mono); font-size: 20px; font-weight: 650; margin: 4px 0 2px; }
+  .module-card .ms { font-size: 11.5px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -91,6 +120,14 @@ export const DASHBOARD_HTML = `<!doctype html>
 </header>
 <div id="briefing" class="briefing"></div>
 <main>
+  <section class="panel health">
+    <h2>Company Health <span id="health-grade-slot" class="sub"></span></h2>
+    <div class="body" id="health"><div class="empty">Loading company health…</div></div>
+  </section>
+  <section class="panel modules">
+    <h2>Business Modules <span class="sub">live</span></h2>
+    <div class="module-grid" id="modules"><div class="empty">Loading modules…</div></div>
+  </section>
   <section class="panel">
     <h2>Decision Inbox <span id="inbox-count" class="sub"></span></h2>
     <div class="stats" id="stats"></div>
@@ -161,7 +198,7 @@ function connect() {
    'memory.episode.recorded','audit.recorded']
     .forEach((t) => es.addEventListener(t, (e) => {
       try { addEvent(JSON.parse(e.data)); } catch (_) {}
-      if (t.startsWith('decision.') || t === 'action.gated') { refreshInbox(); refreshBriefing(); }
+      if (t.startsWith('decision.') || t === 'action.gated') { refreshInbox(); refreshBriefing(); refreshHealth(); refreshModules(); }
     }));
 }
 
@@ -190,6 +227,84 @@ async function refreshBriefing() {
   } catch (e) { /* ignore */ }
 }
 
+const GRADE_FILL = { excellent: 'var(--good)', good: '#2dd4bf', fair: 'var(--warn)',
+  poor: '#f59e42', critical: 'var(--bad)' };
+
+async function refreshHealth() {
+  try {
+    const h = await (await fetch('/v1/health')).json();
+    const grade = String(h.grade || '').toLowerCase();
+    const fill = GRADE_FILL[grade] || 'var(--accent)';
+    const composite = (typeof h.composite === 'number') ? h.composite.toFixed(1) : '—';
+    $('health-grade-slot').innerHTML = grade
+      ? '<span class="grade ' + esc(grade) + '">' + esc(grade) + '</span>' : '';
+    const dims = Array.isArray(h.dimensions) ? h.dimensions : [];
+    $('health').innerHTML =
+      '<div class="health-top">' +
+        '<div class="health-score" style="color:' + fill + '">' + composite +
+          ' <span class="max">/ 100</span></div>' +
+        '<div class="health-headline">' + esc(h.headline || '') + '</div>' +
+      '</div>' +
+      (dims.length
+        ? dims.map((d) => {
+            const score = Math.max(0, Math.min(100, Number(d.score) || 0));
+            return '<div class="dim-row">' +
+              '<div class="lbl"><span class="nm">' + esc(d.name) + '</span>' +
+              '<span class="sc">' + score.toFixed(0) + '</span></div>' +
+              '<div class="track"><div class="fill" style="width:' + score + '%;background:' + fill + '"></div></div>' +
+              (d.detail ? '<div class="detail">' + esc(d.detail) + '</div>' : '') +
+            '</div>';
+          }).join('')
+        : '<div class="empty">No dimension data.</div>');
+  } catch (e) {
+    $('health').innerHTML = '<div class="empty">Health unavailable.</div>';
+  }
+}
+
+function money(n) {
+  if (typeof n !== 'number' || !isFinite(n)) return '—';
+  const a = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (a >= 1e9) return sign + '$' + (a / 1e9).toFixed(1) + 'B';
+  if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(1) + 'K';
+  return sign + '$' + a.toFixed(0);
+}
+function card(title, value, sub) {
+  return '<div class="module-card"><div class="mt">' + esc(title) + '</div>' +
+    '<div class="mv">' + value + '</div><div class="ms">' + sub + '</div></div>';
+}
+
+async function refreshModules() {
+  const get = async (path) => { try { return await (await fetch(path)).json(); } catch (e) { return null; } };
+  const [fin, pipe, risk, sla, cap] = await Promise.all([
+    get('/v1/finance'), get('/v1/pipeline'), get('/v1/risks'), get('/v1/sla'), get('/v1/capacity'),
+  ]);
+  const cards = [];
+  if (fin && fin.burnRate) {
+    const rw = (typeof fin.burnRate.runwayMonths === 'number') ? fin.burnRate.runwayMonths.toFixed(1) + ' mo' : '—';
+    cards.push(card('Finance', rw, 'net income ' + money(fin.netIncome)));
+  } else cards.push(card('Finance', '—', 'no data'));
+  if (pipe && pipe.summary) {
+    cards.push(card('Pipeline', money(pipe.summary.weightedArrUsd),
+      (pipe.summary.openDeals != null ? pipe.summary.openDeals : '—') + ' open deals'));
+  } else cards.push(card('Pipeline', '—', 'no data'));
+  if (risk && Array.isArray(risk.top)) {
+    const hi = risk.top.length ? (Number(risk.top[0].residualScore) || 0).toFixed(2) : '—';
+    cards.push(card('Risk', String(risk.top.length), 'top residual ' + hi));
+  } else cards.push(card('Risk', '—', 'no data'));
+  if (sla && Array.isArray(sla.slas)) {
+    const atRisk = Array.isArray(sla.atRisk) ? sla.atRisk.length : 0;
+    const healthy = sla.slas.length - atRisk;
+    cards.push(card('SLA', healthy + '/' + sla.slas.length,
+      'penalties ' + money(sla.totalPenalties)));
+  } else cards.push(card('SLA', '—', 'no data'));
+  if (cap && Array.isArray(cap.overallocated)) {
+    cards.push(card('Capacity', String(cap.overallocated.length), 'overallocated'));
+  } else cards.push(card('Capacity', '—', 'no data'));
+  $('modules').innerHTML = cards.join('');
+}
+
 async function diagnose() {
   const btn = $('diagnose'); const q = $('q').value.trim();
   if (!q) return;
@@ -215,6 +330,9 @@ $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') diagnose(); }
 
 refreshInbox();
 refreshBriefing();
+refreshHealth();
+refreshModules();
+setInterval(() => { refreshHealth(); refreshModules(); }, 5000);
 connect();
 </script>
 </body>
