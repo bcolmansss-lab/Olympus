@@ -111,6 +111,8 @@ import { PermitManager } from "./permits/permit-manager.js";
 import { TaxManager } from "./tax-mgr/tax-manager.js";
 import { WarehouseManager } from "./warehouse/warehouse-manager.js";
 import { CustomerFeedbackEngine } from "./customer-feedback/customer-feedback.js";
+import { TrainingManager } from "./training/training-manager.js";
+import { ProcurementEngine } from "./procurement-engine/procurement-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -310,6 +312,8 @@ export class Olympus {
   readonly taxMgr: TaxManager;
   readonly warehouseMgr: WarehouseManager;
   readonly customerFeedback: CustomerFeedbackEngine;
+  readonly trainingMgr: TrainingManager;
+  readonly procurementEngine: ProcurementEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -413,6 +417,8 @@ export class Olympus {
     this.taxMgr = new TaxManager(this.bus);
     this.warehouseMgr = new WarehouseManager(this.bus);
     this.customerFeedback = new CustomerFeedbackEngine(this.bus);
+    this.trainingMgr = new TrainingManager(this.bus);
+    this.procurementEngine = new ProcurementEngine(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -522,3 +528,5 @@ export { PermitManager, type PermitStatus, type PermitCategory, type BusinessPer
 export { TaxManager, type TaxType, type TaxFilingStatus, type TaxFrequency, type TaxObligation, type TaxPayment, type TaxSummary } from "./tax-mgr/index.js";
 export { WarehouseManager, type WarehouseStatus, type ShipmentDirection, type ShipmentStatus, type Warehouse, type WHShipment, type WarehouseSummary } from "./warehouse/index.js";
 export { CustomerFeedbackEngine, type FeedbackType, type FeedbackSentiment as CFESentiment, type NPSCategory as CFENPSCategory, type FeedbackResponse, type FeedbackSurvey, type FeedbackSummary as CFEFeedbackSummary } from "./customer-feedback/index.js";
+export { TrainingManager, type CourseStatus, type EnrollmentStatus, type DeliveryMode, type TrainingCourse, type TrainingEnrollment, type Certification, type TrainingSummary } from "./training/index.js";
+export { ProcurementEngine, type RFQStatus, type BidStatus, type POApprovalStatus, type RFQ, type Bid, type ProcurementPO, type ProcurementSummary as PEProcurementSummary } from "./procurement-engine/index.js";

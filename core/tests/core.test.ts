@@ -14,6 +14,8 @@ import { PermitManager } from "../permits/permit-manager.js";
 import { TaxManager } from "../tax-mgr/tax-manager.js";
 import { WarehouseManager } from "../warehouse/warehouse-manager.js";
 import { CustomerFeedbackEngine } from "../customer-feedback/customer-feedback.js";
+import { TrainingManager } from "../training/training-manager.js";
+import { ProcurementEngine } from "../procurement-engine/procurement-engine.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -8925,5 +8927,136 @@ describe("CustomerFeedbackEngine", () => {
     assert.equal(s.promoters, 2);
     assert.equal(s.detractors, 1);
     assert.equal(s.npsScore, 25); // (2-1)/4 * 100 = 25
+  });
+});
+
+describe("TrainingManager", () => {
+  it("createCourse stores course", () => {
+    const bus = new EventBus();
+    const tm = new TrainingManager(bus);
+    const c = tm.createCourse({ name: "TypeScript Fundamentals", description: "TS basics", category: "engineering", status: "published", deliveryMode: "online", durationHours: 8, passingScore: 75, mandatory: false });
+    assert.ok(c.id);
+    assert.equal(tm.getCourse(c.id)?.name, "TypeScript Fundamentals");
+  });
+
+  it("enroll creates enrollment and emits event", () => {
+    const bus = new EventBus();
+    const tm = new TrainingManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("training.enrollment_created", (e) => { events.push(e.payload); });
+    const c = tm.createCourse({ name: "Security Awareness", description: "Security basics", category: "compliance", status: "published", deliveryMode: "online", durationHours: 2, passingScore: 80, mandatory: true });
+    tm.enroll("emp-1", c.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("completeEnrollment with passing score emits completion event and issues cert", () => {
+    const bus = new EventBus();
+    const tm = new TrainingManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("training.course_completed", (e) => { events.push(e.payload); });
+    const c = tm.createCourse({ name: "Leadership 101", description: "Leadership skills", category: "management", status: "published", deliveryMode: "in_person", durationHours: 16, passingScore: 70, mandatory: false });
+    const en = tm.enroll("emp-2", c.id)!;
+    tm.completeEnrollment(en.id, 85);
+    assert.equal(tm.listEnrollments("emp-2", "completed").length, 1);
+    assert.equal(tm.listCertifications("emp-2").length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("completeEnrollment with failing score sets status failed", () => {
+    const bus = new EventBus();
+    const tm = new TrainingManager(bus);
+    const c = tm.createCourse({ name: "Advanced Finance", description: "Finance", category: "finance", status: "published", deliveryMode: "hybrid", durationHours: 20, passingScore: 80, mandatory: false });
+    const en = tm.enroll("emp-3", c.id)!;
+    tm.completeEnrollment(en.id, 65);
+    assert.equal(tm.listEnrollments("emp-3", "failed").length, 1);
+    assert.equal(tm.listCertifications("emp-3").length, 0);
+  });
+
+  it("listCourses filters by status", () => {
+    const bus = new EventBus();
+    const tm = new TrainingManager(bus);
+    tm.createCourse({ name: "C1", description: "", category: "eng", status: "published", deliveryMode: "online", durationHours: 4, passingScore: 70, mandatory: false });
+    tm.createCourse({ name: "C2", description: "", category: "hr", status: "draft", deliveryMode: "online", durationHours: 2, passingScore: 60, mandatory: true });
+    assert.equal(tm.listCourses("published").length, 1);
+    assert.equal(tm.listCourses().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const tm = new TrainingManager(bus);
+    const c = tm.createCourse({ name: "Onboarding", description: "", category: "hr", status: "published", deliveryMode: "self_paced", durationHours: 6, passingScore: 70, mandatory: true });
+    const en = tm.enroll("emp-4", c.id)!;
+    tm.completeEnrollment(en.id, 90);
+    const s = tm.summary();
+    assert.equal(s.totalCourses, 1);
+    assert.equal(s.totalEnrollments, 1);
+    assert.equal(s.completionRate, 100);
+  });
+});
+
+describe("ProcurementEngine", () => {
+  it("issueRFQ stores RFQ and emits event", () => {
+    const bus = new EventBus();
+    const pe = new ProcurementEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("procurement.rfq_issued", (e) => { events.push(e.payload); });
+    const r = pe.issueRFQ({ title: "Cloud Services 2027", description: "AWS/Azure RFQ", categoryId: "cloud", budgetUsd: 500000, status: "issued", dueDate: "2026-09-01" });
+    assert.ok(r.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("submitBid increments bidCount on RFQ", () => {
+    const bus = new EventBus();
+    const pe = new ProcurementEngine(bus);
+    const r = pe.issueRFQ({ title: "Office Supplies", description: "Pens and paper", categoryId: "supplies", budgetUsd: 50000, status: "issued", dueDate: "2026-08-01" });
+    pe.submitBid({ rfqId: r.id, vendorId: "v1", vendorName: "OfficeMax", amountUsd: 42000, status: "submitted", submittedAt: "2026-07-15" });
+    pe.submitBid({ rfqId: r.id, vendorId: "v2", vendorName: "Staples", amountUsd: 45000, status: "submitted", submittedAt: "2026-07-16" });
+    assert.equal(pe.getRFQ(r.id)!.bidCount, 2);
+  });
+
+  it("awardBid sets RFQ status awarded and emits event", () => {
+    const bus = new EventBus();
+    const pe = new ProcurementEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("procurement.bid_awarded", (e) => { events.push(e.payload); });
+    const r = pe.issueRFQ({ title: "Security Audit", description: "Annual pen test", categoryId: "security", budgetUsd: 80000, status: "evaluating", dueDate: "2026-07-01" });
+    const b = pe.submitBid({ rfqId: r.id, vendorId: "sec-co", vendorName: "SecureCo", amountUsd: 75000, status: "submitted", submittedAt: "2026-06-20" })!;
+    pe.awardBid(r.id, b.id);
+    assert.equal(pe.getRFQ(r.id)!.status, "awarded");
+    assert.equal(events.length, 1);
+  });
+
+  it("approvePO emits event", () => {
+    const bus = new EventBus();
+    const pe = new ProcurementEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("procurement.po_approved", (e) => { events.push(e.payload); });
+    const po = pe.createPO({ vendorId: "vendor-1", lineItems: [{ description: "Laptops", quantity: 10, unitPriceUsd: 1500 }], totalUsd: 15000, approvalStatus: "pending" });
+    pe.approvePO(po.id, "cfo-1");
+    assert.equal(pe.listPOs("approved").length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("listBids filters by rfqId", () => {
+    const bus = new EventBus();
+    const pe = new ProcurementEngine(bus);
+    const r1 = pe.issueRFQ({ title: "R1", description: "", categoryId: "cat1", budgetUsd: 100000, status: "issued", dueDate: "2026-10-01" });
+    const r2 = pe.issueRFQ({ title: "R2", description: "", categoryId: "cat2", budgetUsd: 200000, status: "issued", dueDate: "2026-10-15" });
+    pe.submitBid({ rfqId: r1.id, vendorId: "v1", vendorName: "A", amountUsd: 90000, status: "submitted", submittedAt: "2026-09-01" });
+    pe.submitBid({ rfqId: r2.id, vendorId: "v2", vendorName: "B", amountUsd: 180000, status: "submitted", submittedAt: "2026-09-02" });
+    assert.equal(pe.listBids(r1.id).length, 1);
+    assert.equal(pe.listBids().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const pe = new ProcurementEngine(bus);
+    pe.issueRFQ({ title: "X", description: "", categoryId: "misc", budgetUsd: 50000, status: "issued", dueDate: "2026-11-01" });
+    const po = pe.createPO({ vendorId: "v1", lineItems: [], totalUsd: 20000, approvalStatus: "pending" });
+    pe.approvePO(po.id, "cto");
+    const s = pe.summary();
+    assert.equal(s.totalRFQs, 1);
+    assert.equal(s.totalPOs, 1);
+    assert.equal(s.approvedPOsValueUsd, 20000);
   });
 });
