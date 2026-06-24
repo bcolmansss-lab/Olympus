@@ -166,6 +166,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/payroll", handler: (_req, res) => res.json(200, { summary: this.olympus.payroll.summary(), recentPeriods: this.olympus.payroll.listPeriods().slice(-3) }) },
       { method: "GET", pattern: "/v1/inventory", handler: (_req, res) => res.json(200, { summary: this.olympus.inventory.summary(), lowStock: this.olympus.inventory.listSKUs("low_stock") }) },
       { method: "GET", pattern: "/v1/partners", handler: (_req, res) => res.json(200, { summary: this.olympus.partners.summary(), partners: this.olympus.partners.listPartners() }) },
+      { method: "GET", pattern: "/v1/events-mgmt", handler: (_req, res) => res.json(200, { summary: this.olympus.eventsMgmt.summary(), upcoming: this.olympus.eventsMgmt.list("registration_open") }) },
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
           startingArrUsd: 3_200_000,
@@ -387,8 +388,8 @@ export class OlympusApiServer {
 
   private handleAudit(res: ApiResponse): void {
     res.json(200, {
-      valid: this.olympus.mcp.verifyAuditChain(),
-      records: this.olympus.mcp.auditLog(),
+      summary: this.olympus.auditLog.summary(),
+      recent: this.olympus.auditLog.query({ limit: 20 }),
     });
   }
 

@@ -59,6 +59,8 @@ import { ContractManager } from "./contracts-mgmt/contract-manager.js";
 import { PayrollEngine } from "./payroll/payroll-engine.js";
 import { InventoryManager } from "./inventory/inventory-manager.js";
 import { PartnerManager } from "./partners/partner-manager.js";
+import { EventManager } from "./events-mgmt/event-manager.js";
+import { AuditLog } from "./audit/audit-log.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -158,6 +160,10 @@ export class Olympus {
   readonly inventory: InventoryManager;
   /** Partner manager — channel partners, referral programs, co-sell tracking, and partner performance. */
   readonly partners: PartnerManager;
+  /** Event & conference manager — tracks registrations, attendance, budget, leads, and ROI. */
+  readonly eventsMgmt: EventManager;
+  /** Audit log — immutable append-only record of all significant system actions. */
+  readonly auditLog: AuditLog;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -209,6 +215,8 @@ export class Olympus {
     this.payroll = new PayrollEngine(this.bus);
     this.inventory = new InventoryManager(this.bus);
     this.partners = new PartnerManager(this.bus);
+    this.eventsMgmt = new EventManager(this.bus);
+    this.auditLog = new AuditLog();
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -267,3 +275,5 @@ export { ContractManager, type ContractType, type ContractStatus as ContractMgmt
 export { PayrollEngine, type PayFrequency, type PayType, type CompensationComponent, type CompensationRecord, type PayStub, type PayPeriod, type PayrollSummary } from "./payroll/index.js";
 export { InventoryManager, type MovementType, type StockStatus, type SKU, type StockMovement, type InventorySummary } from "./inventory/index.js";
 export { PartnerManager, type PartnerTier, type PartnerType, type DealRegistrationType, type Partner, type PartnerDeal, type PartnerSummary } from "./partners/index.js";
+export { EventManager, type EventType, type EventStatus, type AttendeeType, type ManagedEvent, type EventRegistration, type EventSummary as EventMgmtSummary } from "./events-mgmt/index.js";
+export { AuditLog, type AuditAction, type AuditSeverity, type AuditEntry, type AuditQuery, type AuditSummary } from "./audit/index.js";

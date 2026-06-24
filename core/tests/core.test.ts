@@ -5173,3 +5173,241 @@ describe("PartnerManager", () => {
     assert.equal(s.totalPartnerRevenueUsd, 100_000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// EventManager
+// ---------------------------------------------------------------------------
+
+import { EventManager } from "../events-mgmt/event-manager.js";
+
+describe("EventManager", () => {
+  it("createEvent emits event_mgmt.event_created", () => {
+    const bus = new EventBus();
+    const em = new EventManager(bus);
+    const emitted: unknown[] = [];
+    bus.subscribe("event_mgmt.event_created", (e) => { emitted.push(e); });
+    em.createEvent({
+      name: "Test Conf",
+      type: "conference",
+      status: "planning",
+      startDate: "2025-09-01",
+      endDate: "2025-09-03",
+      location: "New York, NY",
+      budgetUsd: 10_000,
+      expectedAttendees: 50,
+      ownerId: "owner-1",
+    });
+    assert.equal(emitted.length, 1);
+    const evt = emitted[0] as { payload: Record<string, unknown> };
+    assert.equal(evt.payload["name"], "Test Conf");
+  });
+
+  it("registerAttendee increments registrationCount", () => {
+    const bus = new EventBus();
+    const em = new EventManager(bus);
+    const ev = em.createEvent({
+      name: "Webinar X",
+      type: "webinar",
+      status: "registration_open",
+      startDate: "2025-10-01",
+      endDate: "2025-10-01",
+      location: "virtual",
+      budgetUsd: 1_000,
+      expectedAttendees: 100,
+      ownerId: "owner-2",
+    });
+    assert.equal(ev.registrationCount, 0);
+    em.registerAttendee(ev.id, {
+      attendeeId: "att-1",
+      attendeeName: "Alice",
+      attendeeType: "prospect",
+    });
+    const updated = em.get(ev.id)!;
+    assert.equal(updated.registrationCount, 1);
+  });
+
+  it("recordAttendance sets attended flag", () => {
+    const bus = new EventBus();
+    const em = new EventManager(bus);
+    const ev = em.createEvent({
+      name: "Workshop Y",
+      type: "workshop",
+      status: "in_progress",
+      startDate: "2025-11-01",
+      endDate: "2025-11-01",
+      location: "Chicago, IL",
+      budgetUsd: 2_000,
+      expectedAttendees: 20,
+      ownerId: "owner-3",
+    });
+    const reg = em.registerAttendee(ev.id, {
+      attendeeId: "att-2",
+      attendeeName: "Bob",
+      attendeeType: "customer",
+    });
+    assert.ok(reg);
+    assert.equal(reg.attended, false);
+    const updated = em.recordAttendance(reg.id);
+    assert.ok(updated);
+    assert.equal(updated.attended, true);
+    assert.equal(em.get(ev.id)!.attendanceCount, 1);
+  });
+
+  it("qualifyLead increments leadsGenerated", () => {
+    const bus = new EventBus();
+    const em = new EventManager(bus);
+    const ev = em.createEvent({
+      name: "Meetup Z",
+      type: "meetup",
+      status: "registration_open",
+      startDate: "2025-08-10",
+      endDate: "2025-08-10",
+      location: "Austin, TX",
+      budgetUsd: 500,
+      expectedAttendees: 30,
+      ownerId: "owner-4",
+    });
+    const reg = em.registerAttendee(ev.id, {
+      attendeeId: "att-3",
+      attendeeName: "Carol",
+      attendeeType: "prospect",
+    });
+    assert.ok(reg);
+    assert.equal(em.get(ev.id)!.leadsGenerated, 0);
+    em.qualifyLead(reg.id);
+    assert.equal(em.get(ev.id)!.leadsGenerated, 1);
+  });
+
+  it("completeEvent emits event_mgmt.completed", () => {
+    const bus = new EventBus();
+    const em = new EventManager(bus);
+    const emitted: unknown[] = [];
+    bus.subscribe("event_mgmt.completed", (e) => { emitted.push(e); });
+    const ev = em.createEvent({
+      name: "Trade Show A",
+      type: "trade_show",
+      status: "in_progress",
+      startDate: "2025-05-01",
+      endDate: "2025-05-03",
+      location: "Las Vegas, NV",
+      budgetUsd: 50_000,
+      expectedAttendees: 200,
+      ownerId: "owner-5",
+    });
+    em.completeEvent(ev.id, 48_000, 400_000);
+    assert.equal(emitted.length, 1);
+    const evt = emitted[0] as { payload: Record<string, unknown> };
+    assert.equal(evt.payload["eventId"], ev.id);
+    assert.ok(typeof evt.payload["roiPct"] === "number");
+  });
+
+  it("summary computes avgRoiPct", () => {
+    const bus = new EventBus();
+    const em = new EventManager(bus);
+    // Event 1: spend $100, pipeline $200 → ROI 100%
+    const ev1 = em.createEvent({
+      name: "Event One",
+      type: "conference",
+      status: "completed",
+      startDate: "2025-01-01",
+      endDate: "2025-01-02",
+      location: "Boston, MA",
+      budgetUsd: 100,
+      expectedAttendees: 10,
+      ownerId: "owner-6",
+    });
+    em.completeEvent(ev1.id, 100, 200);
+    // Event 2: spend $200, pipeline $600 → ROI 200%
+    const ev2 = em.createEvent({
+      name: "Event Two",
+      type: "webinar",
+      status: "completed",
+      startDate: "2025-02-01",
+      endDate: "2025-02-01",
+      location: "virtual",
+      budgetUsd: 200,
+      expectedAttendees: 50,
+      ownerId: "owner-7",
+    });
+    em.completeEvent(ev2.id, 200, 600);
+    const s = em.summary();
+    assert.equal(s.completedEvents, 2);
+    // avgRoiPct = (100 + 200) / 2 = 150
+    assert.equal(s.avgRoiPct, 150);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AuditLog
+// ---------------------------------------------------------------------------
+
+import { AuditLog } from "../audit/audit-log.js";
+
+describe("AuditLog", () => {
+  it("record stores entry with generated id", () => {
+    const al = new AuditLog();
+    const entry = al.record({
+      action: "user.login",
+      severity: "info",
+      actorId: "user-1",
+      actorType: "user",
+      resourceType: "session",
+      description: "User logged in",
+    });
+    assert.ok(entry.id);
+    assert.ok(entry.timestamp);
+    assert.equal(entry.action, "user.login");
+    assert.equal(al.getEntry(entry.id)?.id, entry.id);
+  });
+
+  it("query filters by actorId", () => {
+    const al = new AuditLog();
+    al.record({ action: "user.login", severity: "info", actorId: "alice", actorType: "user", resourceType: "session", description: "Alice login" });
+    al.record({ action: "user.login", severity: "info", actorId: "bob", actorType: "user", resourceType: "session", description: "Bob login" });
+    al.record({ action: "data.exported", severity: "warning", actorId: "alice", actorType: "user", resourceType: "report", description: "Alice exported" });
+    const results = al.query({ actorId: "alice" });
+    assert.equal(results.length, 2);
+    assert.ok(results.every((e) => e.actorId === "alice"));
+  });
+
+  it("query filters by severity", () => {
+    const al = new AuditLog();
+    al.record({ action: "user.login", severity: "info", actorId: "u1", actorType: "user", resourceType: "session", description: "Login" });
+    al.record({ action: "autonomy.level_changed", severity: "critical", actorId: "u2", actorType: "user", resourceType: "autonomy_grant", description: "Critical change" });
+    al.record({ action: "data.exported", severity: "warning", actorId: "u3", actorType: "user", resourceType: "report", description: "Export" });
+    const critical = al.query({ severity: "critical" });
+    assert.equal(critical.length, 1);
+    assert.equal(critical[0]!.action, "autonomy.level_changed");
+  });
+
+  it("query respects limit", () => {
+    const al = new AuditLog();
+    for (let i = 0; i < 20; i++) {
+      al.record({ action: "user.login", severity: "info", actorId: `user-${i}`, actorType: "user", resourceType: "session", description: `Login ${i}` });
+    }
+    const results = al.query({ limit: 5 });
+    assert.equal(results.length, 5);
+  });
+
+  it("query returns newest-first", () => {
+    const al = new AuditLog();
+    al.record({ action: "user.login", severity: "info", actorId: "u1", actorType: "user", resourceType: "session", description: "First", timestamp: "2025-01-01T00:00:00.000Z" });
+    al.record({ action: "user.logout", severity: "info", actorId: "u1", actorType: "user", resourceType: "session", description: "Second", timestamp: "2025-01-02T00:00:00.000Z" });
+    al.record({ action: "data.created", severity: "info", actorId: "u1", actorType: "user", resourceType: "record", description: "Third", timestamp: "2025-01-03T00:00:00.000Z" });
+    const results = al.query({});
+    assert.equal(results[0]!.description, "Third");
+    assert.equal(results[2]!.description, "First");
+  });
+
+  it("summary counts criticalEntries correctly", () => {
+    const al = new AuditLog();
+    al.record({ action: "user.login", severity: "info", actorId: "u1", actorType: "user", resourceType: "session", description: "Info 1" });
+    al.record({ action: "autonomy.level_changed", severity: "critical", actorId: "u2", actorType: "user", resourceType: "grant", description: "Critical 1" });
+    al.record({ action: "policy.updated", severity: "critical", actorId: "u3", actorType: "system", resourceType: "policy", description: "Critical 2" });
+    al.record({ action: "data.exported", severity: "warning", actorId: "u4", actorType: "user", resourceType: "report", description: "Warning 1" });
+    const s = al.summary();
+    assert.equal(s.totalEntries, 4);
+    assert.equal(s.criticalEntries, 2);
+    assert.ok(s.uniqueActors >= 3);
+  });
+});

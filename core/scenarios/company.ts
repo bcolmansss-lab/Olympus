@@ -59,6 +59,8 @@ export function seedCompany(olympus: Olympus): void {
   seedPayroll(olympus);
   seedInventory(olympus);
   seedPartners(olympus);
+  seedEventsMgmt(olympus);
+  seedAuditLog(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1874,6 +1876,167 @@ export function seedPartners(olympus: Olympus): void {
     type: "resell",
     valueUsd: 60_000,
     status: "approved",
+  });
+}
+
+function seedEventsMgmt(olympus: Olympus): void {
+  const em = olympus.eventsMgmt;
+
+  // 1. SaaStr Annual 2025 — completed trade show
+  const saastr = em.createEvent({
+    name: "SaaStr Annual 2025",
+    type: "trade_show",
+    status: "completed",
+    startDate: isoDate(daysAgo(120)),
+    endDate: isoDate(daysAgo(117)),
+    location: "San Francisco, CA",
+    budgetUsd: 45_000,
+    expectedAttendees: 10,
+    ownerId: "marketing-team",
+    tags: ["pipeline", "brand"],
+  });
+  for (let i = 0; i < 8; i++) {
+    const reg = em.registerAttendee(saastr.id, {
+      attendeeId: `saastr-attendee-${i}`,
+      attendeeName: `Attendee ${i}`,
+      attendeeType: i < 4 ? "prospect" : "customer",
+      company: `Company ${i}`,
+    });
+    if (reg) {
+      em.recordAttendance(reg.id);
+      if (i < 5) em.qualifyLead(reg.id);
+    }
+  }
+  em.completeEvent(saastr.id, 42_000, 380_000);
+
+  // 2. Product Webinar: Platform v2 — completed webinar
+  const webinar = em.createEvent({
+    name: "Product Webinar: Platform v2",
+    type: "webinar",
+    status: "completed",
+    startDate: isoDate(daysAgo(60)),
+    endDate: isoDate(daysAgo(60)),
+    location: "virtual",
+    budgetUsd: 3_000,
+    expectedAttendees: 100,
+    ownerId: "product-team",
+    tags: ["product", "launch"],
+  });
+  for (let i = 0; i < 85; i++) {
+    const reg = em.registerAttendee(webinar.id, {
+      attendeeId: `webinar-attendee-${i}`,
+      attendeeName: `Webinar Attendee ${i}`,
+      attendeeType: i % 3 === 0 ? "prospect" : "customer",
+      company: `Webinar Co ${i}`,
+    });
+    if (reg && i < 70) em.recordAttendance(reg.id);
+    if (reg && i < 12) em.qualifyLead(reg.id);
+  }
+  em.completeEvent(webinar.id, 2_800, 95_000);
+
+  // 3. Q3 Customer Advisory Board — registration open
+  em.createEvent({
+    name: "Q3 Customer Advisory Board",
+    type: "user_conference",
+    status: "registration_open",
+    startDate: isoDate(new Date(new Date().setDate(new Date().getDate() + 30))),
+    endDate: isoDate(new Date(new Date().setDate(new Date().getDate() + 31))),
+    location: "Austin, TX",
+    budgetUsd: 12_000,
+    expectedAttendees: 25,
+    ownerId: "customer-success-team",
+    tags: ["advisory", "retention"],
+  });
+}
+
+function seedAuditLog(olympus: Olympus): void {
+  const al = olympus.auditLog;
+
+  al.record({
+    action: "user.login",
+    severity: "info",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "session",
+    description: "User alice@heliosrobotics.com logged in",
+    ipAddress: "192.168.1.10",
+    sessionId: "sess-abc123",
+  });
+
+  al.record({
+    action: "user.login",
+    severity: "info",
+    actorId: "user-002",
+    actorType: "user",
+    resourceType: "session",
+    description: "User bob@heliosrobotics.com logged in",
+    ipAddress: "10.0.0.5",
+    sessionId: "sess-def456",
+  });
+
+  al.record({
+    action: "user.permission_changed",
+    severity: "warning",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "user",
+    resourceId: "user-003",
+    description: "Admin elevated user-003 to editor role",
+    metadata: { previousRole: "viewer", newRole: "editor" },
+  });
+
+  al.record({
+    action: "data.exported",
+    severity: "warning",
+    actorId: "user-002",
+    actorType: "user",
+    resourceType: "report",
+    resourceId: "board-report-q3",
+    description: "Board report Q3 exported to PDF",
+    metadata: { format: "pdf", rows: 1200 },
+  });
+
+  al.record({
+    action: "config.changed",
+    severity: "info",
+    actorId: "system",
+    actorType: "system",
+    resourceType: "config",
+    resourceId: "notification-router",
+    description: "Notification thresholds updated for anomaly alerts",
+  });
+
+  al.record({
+    action: "autonomy.level_changed",
+    severity: "critical",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "autonomy_grant",
+    resourceId: "finance:reallocate_budget",
+    description: "Autonomy level for finance:reallocate_budget raised to 5",
+    metadata: { previousLevel: 2, newLevel: 5, blastRadiusUsd: 250_000 },
+  });
+
+  al.record({
+    action: "policy.updated",
+    severity: "info",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "policy",
+    resourceId: "exposure-ceiling",
+    description: "Exposure ceiling policy updated — max $500k per domain",
+    metadata: { oldCeiling: 250_000, newCeiling: 500_000 },
+  });
+
+  al.record({
+    action: "integration.connected",
+    severity: "info",
+    actorId: "system",
+    actorType: "system",
+    resourceType: "integration",
+    resourceId: "salesforce-crm",
+    description: "Salesforce CRM integration connected and syncing",
+    metadata: { syncedRecords: 4823 },
   });
 }
 
