@@ -1,0 +1,1 @@
+export { FacilitiesManager, type LeaseStatus, type MaintenanceStatus, type MaintenancePriority, type FacilityLocation, type MaintenanceRequest, type RoomBooking, type FacilitiesSummary } from "./facilities-manager.js";

@@ -7856,6 +7856,7 @@ describe("InternationalExpansion", () => {
 import { PricingOptimizer } from "../pricing-optimizer/pricing-optimizer.js";
 import { TalentIntelligence } from "../talent-intel/talent-intelligence.js";
 import { ProductCatalog } from "../product-catalog/product-catalog.js";
+import { FacilitiesManager } from "../facilities/facilities-manager.js";
 
 describe("PricingOptimizer", () => {
   it("generateRecommendation emits event", () => {
@@ -8051,3 +8052,65 @@ describe("ProductCatalog", () => {
     assert.equal(s.avgBasePrice, 100);
   });
 });
+
+describe("FacilitiesManager", () => {
+  it("addLocation stores location", () => {
+    const bus = new EventBus();
+    const fm = new FacilitiesManager(bus);
+    const loc = fm.addLocation({ name: "HQ", address: "123 Main St", country: "US", sqft: 10000, capacity: 100, leaseStatus: "active", monthlyRentUsd: 50000, leaseStartDate: "2025-01-01", leaseEndDate: "2030-01-01" });
+    assert.ok(loc.id);
+    assert.equal(fm.getLocation(loc.id)?.name, "HQ");
+  });
+
+  it("addLocation emits lease_expiring when expiring within 90 days", () => {
+    const bus = new EventBus();
+    const fm = new FacilitiesManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("facilities.lease_expiring", (e) => { events.push(e.payload); });
+    fm.addLocation({ name: "Annex", address: "456 Oak Ave", country: "US", sqft: 2000, capacity: 20, leaseStatus: "active", monthlyRentUsd: 5000, leaseStartDate: "2020-01-01", leaseEndDate: "2026-07-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("createMaintenanceRequest and completeMaintenanceRequest emit event", () => {
+    const bus = new EventBus();
+    const fm = new FacilitiesManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("facilities.maintenance_completed", (e) => { events.push(e.payload); });
+    const loc = fm.addLocation({ name: "Office", address: "1 Pl", country: "US", sqft: 5000, capacity: 50, leaseStatus: "active", monthlyRentUsd: 20000, leaseStartDate: "2024-01-01", leaseEndDate: "2030-01-01" });
+    const req = fm.createMaintenanceRequest({ locationId: loc.id, title: "Fix HVAC", description: "HVAC broken", priority: "high", status: "open", estimatedCostUsd: 2000, requestedAt: "2026-06-01" });
+    fm.completeMaintenanceRequest(req.id, 1800);
+    assert.equal(fm.listMaintenanceRequests("completed").length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("bookRoom stores booking and emits event", () => {
+    const bus = new EventBus();
+    const fm = new FacilitiesManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("facilities.room_booked", (e) => { events.push(e.payload); });
+    const booking = fm.bookRoom({ roomId: "room-1", locationId: "loc-1", bookedBy: "emp1", title: "Team Sync", startTime: "2026-07-01T09:00:00Z", endTime: "2026-07-01T10:00:00Z", attendeeCount: 10 });
+    assert.ok(booking.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("listMaintenanceRequests filters by status", () => {
+    const bus = new EventBus();
+    const fm = new FacilitiesManager(bus);
+    fm.createMaintenanceRequest({ locationId: "l1", title: "A", description: "", priority: "low", status: "open", estimatedCostUsd: 100, requestedAt: "2026-01-01" });
+    fm.createMaintenanceRequest({ locationId: "l1", title: "B", description: "", priority: "low", status: "completed", estimatedCostUsd: 200, requestedAt: "2026-01-01" });
+    assert.equal(fm.listMaintenanceRequests("open").length, 1);
+    assert.equal(fm.listMaintenanceRequests().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const fm = new FacilitiesManager(bus);
+    fm.addLocation({ name: "L1", address: "A", country: "US", sqft: 5000, capacity: 50, leaseStatus: "active", monthlyRentUsd: 10000, leaseStartDate: "2025-01-01", leaseEndDate: "2030-01-01" });
+    fm.createMaintenanceRequest({ locationId: "l1", title: "Fix", description: "", priority: "low", status: "open", estimatedCostUsd: 500, requestedAt: "2026-01-01" });
+    const s = fm.summary();
+    assert.equal(s.totalLocations, 1);
+    assert.equal(s.activeLeases, 1);
+    assert.equal(s.openMaintenanceRequests, 1);
+  });
+});
+

@@ -99,6 +99,7 @@ import { InternationalExpansion } from "./international/international-expansion.
 import { PricingOptimizer } from "./pricing-optimizer/pricing-optimizer.js";
 import { TalentIntelligence } from "./talent-intel/talent-intelligence.js";
 import { ProductCatalog } from "./product-catalog/product-catalog.js";
+import { FacilitiesManager } from "./facilities/facilities-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -278,6 +279,8 @@ export class Olympus {
   readonly talentIntel: TalentIntelligence;
   /** Product catalog — SKU management, variants, category hierarchy, publish workflow. */
   readonly productCatalog: ProductCatalog;
+  /** Facilities manager — office space, lease management, maintenance, room bookings. */
+  readonly facilities: FacilitiesManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -369,6 +372,7 @@ export class Olympus {
     this.pricingOptimizer = new PricingOptimizer(this.bus);
     this.talentIntel = new TalentIntelligence(this.bus);
     this.productCatalog = new ProductCatalog(this.bus);
+    this.facilities = new FacilitiesManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -467,3 +471,4 @@ export { InternationalExpansion, type MarketStatus, type EntityType, type Compli
 export { PricingOptimizer, type PricingStrategy, type DiscountType as PODiscountType, type PriceElasticityModel, type PricingRecommendation, type Discount as PODiscount, type PricingOptimizerSummary } from "./pricing-optimizer/index.js";
 export { TalentIntelligence, type SkillLevel, type ReadinessLevel, type SkillProfile, type SuccessionPlan, type LearningRecord, type TalentSummary } from "./talent-intel/index.js";
 export { ProductCatalog, type ProductStatus, type ProductType, type ProductVariant, type CatalogProduct, type ProductCategory, type CatalogSummary } from "./product-catalog/index.js";
+export { FacilitiesManager, type LeaseStatus, type MaintenanceStatus, type MaintenancePriority, type FacilityLocation, type MaintenanceRequest, type RoomBooking, type FacilitiesSummary } from "./facilities/index.js";
