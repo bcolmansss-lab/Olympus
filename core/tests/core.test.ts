@@ -43,6 +43,8 @@ import type { TouchPoint } from "../marketing/attribution-engine.js";
 import { ForecastEngine } from "../forecasting/forecast-engine.js";
 import { DataPipelineManager } from "../pipeline/data-pipeline.js";
 import type { ForecastAssumptions } from "../forecasting/forecast-engine.js";
+import { BillingEngine } from "../billing/billing-engine.js";
+import { AnalyticsEngine } from "../analytics/analytics-engine.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -5409,5 +5411,159 @@ describe("AuditLog", () => {
     assert.equal(s.totalEntries, 4);
     assert.equal(s.criticalEntries, 2);
     assert.ok(s.uniqueActors >= 3);
+  });
+});
+
+describe("BillingEngine", () => {
+  it("createInvoice emits billing.invoice_created", () => {
+    const bus = new EventBus();
+    const engine = new BillingEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("billing.invoice_created", (e) => { events.push(e.payload); });
+    engine.addSubscription({ customerId: "c1", planId: "p1", planName: "Starter", mrrUsd: 500, status: "active", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "card" });
+    engine.createInvoice({ customerId: "c1", subscriptionId: "sub-1", status: "open", amountUsd: 500, periodStart: "2026-01-01", periodEnd: "2026-01-31", dueDate: "2026-02-01", lineItems: [] });
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { customerId: string }).customerId, "c1");
+  });
+
+  it("recordPayment marks invoice paid", () => {
+    const bus = new EventBus();
+    const engine = new BillingEngine(bus);
+    engine.addSubscription({ customerId: "c2", planId: "p1", planName: "Growth", mrrUsd: 1000, status: "active", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "card" });
+    const inv = engine.createInvoice({ customerId: "c2", subscriptionId: "sub-2", status: "open", amountUsd: 1000, periodStart: "2026-01-01", periodEnd: "2026-01-31", dueDate: "2026-02-01", lineItems: [] });
+    const updated = engine.recordPayment(inv.id, 1000);
+    assert.equal(updated?.status, "paid");
+    assert.equal(updated?.paidAmountUsd, 1000);
+  });
+
+  it("recordPayment emits billing.payment_received", () => {
+    const bus = new EventBus();
+    const engine = new BillingEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("billing.payment_received", (e) => { events.push(e.payload); });
+    engine.addSubscription({ customerId: "c3", planId: "p1", planName: "Growth", mrrUsd: 800, status: "active", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "ach" });
+    const inv = engine.createInvoice({ customerId: "c3", subscriptionId: "sub-3", status: "open", amountUsd: 800, periodStart: "2026-01-01", periodEnd: "2026-01-31", dueDate: "2026-02-01", lineItems: [] });
+    engine.recordPayment(inv.id, 800);
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { amountUsd: number }).amountUsd, 800);
+  });
+
+  it("recordFailedAttempt increments attemptCount", () => {
+    const bus = new EventBus();
+    const engine = new BillingEngine(bus);
+    engine.addSubscription({ customerId: "c4", planId: "p1", planName: "Starter", mrrUsd: 300, status: "active", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "card" });
+    const inv = engine.createInvoice({ customerId: "c4", subscriptionId: "sub-4", status: "open", amountUsd: 300, periodStart: "2026-01-01", periodEnd: "2026-01-31", dueDate: "2026-02-01", lineItems: [] });
+    engine.recordFailedAttempt(inv.id);
+    engine.recordFailedAttempt(inv.id);
+    const updated = engine.getInvoice(inv.id);
+    assert.equal(updated?.attemptCount, 2);
+  });
+
+  it("recordMrrMovement emits billing.mrr_changed", () => {
+    const bus = new EventBus();
+    const engine = new BillingEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("billing.mrr_changed", (e) => { events.push(e.payload); });
+    engine.addSubscription({ customerId: "c5", planId: "p1", planName: "Growth", mrrUsd: 1000, status: "active", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "card" });
+    engine.recordMrrMovement("c5", "expansion", 1500);
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { movement: string }).movement, "expansion");
+    assert.equal((events[0] as { newMrrUsd: number }).newMrrUsd, 1500);
+  });
+
+  it("summary computes totalMrrUsd from active subscriptions", () => {
+    const bus = new EventBus();
+    const engine = new BillingEngine(bus);
+    engine.addSubscription({ customerId: "cA", planId: "p1", planName: "Starter", mrrUsd: 500, status: "active", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "card" });
+    engine.addSubscription({ customerId: "cB", planId: "p2", planName: "Growth", mrrUsd: 1200, status: "active", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "ach" });
+    engine.addSubscription({ customerId: "cC", planId: "p1", planName: "Starter", mrrUsd: 800, status: "cancelled", billingCycleDay: 1, startDate: "2026-01-01", paymentMethod: "card" });
+    const s = engine.summary();
+    assert.equal(s.totalMrrUsd, 1700);
+    assert.equal(s.activeSubscriptions, 2);
+    assert.equal(s.totalArrUsd, 1700 * 12);
+  });
+});
+
+describe("AnalyticsEngine", () => {
+  it("defineMetric stores definition", () => {
+    const bus = new EventBus();
+    const engine = new AnalyticsEngine(bus);
+    const metric = engine.defineMetric({ name: "Test Metric", description: "A test metric", type: "gauge", unit: "count" });
+    assert.ok(metric.id);
+    assert.equal(metric.name, "Test Metric");
+    assert.equal(engine.getMetric(metric.id)?.name, "Test Metric");
+    assert.equal(engine.listMetrics().length, 1);
+  });
+
+  it("record stores data point and emits event", () => {
+    const bus = new EventBus();
+    const engine = new AnalyticsEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("analytics.metric_recorded", (e) => { events.push(e.payload); });
+    const metric = engine.defineMetric({ name: "DAU", description: "Daily active users", type: "gauge", unit: "count" });
+    const dp = engine.record(metric.id, 500);
+    assert.ok(dp);
+    assert.equal(dp?.value, 500);
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { value: number }).value, 500);
+  });
+
+  it("record emits threshold_breached when value exceeds thresholdHigh", () => {
+    const bus = new EventBus();
+    const engine = new AnalyticsEngine(bus);
+    const breaches: unknown[] = [];
+    bus.subscribe("analytics.threshold_breached", (e) => { breaches.push(e.payload); });
+    const metric = engine.defineMetric({ name: "Latency", description: "p99 latency", type: "gauge", unit: "ms", thresholdHigh: 500 });
+    engine.record(metric.id, 400); // below threshold
+    engine.record(metric.id, 600); // above threshold
+    assert.equal(breaches.length, 1);
+    assert.equal((breaches[0] as { direction: string }).direction, "up");
+  });
+
+  it("getSeries computes aggregations correctly", () => {
+    const bus = new EventBus();
+    const engine = new AnalyticsEngine(bus);
+    const metric = engine.defineMetric({ name: "Revenue", description: "Monthly revenue", type: "currency", unit: "usd" });
+    engine.record(metric.id, 100, "2026-01-01T00:00:00.000Z");
+    engine.record(metric.id, 200, "2026-02-01T00:00:00.000Z");
+    engine.record(metric.id, 300, "2026-03-01T00:00:00.000Z");
+    const series = engine.getSeries(metric.id);
+    assert.equal(series.aggregations.sum, 600);
+    assert.equal(series.aggregations.avg, 200);
+    assert.equal(series.aggregations.min, 100);
+    assert.equal(series.aggregations.max, 300);
+    assert.equal(series.aggregations.count, 3);
+    assert.equal(series.aggregations.last, 300);
+  });
+
+  it("getSeries detects trend direction", () => {
+    const bus = new EventBus();
+    const engine = new AnalyticsEngine(bus);
+    const metric = engine.defineMetric({ name: "Trend Metric", description: "Trend test", type: "gauge", unit: "count" });
+    engine.record(metric.id, 100, "2026-01-01T00:00:00.000Z");
+    engine.record(metric.id, 200, "2026-02-01T00:00:00.000Z");
+    const upSeries = engine.getSeries(metric.id);
+    assert.equal(upSeries.trend, "up");
+
+    const metric2 = engine.defineMetric({ name: "Declining", description: "Decline test", type: "gauge", unit: "count" });
+    engine.record(metric2.id, 200, "2026-01-01T00:00:00.000Z");
+    engine.record(metric2.id, 100, "2026-02-01T00:00:00.000Z");
+    const downSeries = engine.getSeries(metric2.id);
+    assert.equal(downSeries.trend, "down");
+  });
+
+  it("summary counts metricsWithAlerts", () => {
+    const bus = new EventBus();
+    const engine = new AnalyticsEngine(bus);
+    const m1 = engine.defineMetric({ name: "High Latency", description: "Latency metric", type: "gauge", unit: "ms", thresholdHigh: 500 });
+    const m2 = engine.defineMetric({ name: "Low Revenue", description: "Revenue metric", type: "currency", unit: "usd", thresholdLow: 10_000 });
+    const m3 = engine.defineMetric({ name: "Normal", description: "Normal metric", type: "gauge", unit: "count" });
+    engine.record(m1.id, 600); // breaches high threshold
+    engine.record(m2.id, 5_000); // breaches low threshold
+    engine.record(m3.id, 42); // no threshold
+    const s = engine.summary();
+    assert.equal(s.metricsWithAlerts, 2);
+    assert.equal(s.totalMetrics, 3);
+    assert.equal(s.totalDataPoints, 3);
   });
 });

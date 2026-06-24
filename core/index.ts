@@ -61,6 +61,8 @@ import { InventoryManager } from "./inventory/inventory-manager.js";
 import { PartnerManager } from "./partners/partner-manager.js";
 import { EventManager } from "./events-mgmt/event-manager.js";
 import { AuditLog } from "./audit/audit-log.js";
+import { BillingEngine } from "./billing/billing-engine.js";
+import { AnalyticsEngine } from "./analytics/analytics-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -164,6 +166,10 @@ export class Olympus {
   readonly eventsMgmt: EventManager;
   /** Audit log — immutable append-only record of all significant system actions. */
   readonly auditLog: AuditLog;
+  /** Billing engine — subscription invoicing, payment tracking, MRR/ARR movement, and dunning. */
+  readonly billing: BillingEngine;
+  /** Analytics engine — cross-module KPI tracking, custom metrics, dashboards, and trend analysis. */
+  readonly analytics: AnalyticsEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -217,6 +223,8 @@ export class Olympus {
     this.partners = new PartnerManager(this.bus);
     this.eventsMgmt = new EventManager(this.bus);
     this.auditLog = new AuditLog();
+    this.billing = new BillingEngine(this.bus);
+    this.analytics = new AnalyticsEngine(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -277,3 +285,5 @@ export { InventoryManager, type MovementType, type StockStatus, type SKU, type S
 export { PartnerManager, type PartnerTier, type PartnerType, type DealRegistrationType, type Partner, type PartnerDeal, type PartnerSummary } from "./partners/index.js";
 export { EventManager, type EventType, type EventStatus, type AttendeeType, type ManagedEvent, type EventRegistration, type EventSummary as EventMgmtSummary } from "./events-mgmt/index.js";
 export { AuditLog, type AuditAction, type AuditSeverity, type AuditEntry, type AuditQuery, type AuditSummary } from "./audit/index.js";
+export { BillingEngine, type InvoiceStatus, type MrrMovement, type PaymentMethod, type Subscription as BillingSubscription, type Invoice, type MrrRecord, type BillingSummary } from "./billing/index.js";
+export { AnalyticsEngine, type MetricType, type AggregationMethod, type TrendDirection, type MetricDefinition, type MetricDataPoint, type MetricSeries, type AnalyticsSummary } from "./analytics/index.js";

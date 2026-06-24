@@ -61,6 +61,8 @@ export function seedCompany(olympus: Olympus): void {
   seedPartners(olympus);
   seedEventsMgmt(olympus);
   seedAuditLog(olympus);
+  seedBilling(olympus);
+  seedAnalytics(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -2052,4 +2054,175 @@ function seedInventory(olympus: Olympus): void {
   // Record movements
   inv.recordMovement(laptop.id, "sale", -2, { notes: "Sold 2 laptops to new hires" });
   inv.recordMovement(chair.id, "purchase", 5, { notes: "Received 5 chairs from OfficePlus" });
+}
+
+function seedBilling(olympus: Olympus): void {
+  const billing = olympus.billing;
+
+  // 4 subscriptions
+  const cascade = billing.addSubscription({
+    customerId: "cust-cascade-corp",
+    planId: "plan-growth",
+    planName: "Growth",
+    mrrUsd: 2400,
+    status: "active",
+    billingCycleDay: 1,
+    startDate: isoDate(daysAgo(180)),
+    paymentMethod: "card",
+    seats: 8,
+  });
+
+  const pinnacle = billing.addSubscription({
+    customerId: "cust-pinnacle-inc",
+    planId: "plan-starter",
+    planName: "Starter",
+    mrrUsd: 1800,
+    status: "active",
+    billingCycleDay: 15,
+    startDate: isoDate(daysAgo(120)),
+    paymentMethod: "ach",
+    seats: 6,
+  });
+
+  const vertex = billing.addSubscription({
+    customerId: "cust-vertex-tech",
+    planId: "plan-enterprise",
+    planName: "Enterprise",
+    mrrUsd: 3200,
+    status: "active",
+    billingCycleDay: 1,
+    startDate: isoDate(daysAgo(365)),
+    paymentMethod: "card",
+    seats: 20,
+  });
+
+  billing.addSubscription({
+    customerId: "cust-nova-systems",
+    planId: "plan-trial",
+    planName: "Trial",
+    mrrUsd: 800,
+    status: "trial",
+    billingCycleDay: 1,
+    startDate: isoDate(daysAgo(14)),
+    trialEndsAt: isoDate(daysAgo(-16)),
+    paymentMethod: "card",
+  });
+
+  // 4 invoices: 3 paid (last month), 1 open/overdue (Pinnacle)
+  const lastMonthStart = isoDate(daysAgo(60));
+  const lastMonthEnd = isoDate(daysAgo(30));
+  const lastMonthDue = isoDate(daysAgo(30));
+
+  const inv1 = billing.createInvoice({
+    customerId: cascade.customerId,
+    subscriptionId: cascade.id,
+    status: "open",
+    amountUsd: 2400,
+    periodStart: lastMonthStart,
+    periodEnd: lastMonthEnd,
+    dueDate: lastMonthDue,
+    lineItems: [{ description: "Growth plan — 8 seats", quantity: 8, unitPriceUsd: 300, totalUsd: 2400 }],
+  });
+  billing.recordPayment(inv1.id, 2400, isoDate(daysAgo(28)));
+
+  const inv2 = billing.createInvoice({
+    customerId: vertex.customerId,
+    subscriptionId: vertex.id,
+    status: "open",
+    amountUsd: 3200,
+    periodStart: lastMonthStart,
+    periodEnd: lastMonthEnd,
+    dueDate: lastMonthDue,
+    lineItems: [{ description: "Enterprise plan — 20 seats", quantity: 20, unitPriceUsd: 160, totalUsd: 3200 }],
+  });
+  billing.recordPayment(inv2.id, 3200, isoDate(daysAgo(25)));
+
+  const inv3 = billing.createInvoice({
+    customerId: "cust-nova-systems",
+    subscriptionId: "sub-nova",
+    status: "open",
+    amountUsd: 800,
+    periodStart: lastMonthStart,
+    periodEnd: lastMonthEnd,
+    dueDate: lastMonthDue,
+    lineItems: [{ description: "Trial plan", quantity: 1, unitPriceUsd: 800, totalUsd: 800 }],
+  });
+  billing.recordPayment(inv3.id, 800, isoDate(daysAgo(22)));
+
+  // Overdue open invoice for Pinnacle (30 days past due)
+  billing.createInvoice({
+    customerId: pinnacle.customerId,
+    subscriptionId: pinnacle.id,
+    status: "open",
+    amountUsd: 1800,
+    periodStart: isoDate(daysAgo(90)),
+    periodEnd: isoDate(daysAgo(60)),
+    dueDate: isoDate(daysAgo(30)),
+    lineItems: [{ description: "Starter plan — 6 seats", quantity: 6, unitPriceUsd: 300, totalUsd: 1800 }],
+  });
+
+  // MRR movements
+  billing.recordMrrMovement(cascade.customerId, "new_business", 2400);
+  billing.recordMrrMovement(vertex.customerId, "expansion", 3200);
+  billing.recordMrrMovement("cust-nova-systems", "reactivation", 800);
+}
+
+function seedAnalytics(olympus: Olympus): void {
+  const analytics = olympus.analytics;
+
+  const mrr = analytics.defineMetric({
+    name: "Monthly Recurring Revenue",
+    description: "Total MRR across all active subscriptions",
+    type: "currency",
+    unit: "usd",
+    thresholdLow: 3_000_000,
+  });
+
+  const churn = analytics.defineMetric({
+    name: "Customer Churn Rate",
+    description: "Monthly customer churn rate as a percentage",
+    type: "rate",
+    unit: "%",
+    thresholdHigh: 3,
+  });
+
+  const latency = analytics.defineMetric({
+    name: "API p99 Latency",
+    description: "99th percentile API response latency",
+    type: "gauge",
+    unit: "ms",
+    thresholdHigh: 500,
+  });
+
+  const dau = analytics.defineMetric({
+    name: "Daily Active Users",
+    description: "Number of unique active users per day",
+    type: "gauge",
+    unit: "count",
+  });
+
+  // Record 3 data points each over past 3 months with realistic trends
+  const threeMonthsAgo = new Date(Date.now() - 90 * 864e5).toISOString();
+  const twoMonthsAgo = new Date(Date.now() - 60 * 864e5).toISOString();
+  const oneMonthAgo = new Date(Date.now() - 30 * 864e5).toISOString();
+
+  // MRR: growing trend
+  analytics.record(mrr.id, 3_100_000, threeMonthsAgo);
+  analytics.record(mrr.id, 3_450_000, twoMonthsAgo);
+  analytics.record(mrr.id, 3_820_000, oneMonthAgo);
+
+  // Churn rate: slight improvement (decreasing)
+  analytics.record(churn.id, 2.1, threeMonthsAgo);
+  analytics.record(churn.id, 1.8, twoMonthsAgo);
+  analytics.record(churn.id, 1.5, oneMonthAgo);
+
+  // API p99 latency: increasing — trending toward threshold
+  analytics.record(latency.id, 180, threeMonthsAgo);
+  analytics.record(latency.id, 240, twoMonthsAgo);
+  analytics.record(latency.id, 310, oneMonthAgo);
+
+  // DAU: growing
+  analytics.record(dau.id, 420, threeMonthsAgo);
+  analytics.record(dau.id, 510, twoMonthsAgo);
+  analytics.record(dau.id, 680, oneMonthAgo);
 }

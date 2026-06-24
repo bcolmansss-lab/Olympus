@@ -167,6 +167,9 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/inventory", handler: (_req, res) => res.json(200, { summary: this.olympus.inventory.summary(), lowStock: this.olympus.inventory.listSKUs("low_stock") }) },
       { method: "GET", pattern: "/v1/partners", handler: (_req, res) => res.json(200, { summary: this.olympus.partners.summary(), partners: this.olympus.partners.listPartners() }) },
       { method: "GET", pattern: "/v1/events-mgmt", handler: (_req, res) => res.json(200, { summary: this.olympus.eventsMgmt.summary(), upcoming: this.olympus.eventsMgmt.list("registration_open") }) },
+      { method: "GET", pattern: "/v1/billing", handler: (_req, res) => res.json(200, { summary: this.olympus.billing.summary(), openInvoices: this.olympus.billing.listInvoices().filter(i => i.status === "open") }) },
+      { method: "GET", pattern: "/v1/analytics", handler: (_req, res) => res.json(200, { summary: this.olympus.analytics.summary(), metrics: this.olympus.analytics.listMetrics() }) },
+
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
           startingArrUsd: 3_200_000,
