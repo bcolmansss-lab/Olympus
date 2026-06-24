@@ -6166,3 +6166,160 @@ describe("ChurnPredictor", () => {
     assert.equal(s.byTier.critical, 0);
   });
 });
+
+import { OnboardingTracker } from "../onboarding/onboarding-tracker.js";
+import { EngagementTracker } from "../engagement/engagement-tracker.js";
+
+describe("OnboardingTracker", () => {
+  it("startJourney emits onboarding.started", () => {
+    const bus = new EventBus();
+    const tracker = new OnboardingTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("onboarding.started", (e) => { events.push(e); });
+    tracker.createPlan({ id: "plan-1", name: "Test Plan", estimatedDays: 30, milestones: [] });
+    tracker.startJourney({ accountId: "acc-1", planId: "plan-1" });
+    assert.equal(events.length, 1);
+  });
+
+  it("completeMilestone adds to completedList", () => {
+    const bus = new EventBus();
+    const tracker = new OnboardingTracker(bus);
+    tracker.createPlan({
+      id: "plan-2",
+      name: "Test Plan 2",
+      estimatedDays: 30,
+      milestones: [{ id: "ms-a", title: "Step A", category: "technical", dueOffsetDays: 7, required: true }],
+    });
+    const journey = tracker.startJourney({ accountId: "acc-2", planId: "plan-2" });
+    const updated = tracker.completeMilestone(journey.id, "ms-a");
+    assert.ok(updated?.completedMilestoneIds.includes("ms-a"));
+  });
+
+  it("completeMilestone completes journey when all required done", () => {
+    const bus = new EventBus();
+    const tracker = new OnboardingTracker(bus);
+    tracker.createPlan({
+      id: "plan-3",
+      name: "Test Plan 3",
+      estimatedDays: 30,
+      milestones: [{ id: "ms-b", title: "Step B", category: "go_live", dueOffsetDays: 14, required: true }],
+    });
+    const journey = tracker.startJourney({ accountId: "acc-3", planId: "plan-3" });
+    const updated = tracker.completeMilestone(journey.id, "ms-b");
+    assert.equal(updated?.status, "completed");
+  });
+
+  it("completeMilestone emits onboarding.completed", () => {
+    const bus = new EventBus();
+    const tracker = new OnboardingTracker(bus);
+    const completed: unknown[] = [];
+    bus.subscribe("onboarding.completed", (e) => { completed.push(e); });
+    tracker.createPlan({
+      id: "plan-4",
+      name: "Test Plan 4",
+      estimatedDays: 30,
+      milestones: [{ id: "ms-c", title: "Step C", category: "training", dueOffsetDays: 10, required: true }],
+    });
+    const journey = tracker.startJourney({ accountId: "acc-4", planId: "plan-4" });
+    tracker.completeMilestone(journey.id, "ms-c");
+    assert.equal(completed.length, 1);
+  });
+
+  it("markStalled emits onboarding.stalled", () => {
+    const bus = new EventBus();
+    const tracker = new OnboardingTracker(bus);
+    const stalled: unknown[] = [];
+    bus.subscribe("onboarding.stalled", (e) => { stalled.push(e); });
+    tracker.createPlan({ id: "plan-5", name: "Test Plan 5", estimatedDays: 30, milestones: [] });
+    const journey = tracker.startJourney({ accountId: "acc-5", planId: "plan-5" });
+    tracker.markStalled(journey.id, "Blocked on procurement");
+    assert.equal(stalled.length, 1);
+  });
+
+  it("summary computes completionRate", () => {
+    const bus = new EventBus();
+    const tracker = new OnboardingTracker(bus);
+    tracker.createPlan({
+      id: "plan-6",
+      name: "Test Plan 6",
+      estimatedDays: 30,
+      milestones: [{ id: "ms-d", title: "Done", category: "go_live", dueOffsetDays: 5, required: true }],
+    });
+    const j1 = tracker.startJourney({ accountId: "acc-6a", planId: "plan-6" });
+    tracker.completeMilestone(j1.id, "ms-d");
+    tracker.startJourney({ accountId: "acc-6b", planId: "plan-6" });
+    const s = tracker.summary();
+    // 1 completed, 1 in_progress, 0 cancelled → completionRate = 1/(1+0)*100 = 100
+    assert.equal(s.completedJourneys, 1);
+    assert.ok(s.completionRate > 0);
+  });
+});
+
+describe("EngagementTracker", () => {
+  it("submitResponse emits engagement.pulse_submitted", () => {
+    const bus = new EventBus();
+    const tracker = new EngagementTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("engagement.pulse_submitted", (e) => { events.push(e); });
+    tracker.createSurvey({ id: "sv-1", name: "Survey 1", sentAt: new Date().toISOString(), targetEmployeeIds: ["emp-1"], status: "open" });
+    tracker.submitResponse({ surveyId: "sv-1", employeeId: "emp-1", eNpsScore: 9, driverScores: { culture: 4 } });
+    assert.equal(events.length, 1);
+  });
+
+  it("submitResponse increments survey responseCount", () => {
+    const bus = new EventBus();
+    const tracker = new EngagementTracker(bus);
+    tracker.createSurvey({ id: "sv-2", name: "Survey 2", sentAt: new Date().toISOString(), targetEmployeeIds: ["emp-2", "emp-3"], status: "open" });
+    tracker.submitResponse({ surveyId: "sv-2", employeeId: "emp-2", eNpsScore: 8, driverScores: { growth: 3 } });
+    tracker.submitResponse({ surveyId: "sv-2", employeeId: "emp-3", eNpsScore: 7, driverScores: { growth: 4 } });
+    const survey = tracker.getSurvey("sv-2");
+    assert.equal(survey?.responseCount, 2);
+  });
+
+  it("assessFlightRisk emits event for high risk", () => {
+    const bus = new EventBus();
+    const tracker = new EngagementTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("engagement.flight_risk_detected", (e) => { events.push(e); });
+    tracker.assessFlightRisk("emp-risk", ["missed 1:1s", "declined promo", "job searching", "low NPS"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("assessFlightRisk assigns correct riskLevel", () => {
+    const bus = new EventBus();
+    const tracker = new EngagementTracker(bus);
+    const low = tracker.assessFlightRisk("emp-low", ["one signal"]);
+    assert.equal(low.riskLevel, "low"); // 1*20=20 < 30
+    const medium = tracker.assessFlightRisk("emp-med", ["s1", "s2"]);
+    assert.equal(medium.riskLevel, "medium"); // 2*20=40 in [30,60)
+    const high = tracker.assessFlightRisk("emp-high", ["s1", "s2", "s3"]);
+    assert.equal(high.riskLevel, "high"); // 3*20=60 >= 60
+  });
+
+  it("summary computes companyENps", () => {
+    const bus = new EventBus();
+    const tracker = new EngagementTracker(bus);
+    tracker.createSurvey({ id: "sv-3", name: "Survey 3", sentAt: new Date().toISOString(), targetEmployeeIds: ["e1","e2","e3","e4"], status: "closed" });
+    // 2 promoters (9,10), 1 passive (7), 1 detractor (5)
+    tracker.submitResponse({ surveyId: "sv-3", employeeId: "e1", eNpsScore: 9, driverScores: {} });
+    tracker.submitResponse({ surveyId: "sv-3", employeeId: "e2", eNpsScore: 10, driverScores: {} });
+    tracker.submitResponse({ surveyId: "sv-3", employeeId: "e3", eNpsScore: 7, driverScores: {} });
+    tracker.submitResponse({ surveyId: "sv-3", employeeId: "e4", eNpsScore: 5, driverScores: {} });
+    const s = tracker.summary();
+    // (2-1)/4*100 = 25
+    assert.equal(s.companyENps, 25);
+  });
+
+  it("scoreTeam computes eNps for team", () => {
+    const bus = new EventBus();
+    const tracker = new EngagementTracker(bus);
+    tracker.createSurvey({ id: "sv-4", name: "Survey 4", sentAt: new Date().toISOString(), targetEmployeeIds: ["t1","t2","t3"], status: "open" });
+    tracker.submitResponse({ surveyId: "sv-4", employeeId: "t1", eNpsScore: 10, driverScores: { culture: 5 } });
+    tracker.submitResponse({ surveyId: "sv-4", employeeId: "t2", eNpsScore: 10, driverScores: { culture: 4 } });
+    tracker.submitResponse({ surveyId: "sv-4", employeeId: "t3", eNpsScore: 4, driverScores: { culture: 2 } });
+    const score = tracker.scoreTeam("team-x", ["t1", "t2", "t3"]);
+    // 2 promoters, 1 detractor, 0 passive → (2-1)/3*100 = 33
+    assert.ok(score !== undefined);
+    assert.equal(score.eNps, 33);
+  });
+});

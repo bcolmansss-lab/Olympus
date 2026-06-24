@@ -71,6 +71,8 @@ export function seedCompany(olympus: Olympus): void {
   seedOrgIntel(olympus);
   seedRevenueIntel(olympus);
   seedChurnPrediction(olympus);
+  seedOnboarding(olympus);
+  seedEngagement(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -2765,4 +2767,114 @@ function seedChurnPrediction(olympus: Olympus): void {
   cp.scoreAccount("cascade-corp");
   cp.scoreAccount("pinnacle-inc");
   cp.scoreAccount("vertex-tech");
+}
+
+function seedOnboarding(olympus: Olympus): void {
+  const ob = olympus.onboarding;
+
+  // Enterprise Track plan (60 days, 5 milestones)
+  const entPlan = ob.createPlan({
+    id: "plan-enterprise",
+    name: "Enterprise Track",
+    estimatedDays: 60,
+    milestones: [
+      { id: "ms-kickoff", title: "Kickoff Call", category: "technical", dueOffsetDays: 2, required: true },
+      { id: "ms-technical", title: "Technical Setup", category: "technical", dueOffsetDays: 14, required: true },
+      { id: "ms-integration", title: "Integration Complete", category: "integration", dueOffsetDays: 30, required: true },
+      { id: "ms-training", title: "User Training", category: "training", dueOffsetDays: 45, required: true },
+      { id: "ms-go-live", title: "Go Live", category: "go_live", dueOffsetDays: 60, required: true },
+    ],
+  });
+
+  // SMB Fast Track plan (14 days, 3 milestones)
+  const smbPlan = ob.createPlan({
+    id: "plan-smb",
+    name: "SMB Fast Track",
+    estimatedDays: 14,
+    milestones: [
+      { id: "ms-setup", title: "Account Setup", category: "technical", dueOffsetDays: 2, required: true },
+      { id: "ms-smb-training", title: "Training Session", category: "training", dueOffsetDays: 7, required: true },
+      { id: "ms-smb-go-live", title: "Go Live", category: "go_live", dueOffsetDays: 14, required: true },
+    ],
+  });
+
+  // Journey 1: Cascade — enterprise, completed, all milestones done
+  const cascadeJourney = ob.startJourney({
+    id: "journey-cascade",
+    accountId: "cascade-corp",
+    planId: entPlan.id,
+    assignedCsmId: "csm-alice",
+    startedAt: isoDate(daysAgo(65)),
+  });
+  for (const ms of entPlan.milestones) {
+    ob.completeMilestone(cascadeJourney.id, ms.id);
+  }
+
+  // Journey 2: Pinnacle — enterprise, in_progress, 2/5 done
+  const pinnacleJourney = ob.startJourney({
+    id: "journey-pinnacle",
+    accountId: "pinnacle-inc",
+    planId: entPlan.id,
+    assignedCsmId: "csm-bob",
+    startedAt: isoDate(daysAgo(20)),
+  });
+  ob.completeMilestone(pinnacleJourney.id, "ms-kickoff");
+  ob.completeMilestone(pinnacleJourney.id, "ms-technical");
+
+  // Journey 3: Nova — SMB fast track, stalled
+  const novaJourney = ob.startJourney({
+    id: "journey-nova",
+    accountId: "nova-systems",
+    planId: smbPlan.id,
+    startedAt: isoDate(daysAgo(10)),
+  });
+  ob.markStalled(novaJourney.id, "No technical contact assigned");
+}
+
+function seedEngagement(olympus: Olympus): void {
+  const et = olympus.engagement;
+
+  // 1 closed pulse survey
+  const survey = et.createSurvey({
+    id: "survey-q2-2025",
+    name: "Q2 2025 Pulse Survey",
+    sentAt: isoDate(daysAgo(30)),
+    closedAt: isoDate(daysAgo(15)),
+    targetEmployeeIds: [
+      "emp-alice", "emp-bob", "emp-dev1", "emp-dev2",
+      "emp-james", "emp-sarah", "emp-mike", "emp-lisa",
+    ],
+    status: "closed",
+  });
+
+  // 8 responses with eNPS scores [9,10,7,8,5,9,10,6]
+  const employeeData: Array<{ empId: string; eNps: number; drivers: Partial<Record<import("../engagement/engagement-tracker.js").EngagementDriver, number>> }> = [
+    { empId: "emp-alice", eNps: 9, drivers: { management: 4, growth: 5, culture: 4, mission: 5, peers: 4 } },
+    { empId: "emp-bob", eNps: 10, drivers: { management: 5, growth: 4, culture: 5, worklife: 4, peers: 5 } },
+    { empId: "emp-dev1", eNps: 7, drivers: { management: 3, growth: 4, compensation: 3, culture: 3, worklife: 3 } },
+    { empId: "emp-dev2", eNps: 8, drivers: { management: 4, growth: 3, compensation: 4, mission: 4, peers: 3 } },
+    { empId: "emp-james", eNps: 5, drivers: { management: 2, growth: 2, compensation: 2, culture: 2, worklife: 2 } },
+    { empId: "emp-sarah", eNps: 9, drivers: { management: 5, culture: 5, mission: 5, peers: 4, worklife: 4 } },
+    { empId: "emp-mike", eNps: 10, drivers: { management: 5, growth: 5, culture: 4, mission: 5, compensation: 4 } },
+    { empId: "emp-lisa", eNps: 6, drivers: { management: 3, growth: 2, compensation: 2, worklife: 3, peers: 3 } },
+  ];
+
+  for (const { empId, eNps, drivers } of employeeData) {
+    et.submitResponse({
+      surveyId: survey.id,
+      employeeId: empId,
+      eNpsScore: eNps,
+      driverScores: drivers,
+    });
+  }
+
+  // Flight risk for emp-james: 3 signals → high risk
+  et.assessFlightRisk("emp-james", [
+    "missed 3 1:1s",
+    "declined promotion",
+    "LinkedIn activity up",
+  ]);
+
+  // Score team-eng
+  et.scoreTeam("team-eng", ["emp-alice", "emp-bob", "emp-dev1"]);
 }
