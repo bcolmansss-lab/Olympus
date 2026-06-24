@@ -65,6 +65,8 @@ import { BillingEngine } from "./billing/billing-engine.js";
 import { AnalyticsEngine } from "./analytics/analytics-engine.js";
 import { FeedbackEngine } from "./feedback/feedback-engine.js";
 import { FlagManager } from "./feature-flags/flag-manager.js";
+import { AccessControl } from "./access/access-control.js";
+import { NotificationCenter } from "./notifications-center/notification-center.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -176,6 +178,10 @@ export class Olympus {
   readonly feedback: FeedbackEngine;
   /** Flag manager — feature flags, gradual rollouts, A/B experiments, and kill switches. */
   readonly flags: FlagManager;
+  /** Access control — RBAC/ABAC permission management, API key lifecycle, and security policy enforcement. */
+  readonly access: AccessControl;
+  /** Notification center — user notification preferences, digest scheduling, and delivery tracking. */
+  readonly notifCenter: NotificationCenter;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -233,6 +239,8 @@ export class Olympus {
     this.analytics = new AnalyticsEngine(this.bus);
     this.feedback = new FeedbackEngine(this.bus);
     this.flags = new FlagManager(this.bus);
+    this.access = new AccessControl(this.bus);
+    this.notifCenter = new NotificationCenter(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -297,3 +305,5 @@ export { BillingEngine, type InvoiceStatus, type MrrMovement, type PaymentMethod
 export { AnalyticsEngine, type MetricType, type AggregationMethod, type TrendDirection, type MetricDefinition, type MetricDataPoint, type MetricSeries, type AnalyticsSummary } from "./analytics/index.js";
 export { FeedbackEngine, type NpsCategory, type SurveyType, type FeedbackSentiment, type RequestStatus, type Survey, type SurveyResponse, type FeatureRequest, type FeedbackSummary } from "./feedback/index.js";
 export { FlagManager, type FlagStatus, type RolloutStrategy, type TargetingRule, type FeatureFlag, type Experiment as FlagExperiment, type FlagSummary } from "./feature-flags/index.js";
+export { AccessControl, type PrincipalType, type PermissionEffect, type Role, type Permission, type Principal, type ApiKey, type AccessDecision, type AccessSummary } from "./access/index.js";
+export { NotificationCenter, type NotifChannel, type NotifCategory, type DigestFrequency, type NotifPreference, type NotifMessage, type DigestEntry, type NotifCenterSummary } from "./notifications-center/index.js";

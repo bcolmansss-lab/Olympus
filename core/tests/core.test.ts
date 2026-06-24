@@ -5696,3 +5696,139 @@ describe("FlagManager", () => {
     assert.equal(s.activeFlags, 2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// AccessControl
+// ---------------------------------------------------------------------------
+
+import { AccessControl } from "../access/access-control.js";
+
+describe("AccessControl", () => {
+  it("createRole and createPrincipal store correctly", () => {
+    const bus = new EventBus();
+    const ac = new AccessControl(bus);
+    const role = ac.createRole({ name: "Admin", description: "Full access", permissions: [{ resource: "*", actions: ["*"], effect: "allow" }] });
+    const principal = ac.createPrincipal({ type: "user", name: "Alice", roleIds: [role.id], directPermissions: [], active: true });
+    assert.equal(ac.getRole(role.id)?.name, "Admin");
+    assert.equal(ac.getPrincipal(principal.id)?.name, "Alice");
+  });
+
+  it("check allows when role has matching permission", () => {
+    const bus = new EventBus();
+    const ac = new AccessControl(bus);
+    const role = ac.createRole({ name: "Reader", description: "Read access", permissions: [{ resource: "incidents", actions: ["read"], effect: "allow" }] });
+    const principal = ac.createPrincipal({ type: "user", name: "Bob", roleIds: [role.id], directPermissions: [], active: true });
+    const decision = ac.check(principal.id, "incidents", "read");
+    assert.equal(decision.allowed, true);
+  });
+
+  it("check denies when no matching permission", () => {
+    const bus = new EventBus();
+    const ac = new AccessControl(bus);
+    const role = ac.createRole({ name: "Reader", description: "Read only", permissions: [{ resource: "incidents", actions: ["read"], effect: "allow" }] });
+    const principal = ac.createPrincipal({ type: "user", name: "Carol", roleIds: [role.id], directPermissions: [], active: true });
+    const decision = ac.check(principal.id, "incidents", "delete");
+    assert.equal(decision.allowed, false);
+  });
+
+  it("check wildcard resource * matches any resource", () => {
+    const bus = new EventBus();
+    const ac = new AccessControl(bus);
+    const role = ac.createRole({ name: "SuperAdmin", description: "All access", permissions: [{ resource: "*", actions: ["*"], effect: "allow" }] });
+    const principal = ac.createPrincipal({ type: "user", name: "Dave", roleIds: [role.id], directPermissions: [], active: true });
+    assert.equal(ac.check(principal.id, "finance", "write").allowed, true);
+    assert.equal(ac.check(principal.id, "payroll", "delete").allowed, true);
+  });
+
+  it("createApiKey emits access.api_key_created", () => {
+    const bus = new EventBus();
+    const ac = new AccessControl(bus);
+    ac.createPrincipal({ id: "svc-1", type: "service", name: "MyService", roleIds: [], directPermissions: [], active: true });
+    const events: unknown[] = [];
+    bus.subscribe("access.api_key_created", (e) => { events.push(e); });
+    const key = ac.createApiKey("svc-1", "My Key", ["incidents:read"]);
+    assert.equal(events.length, 1);
+    assert.ok(key.keyPrefix.startsWith("sk_"));
+  });
+
+  it("summary counts activePrincipals", () => {
+    const bus = new EventBus();
+    const ac = new AccessControl(bus);
+    ac.createPrincipal({ type: "user", name: "Active1", roleIds: [], directPermissions: [], active: true });
+    ac.createPrincipal({ type: "user", name: "Active2", roleIds: [], directPermissions: [], active: true });
+    ac.createPrincipal({ type: "user", name: "Inactive", roleIds: [], directPermissions: [], active: false });
+    const s = ac.summary();
+    assert.equal(s.totalPrincipals, 3);
+    assert.equal(s.activePrincipals, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NotificationCenter
+// ---------------------------------------------------------------------------
+
+import { NotificationCenter } from "../notifications-center/notification-center.js";
+
+describe("NotificationCenter", () => {
+  it("setPreference stores and emits event", () => {
+    const bus = new EventBus();
+    const nc = new NotificationCenter(bus);
+    const events: unknown[] = [];
+    bus.subscribe("notif_center.preference_updated", (e) => { events.push(e); });
+    nc.setPreference({ userId: "u1", channel: "email", enabled: true, categories: ["incident"], digestFrequency: "daily" });
+    assert.equal(nc.getPreferences("u1").length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("send marks as sent when channel enabled", () => {
+    const bus = new EventBus();
+    const nc = new NotificationCenter(bus);
+    nc.setPreference({ userId: "u1", channel: "slack", enabled: true, categories: ["incident"], digestFrequency: "realtime" });
+    const msg = nc.send({ userId: "u1", category: "incident", title: "Alert", body: "Something happened", channel: "slack", priority: "high" });
+    assert.equal(msg.status, "sent");
+    assert.ok(msg.sentAt !== undefined);
+  });
+
+  it("send stays pending when channel not in preferences", () => {
+    const bus = new EventBus();
+    const nc = new NotificationCenter(bus);
+    // No preference set for this user/channel
+    const msg = nc.send({ userId: "u2", category: "incident", title: "Alert", body: "Something happened", channel: "email", priority: "normal" });
+    assert.equal(msg.status, "pending");
+    assert.equal(msg.sentAt, undefined);
+  });
+
+  it("markRead updates status", () => {
+    const bus = new EventBus();
+    const nc = new NotificationCenter(bus);
+    nc.setPreference({ userId: "u1", channel: "email", enabled: true, categories: ["billing"], digestFrequency: "daily" });
+    const msg = nc.send({ userId: "u1", category: "billing", title: "Invoice", body: "Due soon", channel: "email", priority: "low" });
+    const updated = nc.markRead(msg.id);
+    assert.equal(updated?.status, "read");
+    assert.ok(updated?.readAt !== undefined);
+  });
+
+  it("sendDigest collects pending messages and emits event", () => {
+    const bus = new EventBus();
+    const nc = new NotificationCenter(bus);
+    const events: unknown[] = [];
+    bus.subscribe("notif_center.digest_sent", (e) => { events.push(e); });
+    // Send two digest messages that stay pending (no preference)
+    nc.send({ userId: "u1", category: "digest", title: "D1", body: "Body1", channel: "email", priority: "low" });
+    nc.send({ userId: "u1", category: "digest", title: "D2", body: "Body2", channel: "email", priority: "low" });
+    const entry = nc.sendDigest("u1", "email");
+    assert.ok(entry !== undefined);
+    assert.equal(entry?.messageIds.length, 2);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary counts pendingNotifications", () => {
+    const bus = new EventBus();
+    const nc = new NotificationCenter(bus);
+    // These stay pending — no preferences configured
+    nc.send({ userId: "u1", category: "incident", title: "T1", body: "B1", channel: "email", priority: "normal" });
+    nc.send({ userId: "u1", category: "alert", title: "T2", body: "B2", channel: "email", priority: "normal" });
+    const s = nc.summary();
+    assert.equal(s.pendingNotifications, 2);
+  });
+});

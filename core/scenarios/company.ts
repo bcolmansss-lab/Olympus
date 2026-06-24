@@ -65,6 +65,8 @@ export function seedCompany(olympus: Olympus): void {
   seedAnalytics(olympus);
   seedFeedback(olympus);
   seedFeatureFlags(olympus);
+  seedAccessControl(olympus);
+  seedNotifCenter(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -2346,4 +2348,142 @@ function seedFeatureFlags(olympus: Olympus): void {
     status: "running",
   });
   fm.concludeExperiment(exp.id, 0.051, 0.082);
+}
+
+function seedAccessControl(olympus: Olympus): void {
+  const ac = olympus.access;
+
+  // 4 roles
+  ac.createRole({
+    id: "role-admin",
+    name: "Admin",
+    description: "Full access to all resources and actions",
+    permissions: [{ resource: "*", actions: ["*"], effect: "allow" }],
+  });
+  ac.createRole({
+    id: "role-engineer",
+    name: "Engineer",
+    description: "Read/write access to incidents, pipeline, and knowledge base",
+    permissions: [
+      { resource: "incidents", actions: ["read", "write"], effect: "allow" },
+      { resource: "pipeline", actions: ["read", "write"], effect: "allow" },
+      { resource: "kb", actions: ["read", "write"], effect: "allow" },
+    ],
+  });
+  ac.createRole({
+    id: "role-finance-analyst",
+    name: "Finance Analyst",
+    description: "Read access to finance, expenses, and payroll",
+    permissions: [
+      { resource: "finance", actions: ["read"], effect: "allow" },
+      { resource: "expenses", actions: ["read"], effect: "allow" },
+      { resource: "payroll", actions: ["read"], effect: "allow" },
+    ],
+  });
+  ac.createRole({
+    id: "role-viewer",
+    name: "Viewer",
+    description: "Read-only access to all resources",
+    permissions: [{ resource: "*", actions: ["read"], effect: "allow" }],
+  });
+
+  // 4 principals
+  ac.createPrincipal({
+    id: "user-ceo",
+    type: "user",
+    name: "CEO",
+    roleIds: ["role-admin"],
+    directPermissions: [],
+    active: true,
+  });
+  ac.createPrincipal({
+    id: "user-cto",
+    type: "user",
+    name: "CTO",
+    roleIds: ["role-engineer", "role-admin"],
+    directPermissions: [],
+    active: true,
+  });
+  ac.createPrincipal({
+    id: "user-cfo",
+    type: "user",
+    name: "CFO",
+    roleIds: ["role-finance-analyst"],
+    directPermissions: [],
+    active: true,
+  });
+  ac.createPrincipal({
+    id: "svc-automation",
+    type: "service",
+    name: "Automation Service",
+    roleIds: [],
+    directPermissions: [{ resource: "autonomy", actions: ["execute"], effect: "allow" }],
+    active: true,
+  });
+
+  // 2 API keys
+  ac.createApiKey("svc-automation", "Automation Key", ["incidents:write", "pipeline:read"]);
+  ac.createApiKey("user-cto", "Integration Key", ["kb:read", "incidents:read", "pipeline:read"]);
+}
+
+function seedNotifCenter(olympus: Olympus): void {
+  const nc = olympus.notifCenter;
+
+  // Preferences for 3 users
+  nc.setPreference({
+    userId: "user-ceo",
+    channel: "email",
+    enabled: true,
+    categories: ["incident", "approval", "mention", "digest", "alert", "billing", "security", "product_update"],
+    digestFrequency: "daily",
+  });
+  nc.setPreference({
+    userId: "user-cto",
+    channel: "slack",
+    enabled: true,
+    categories: ["incident", "alert", "approval"],
+    digestFrequency: "realtime",
+  });
+  nc.setPreference({
+    userId: "user-cfo",
+    channel: "email",
+    enabled: true,
+    categories: ["billing", "approval"],
+    digestFrequency: "daily",
+  });
+
+  // 4 notifications
+  nc.send({
+    userId: "user-cto",
+    category: "incident",
+    title: "Production Incident P1",
+    body: "API latency spike detected in region us-east-1",
+    channel: "slack",
+    priority: "urgent",
+  });
+  nc.send({
+    userId: "user-cto",
+    category: "alert",
+    title: "High Error Rate",
+    body: "Error rate exceeded 5% threshold on pipeline service",
+    channel: "slack",
+    priority: "high",
+  });
+  nc.send({
+    userId: "user-cfo",
+    category: "billing",
+    title: "Invoice Due",
+    body: "Invoice INV-2024-042 for $12,500 is due in 3 days",
+    channel: "email",
+    priority: "normal",
+  });
+  // Digest for CEO (will be pending until sendDigest is called)
+  nc.send({
+    userId: "user-ceo",
+    category: "digest",
+    title: "Daily Executive Digest",
+    body: "Your daily summary of company metrics and alerts",
+    channel: "email",
+    priority: "low",
+  });
 }
