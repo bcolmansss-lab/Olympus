@@ -16,6 +16,8 @@ import { WarehouseManager } from "../warehouse/warehouse-manager.js";
 import { CustomerFeedbackEngine } from "../customer-feedback/customer-feedback.js";
 import { TrainingManager } from "../training/training-manager.js";
 import { ProcurementEngine } from "../procurement-engine/procurement-engine.js";
+import { ContentManager } from "../content-mgr/content-manager.js";
+import { ProjectPortfolio } from "../project-portfolio/project-portfolio.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -9058,5 +9060,131 @@ describe("ProcurementEngine", () => {
     assert.equal(s.totalRFQs, 1);
     assert.equal(s.totalPOs, 1);
     assert.equal(s.approvedPOsValueUsd, 20000);
+  });
+});
+
+describe("ContentManager", () => {
+  it("createContent stores content item", () => {
+    const bus = new EventBus();
+    const cm = new ContentManager(bus);
+    const c = cm.createContent({ title: "10 Ways to Scale SaaS", type: "blog_post", status: "draft", authorId: "author-1", tags: ["saas", "growth"], targetAudience: "founders", wordCount: 1200, seoScore: 78 });
+    assert.ok(c.id);
+    assert.equal(cm.getContent(c.id)?.title, "10 Ways to Scale SaaS");
+  });
+
+  it("requestReview sets status in_review and emits event", () => {
+    const bus = new EventBus();
+    const cm = new ContentManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("content.review_requested", (e) => { events.push(e.payload); });
+    const c = cm.createContent({ title: "2027 Predictions", type: "whitepaper", status: "draft", authorId: "author-2", tags: [], targetAudience: "cxo" });
+    cm.requestReview(c.id, "editor-1");
+    assert.equal(cm.getContent(c.id)!.status, "in_review");
+    assert.equal(events.length, 1);
+  });
+
+  it("publishContent sets status published and emits event", () => {
+    const bus = new EventBus();
+    const cm = new ContentManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("content.published", (e) => { events.push(e.payload); });
+    const c = cm.createContent({ title: "Case Study: Acme", type: "case_study", status: "approved", authorId: "author-3", tags: ["case-study"], targetAudience: "prospects" });
+    cm.publishContent(c.id);
+    assert.equal(cm.getContent(c.id)!.status, "published");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordPageView increments counter", () => {
+    const bus = new EventBus();
+    const cm = new ContentManager(bus);
+    const c = cm.createContent({ title: "Guide to APIs", type: "blog_post", status: "published", authorId: "author-4", tags: [], targetAudience: "developers" });
+    cm.recordPageView(c.id, 100);
+    cm.recordPageView(c.id, 50);
+    assert.equal(cm.getContent(c.id)!.pageViews, 150);
+  });
+
+  it("listContent filters by status and type", () => {
+    const bus = new EventBus();
+    const cm = new ContentManager(bus);
+    cm.createContent({ title: "Post A", type: "blog_post", status: "published", authorId: "a1", tags: [], targetAudience: "all" });
+    cm.createContent({ title: "Post B", type: "email", status: "draft", authorId: "a2", tags: [], targetAudience: "subscribers" });
+    assert.equal(cm.listContent("published").length, 1);
+    assert.equal(cm.listContent(undefined, "email").length, 1);
+    assert.equal(cm.listContent().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const cm = new ContentManager(bus);
+    cm.createContent({ title: "X", type: "social_post", status: "published", authorId: "a1", tags: [], targetAudience: "all", seoScore: 60 });
+    cm.createContent({ title: "Y", type: "video", status: "in_review", authorId: "a2", tags: [], targetAudience: "all" });
+    const s = cm.summary();
+    assert.equal(s.totalContent, 2);
+    assert.equal(s.published, 1);
+    assert.equal(s.inReview, 1);
+  });
+});
+
+describe("ProjectPortfolio", () => {
+  it("addProject stores project", () => {
+    const bus = new EventBus();
+    const pp = new ProjectPortfolio(bus);
+    const p = pp.addProject({ name: "Platform 2.0", description: "Next gen platform", status: "proposed", strategicPillar: "innovation", priority: 9, budgetUsd: 2000000, expectedRoiUsd: 6000000, startDate: "2026-07-01", targetEndDate: "2027-06-30", assignedResources: ["team-eng"] });
+    assert.ok(p.id);
+    assert.equal(pp.getProject(p.id)?.name, "Platform 2.0");
+  });
+
+  it("approveProject sets status and emits event", () => {
+    const bus = new EventBus();
+    const pp = new ProjectPortfolio(bus);
+    const events: unknown[] = [];
+    bus.subscribe("portfolio.project_approved", (e) => { events.push(e.payload); });
+    const p = pp.addProject({ name: "CRM Migration", description: "Migrate to new CRM", status: "proposed", strategicPillar: "efficiency", priority: 7, budgetUsd: 500000, expectedRoiUsd: 1500000, startDate: "2026-08-01", targetEndDate: "2026-12-31", assignedResources: [] });
+    pp.approveProject(p.id);
+    assert.equal(pp.getProject(p.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("updateProgress sets completionPct", () => {
+    const bus = new EventBus();
+    const pp = new ProjectPortfolio(bus);
+    const p = pp.addProject({ name: "Data Lake", description: "Build data lake", status: "active", strategicPillar: "infrastructure", priority: 6, budgetUsd: 800000, expectedRoiUsd: 2000000, startDate: "2026-01-01", targetEndDate: "2026-09-30", assignedResources: ["team-data"] });
+    pp.updateProgress(p.id, 45, 350000);
+    assert.equal(pp.getProject(p.id)!.completionPct, 45);
+    assert.equal(pp.getProject(p.id)!.actualCostUsd, 350000);
+  });
+
+  it("completeProject emits event with roi", () => {
+    const bus = new EventBus();
+    const pp = new ProjectPortfolio(bus);
+    const events: unknown[] = [];
+    bus.subscribe("portfolio.project_completed", (e) => { events.push(e.payload); });
+    const p = pp.addProject({ name: "AI Chatbot", description: "Customer service bot", status: "active", strategicPillar: "customer_experience", priority: 8, budgetUsd: 300000, expectedRoiUsd: 900000, startDate: "2026-03-01", targetEndDate: "2026-07-31", assignedResources: ["team-ai"] });
+    pp.updateProgress(p.id, 100, 280000);
+    pp.completeProject(p.id, 750000);
+    assert.equal(pp.getProject(p.id)!.status, "completed");
+    assert.equal(events.length, 1);
+  });
+
+  it("listProjects filters by status and pillar", () => {
+    const bus = new EventBus();
+    const pp = new ProjectPortfolio(bus);
+    pp.addProject({ name: "A", description: "", status: "active", strategicPillar: "growth", priority: 5, budgetUsd: 100000, expectedRoiUsd: 300000, startDate: "2026-01-01", targetEndDate: "2026-12-31", assignedResources: [] });
+    pp.addProject({ name: "B", description: "", status: "proposed", strategicPillar: "compliance", priority: 3, budgetUsd: 50000, expectedRoiUsd: 0, startDate: "2026-06-01", targetEndDate: "2026-08-31", assignedResources: [] });
+    assert.equal(pp.listProjects("active").length, 1);
+    assert.equal(pp.listProjects(undefined, "compliance").length, 1);
+    assert.equal(pp.listProjects().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const pp = new ProjectPortfolio(bus);
+    pp.addProject({ name: "P1", description: "", status: "active", strategicPillar: "growth", priority: 8, budgetUsd: 500000, expectedRoiUsd: 1500000, startDate: "2026-01-01", targetEndDate: "2027-01-01", assignedResources: [] });
+    pp.addProject({ name: "P2", description: "", status: "completed", strategicPillar: "efficiency", priority: 6, budgetUsd: 200000, expectedRoiUsd: 600000, startDate: "2025-01-01", targetEndDate: "2025-12-31", assignedResources: [] });
+    const s = pp.summary();
+    assert.equal(s.totalProjects, 2);
+    assert.equal(s.active, 1);
+    assert.equal(s.completed, 1);
+    assert.equal(s.totalBudgetUsd, 700000);
   });
 });

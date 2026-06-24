@@ -113,6 +113,8 @@ import { WarehouseManager } from "./warehouse/warehouse-manager.js";
 import { CustomerFeedbackEngine } from "./customer-feedback/customer-feedback.js";
 import { TrainingManager } from "./training/training-manager.js";
 import { ProcurementEngine } from "./procurement-engine/procurement-engine.js";
+import { ContentManager } from "./content-mgr/content-manager.js";
+import { ProjectPortfolio } from "./project-portfolio/project-portfolio.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -314,6 +316,8 @@ export class Olympus {
   readonly customerFeedback: CustomerFeedbackEngine;
   readonly trainingMgr: TrainingManager;
   readonly procurementEngine: ProcurementEngine;
+  readonly contentMgr: ContentManager;
+  readonly projectPortfolio: ProjectPortfolio;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -419,6 +423,8 @@ export class Olympus {
     this.customerFeedback = new CustomerFeedbackEngine(this.bus);
     this.trainingMgr = new TrainingManager(this.bus);
     this.procurementEngine = new ProcurementEngine(this.bus);
+    this.contentMgr = new ContentManager(this.bus);
+    this.projectPortfolio = new ProjectPortfolio(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -530,3 +536,5 @@ export { WarehouseManager, type WarehouseStatus, type ShipmentDirection, type Sh
 export { CustomerFeedbackEngine, type FeedbackType, type FeedbackSentiment as CFESentiment, type NPSCategory as CFENPSCategory, type FeedbackResponse, type FeedbackSurvey, type FeedbackSummary as CFEFeedbackSummary } from "./customer-feedback/index.js";
 export { TrainingManager, type CourseStatus, type EnrollmentStatus, type DeliveryMode, type TrainingCourse, type TrainingEnrollment, type Certification, type TrainingSummary } from "./training/index.js";
 export { ProcurementEngine, type RFQStatus, type BidStatus, type POApprovalStatus, type RFQ, type Bid, type ProcurementPO, type ProcurementSummary as PEProcurementSummary } from "./procurement-engine/index.js";
+export { ContentManager, type ContentType, type ContentStatus, type ContentItem, type EditorialCalendarEntry, type ContentSummary } from "./content-mgr/index.js";
+export { ProjectPortfolio, type PortfolioProjectStatus, type StrategicPillar as PPStrategicPillar, type PortfolioProject, type PortfolioSummary } from "./project-portfolio/index.js";
