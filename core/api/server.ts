@@ -199,6 +199,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/workforce-schedule", handler: (_req, res) => res.json(200, { summary: this.olympus.workforceScheduler.summary(), shifts: this.olympus.workforceScheduler.listShifts() }) },
       { method: "GET", pattern: "/v1/treasury", handler: (_req, res) => res.json(200, { summary: this.olympus.treasury.summary(), accounts: this.olympus.treasury.listAccounts() }) },
       { method: "GET", pattern: "/v1/loyalty", handler: (_req, res) => res.json(200, { summary: this.olympus.loyalty.summary(), rewards: this.olympus.loyalty.listRewards(true) }) },
+      { method: "GET", pattern: "/v1/m-and-a", handler: (_req, res) => res.json(200, { summary: this.olympus.mAndA.summary(), deals: this.olympus.mAndA.listDeals() }) },
+      { method: "GET", pattern: "/v1/api-gateway", handler: (_req, res) => res.json(200, { summary: this.olympus.apiGateway.summary(), endpoints: this.olympus.apiGateway.listEndpoints() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

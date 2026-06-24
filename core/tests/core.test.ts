@@ -7658,3 +7658,130 @@ describe("LoyaltyProgram", () => {
     assert.equal(s.byTier.gold, 1);
   });
 });
+
+// ── MATracker ─────────────────────────────────────────────────────────────────
+import { MATracker } from "../m-and-a/ma-tracker.js";
+
+describe("MATracker", () => {
+  it("openDeal emits event", () => {
+    const bus = new EventBus();
+    const ma = new MATracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("ma.deal_opened", (e) => { events.push(e.payload); });
+    ma.openDeal({ targetName: "RoboVision AI", targetDescription: "Computer vision startup", dealType: "acquisition", status: "nda_signed", estimatedValueUsd: 50000000, leadAdvisor: "goldman-sachs", integrationPlanNotes: "" });
+    assert.equal(events.length, 1);
+  });
+
+  it("addDDItem and completeDDItem triggers due_diligence_completed", () => {
+    const bus = new EventBus();
+    const ma = new MATracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("ma.due_diligence_completed", (e) => { events.push(e.payload); });
+    const deal = ma.openDeal({ targetName: "SensorTech", targetDescription: "IoT sensors", dealType: "strategic_investment", status: "due_diligence", estimatedValueUsd: 10000000, leadAdvisor: "internal", integrationPlanNotes: "" });
+    const item = ma.addDDItem({ dealId: deal.id, category: "financials", title: "Audit financials", completed: false })!;
+    ma.completeDDItem(item.id, "low");
+    assert.equal(events.length, 1);
+  });
+
+  it("addValuation stores model", () => {
+    const bus = new EventBus();
+    const ma = new MATracker(bus);
+    const deal = ma.openDeal({ targetName: "FleetBot", targetDescription: "Fleet mgmt", dealType: "acquisition", status: "negotiating", estimatedValueUsd: 80000000, leadAdvisor: "jpmorgan", integrationPlanNotes: "" });
+    ma.addValuation(deal.id, { method: "ebitda_multiple", valueUsd: 85000000, assumptions: { ebitda: 8500000, multiple: 10 } });
+    assert.equal(ma.getDeal(deal.id)!.valuations.length, 1);
+  });
+
+  it("closeDeal emits event", () => {
+    const bus = new EventBus();
+    const ma = new MATracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("ma.deal_closed", (e) => { events.push(e.payload); });
+    const deal = ma.openDeal({ targetName: "NavAI", targetDescription: "Navigation AI", dealType: "acquisition", status: "negotiating", estimatedValueUsd: 30000000, leadAdvisor: "cfo", integrationPlanNotes: "" });
+    ma.closeDeal(deal.id, 28000000, "completed");
+    assert.equal(events.length, 1);
+    assert.equal(ma.getDeal(deal.id)!.finalValueUsd, 28000000);
+  });
+
+  it("listDeals filters by status", () => {
+    const bus = new EventBus();
+    const ma = new MATracker(bus);
+    ma.openDeal({ targetName: "A", targetDescription: "", dealType: "merger", status: "due_diligence", estimatedValueUsd: 1000000, leadAdvisor: "x", integrationPlanNotes: "" });
+    ma.openDeal({ targetName: "B", targetDescription: "", dealType: "divestiture", status: "closed", estimatedValueUsd: 2000000, leadAdvisor: "y", integrationPlanNotes: "" });
+    assert.equal(ma.listDeals("due_diligence").length, 1);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const ma = new MATracker(bus);
+    const d = ma.openDeal({ targetName: "C", targetDescription: "", dealType: "joint_venture", status: "loi_signed", estimatedValueUsd: 5000000, leadAdvisor: "z", integrationPlanNotes: "" });
+    ma.closeDeal(d.id, 5000000, "completed");
+    const d2 = ma.openDeal({ targetName: "D", targetDescription: "", dealType: "acquisition", status: "nda_signed", estimatedValueUsd: 20000000, leadAdvisor: "w", integrationPlanNotes: "" });
+    assert.ok(d2.id);
+    const s = ma.summary();
+    assert.equal(s.totalDeals, 2);
+    assert.equal(s.closedDeals, 1);
+    assert.equal(s.activeDeals, 1);
+  });
+});
+
+// ── APIGateway ────────────────────────────────────────────────────────────────
+import { APIGateway } from "../api-gateway/api-gateway.js";
+
+describe("APIGateway", () => {
+  it("registerEndpoint emits event", () => {
+    const bus = new EventBus();
+    const gw = new APIGateway(bus);
+    const events: unknown[] = [];
+    bus.subscribe("api.endpoint_registered", (e) => { events.push(e.payload); });
+    gw.registerEndpoint({ path: "/v1/robots", method: "GET", version: "v1", status: "active", owner: "robotics-team", description: "List robots", authScheme: "jwt", rateLimitPerMin: 100, slaLatencyMs: 200, tags: ["robots"] });
+    assert.equal(events.length, 1);
+  });
+
+  it("deprecateEndpoint emits deprecation_notice", () => {
+    const bus = new EventBus();
+    const gw = new APIGateway(bus);
+    const events: unknown[] = [];
+    bus.subscribe("api.deprecation_notice", (e) => { events.push(e.payload); });
+    const ep = gw.registerEndpoint({ path: "/v1/sensors", method: "GET", version: "v1", status: "active", owner: "iot-team", description: "List sensors", authScheme: "api_key", rateLimitPerMin: 200, slaLatencyMs: 150, tags: [] });
+    gw.deprecateEndpoint(ep.id, "2027-01-01", "/v2/sensors");
+    assert.equal(events.length, 1);
+    assert.equal(gw.getEndpoint(ep.id)!.status, "deprecated");
+  });
+
+  it("recordUsage emits rate_limit_exceeded when over limit", () => {
+    const bus = new EventBus();
+    const gw = new APIGateway(bus);
+    const events: unknown[] = [];
+    bus.subscribe("api.rate_limit_exceeded", (e) => { events.push(e.payload); });
+    const ep = gw.registerEndpoint({ path: "/v1/data", method: "POST", version: "v1", status: "active", owner: "data-team", description: "Ingest data", authScheme: "jwt", rateLimitPerMin: 50, slaLatencyMs: 500, tags: [] });
+    gw.recordUsage({ endpointId: ep.id, consumerId: "consumer-1", requestCount: 75, errorCount: 2, avgLatencyMs: 120, period: "2026-06-24" });
+    assert.equal(events.length, 1);
+  });
+
+  it("registerConsumer stores consumer", () => {
+    const bus = new EventBus();
+    const gw = new APIGateway(bus);
+    gw.registerConsumer({ name: "Mobile App", apiKey: "key-abc-123", rateMultiplier: 1, allowedEndpoints: [] });
+    assert.equal(gw.listConsumers().length, 1);
+  });
+
+  it("listEndpoints filters by status", () => {
+    const bus = new EventBus();
+    const gw = new APIGateway(bus);
+    gw.registerEndpoint({ path: "/v1/a", method: "GET", version: "v1", status: "active", owner: "t1", description: "", authScheme: "none", rateLimitPerMin: 100, slaLatencyMs: 200, tags: [] });
+    const ep = gw.registerEndpoint({ path: "/v1/b", method: "GET", version: "v1", status: "active", owner: "t2", description: "", authScheme: "none", rateLimitPerMin: 100, slaLatencyMs: 200, tags: [] });
+    gw.deprecateEndpoint(ep.id, "2027-01-01");
+    assert.equal(gw.listEndpoints("active").length, 1);
+    assert.equal(gw.listEndpoints("deprecated").length, 1);
+  });
+
+  it("summary counts SLA violations", () => {
+    const bus = new EventBus();
+    const gw = new APIGateway(bus);
+    const ep = gw.registerEndpoint({ path: "/v1/slow", method: "GET", version: "v1", status: "active", owner: "team", description: "", authScheme: "jwt", rateLimitPerMin: 1000, slaLatencyMs: 100, tags: [] });
+    gw.recordUsage({ endpointId: ep.id, consumerId: "c1", requestCount: 50, errorCount: 0, avgLatencyMs: 250, period: "2026-06-24" }); // violates 100ms SLA
+    const s = gw.summary();
+    assert.equal(s.slaViolations, 1);
+    assert.equal(s.totalRequests, 50);
+  });
+});

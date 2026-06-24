@@ -93,6 +93,8 @@ import { InsuranceManager } from "./insurance/insurance-manager.js";
 import { WorkforceScheduler } from "./workforce-scheduler/workforce-scheduler.js";
 import { TreasuryManager } from "./treasury/treasury-manager.js";
 import { LoyaltyProgram } from "./loyalty/loyalty-program.js";
+import { MATracker } from "./m-and-a/ma-tracker.js";
+import { APIGateway } from "./api-gateway/api-gateway.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -260,6 +262,10 @@ export class Olympus {
   readonly treasury: TreasuryManager;
   /** Loyalty program — points earning, tier upgrades, reward redemption, referral tracking. */
   readonly loyalty: LoyaltyProgram;
+  /** M&A tracker — deal pipeline, due diligence checklists, valuation models, closing milestones. */
+  readonly mAndA: MATracker;
+  /** API gateway — endpoint catalog, rate limit tracking, SLA monitoring, deprecation management. */
+  readonly apiGateway: APIGateway;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -345,6 +351,8 @@ export class Olympus {
     this.workforceScheduler = new WorkforceScheduler(this.bus);
     this.treasury = new TreasuryManager(this.bus);
     this.loyalty = new LoyaltyProgram(this.bus);
+    this.mAndA = new MATracker(this.bus);
+    this.apiGateway = new APIGateway(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -437,3 +445,5 @@ export { InsuranceManager, type InsuranceType, type PolicyStatus, type ClaimStat
 export { WorkforceScheduler, type ShiftStatus, type DayOfWeek, type ShiftTemplate, type Shift, type EmployeeAvailability, type ScheduleSummary } from "./workforce-scheduler/index.js";
 export { TreasuryManager, type AccountType as BankAccountType, type Currency, type BankAccount, type CashTransfer, type FXPosition, type TreasurySummary } from "./treasury/index.js";
 export { LoyaltyProgram, type LoyaltyTier, type LoyaltyMember, type PointsTransaction, type LoyaltyReward, type LoyaltySummary } from "./loyalty/index.js";
+export { MATracker, type DealType, type DealStatus, type DDItem, type ValuationModel, type MADeal, type MASummary } from "./m-and-a/index.js";
+export { APIGateway, type HttpMethod, type EndpointStatus, type AuthScheme, type APIEndpoint, type APIUsageRecord, type GatewayConsumer, type GatewaySummary } from "./api-gateway/index.js";
