@@ -97,6 +97,8 @@ import { MATracker } from "./m-and-a/ma-tracker.js";
 import { APIGateway } from "./api-gateway/api-gateway.js";
 import { InternationalExpansion } from "./international/international-expansion.js";
 import { PricingOptimizer } from "./pricing-optimizer/pricing-optimizer.js";
+import { TalentIntelligence } from "./talent-intel/talent-intelligence.js";
+import { ProductCatalog } from "./product-catalog/product-catalog.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -272,6 +274,10 @@ export class Olympus {
   readonly international: InternationalExpansion;
   /** Pricing optimizer — dynamic recommendations, elasticity models, discount management. */
   readonly pricingOptimizer: PricingOptimizer;
+  /** Talent intelligence — skills gap analysis, succession planning, learning path tracking. */
+  readonly talentIntel: TalentIntelligence;
+  /** Product catalog — SKU management, variants, category hierarchy, publish workflow. */
+  readonly productCatalog: ProductCatalog;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -361,6 +367,8 @@ export class Olympus {
     this.apiGateway = new APIGateway(this.bus);
     this.international = new InternationalExpansion(this.bus);
     this.pricingOptimizer = new PricingOptimizer(this.bus);
+    this.talentIntel = new TalentIntelligence(this.bus);
+    this.productCatalog = new ProductCatalog(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -457,3 +465,5 @@ export { MATracker, type DealType, type DealStatus, type DDItem, type ValuationM
 export { APIGateway, type HttpMethod, type EndpointStatus, type AuthScheme, type APIEndpoint, type APIUsageRecord, type GatewayConsumer, type GatewaySummary } from "./api-gateway/index.js";
 export { InternationalExpansion, type MarketStatus, type EntityType, type ComplianceStatus, type ComplianceRequirement, type LegalEntity, type Market, type ExpansionSummary } from "./international/index.js";
 export { PricingOptimizer, type PricingStrategy, type DiscountType as PODiscountType, type PriceElasticityModel, type PricingRecommendation, type Discount as PODiscount, type PricingOptimizerSummary } from "./pricing-optimizer/index.js";
+export { TalentIntelligence, type SkillLevel, type ReadinessLevel, type SkillProfile, type SuccessionPlan, type LearningRecord, type TalentSummary } from "./talent-intel/index.js";
+export { ProductCatalog, type ProductStatus, type ProductType, type ProductVariant, type CatalogProduct, type ProductCategory, type CatalogSummary } from "./product-catalog/index.js";

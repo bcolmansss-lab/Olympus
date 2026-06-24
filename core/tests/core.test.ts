@@ -7854,6 +7854,8 @@ describe("InternationalExpansion", () => {
 
 // ── PricingOptimizer ──────────────────────────────────────────────────────────
 import { PricingOptimizer } from "../pricing-optimizer/pricing-optimizer.js";
+import { TalentIntelligence } from "../talent-intel/talent-intelligence.js";
+import { ProductCatalog } from "../product-catalog/product-catalog.js";
 
 describe("PricingOptimizer", () => {
   it("generateRecommendation emits event", () => {
@@ -7912,5 +7914,140 @@ describe("PricingOptimizer", () => {
     assert.equal(s.totalRecommendations, 2);
     assert.equal(s.applied, 0);
     assert.equal(s.avgConfidence, 80);
+  });
+});
+
+describe("TalentIntelligence", () => {
+  it("updateSkillProfile stores profile", () => {
+    const bus = new EventBus();
+    const ti = new TalentIntelligence(bus);
+    const p = ti.updateSkillProfile("emp1", { typescript: 4, leadership: 3 });
+    assert.equal(p.employeeId, "emp1");
+    assert.equal(p.skills["typescript"], 4);
+    assert.deepEqual(ti.getSkillProfile("emp1"), p);
+  });
+
+  it("analyzeSkillsGap identifies gaps and emits events", () => {
+    const bus = new EventBus();
+    const ti = new TalentIntelligence(bus);
+    const events: unknown[] = [];
+    bus.subscribe("talent.skills_gap_identified", (e) => { events.push(e.payload); });
+    ti.updateSkillProfile("emp2", { typescript: 2, leadership: 3 });
+    ti.setRoleRequirements("role1", { typescript: 4, leadership: 3 });
+    const gaps = ti.analyzeSkillsGap("emp2", "role1");
+    assert.equal(gaps.length, 1);
+    assert.equal(gaps[0]!.skill, "typescript");
+    assert.equal(events.length, 1);
+  });
+
+  it("createSuccessionPlan emits succession_ready when score >= 80", () => {
+    const bus = new EventBus();
+    const ti = new TalentIntelligence(bus);
+    const events: unknown[] = [];
+    bus.subscribe("talent.succession_ready", (e) => { events.push(e.payload); });
+    ti.createSuccessionPlan({ roleId: "cto", roleName: "CTO", successors: [{ employeeId: "emp3", readiness: "ready_now", readinessScore: 90 }] });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordLearning stores record and emits event", () => {
+    const bus = new EventBus();
+    const ti = new TalentIntelligence(bus);
+    const events: unknown[] = [];
+    bus.subscribe("talent.learning_completed", (e) => { events.push(e.payload); });
+    const rec = ti.recordLearning({ employeeId: "emp4", courseId: "c1", courseName: "TS Advanced", skillGained: "typescript", hoursInvested: 8, completedAt: "2026-01-01" });
+    assert.ok(rec.id);
+    assert.equal(events.length, 1);
+    assert.equal(ti.listLearningRecords("emp4").length, 1);
+  });
+
+  it("listLearningRecords filters by employeeId", () => {
+    const bus = new EventBus();
+    const ti = new TalentIntelligence(bus);
+    ti.recordLearning({ employeeId: "empA", courseId: "c1", courseName: "A", skillGained: "s1", hoursInvested: 4, completedAt: "2026-01-01" });
+    ti.recordLearning({ employeeId: "empB", courseId: "c2", courseName: "B", skillGained: "s2", hoursInvested: 6, completedAt: "2026-01-02" });
+    assert.equal(ti.listLearningRecords("empA").length, 1);
+    assert.equal(ti.listLearningRecords().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const ti = new TalentIntelligence(bus);
+    ti.updateSkillProfile("e1", { skill1: 3, skill2: 5 });
+    ti.createSuccessionPlan({ roleId: "r1", roleName: "Role1", successors: [{ employeeId: "e1", readiness: "ready_now", readinessScore: 85 }] });
+    ti.recordLearning({ employeeId: "e1", courseId: "c1", courseName: "X", skillGained: "skill1", hoursInvested: 10, completedAt: "2026-01-01" });
+    const s = ti.summary();
+    assert.equal(s.totalSkillProfiles, 1);
+    assert.equal(s.totalSuccessionPlans, 1);
+    assert.equal(s.readyNowSuccessors, 1);
+    assert.equal(s.totalLearningHours, 10);
+  });
+});
+
+describe("ProductCatalog", () => {
+  it("createProduct stores product", () => {
+    const bus = new EventBus();
+    const pc = new ProductCatalog(bus);
+    const p = pc.createProduct({ sku: "SKU-001", name: "Widget", description: "A widget", type: "physical", status: "draft", basePriceUsd: 29.99, tags: [], imageUrls: [] });
+    assert.ok(p.id);
+    assert.equal(p.sku, "SKU-001");
+    assert.deepEqual(pc.getProduct(p.id), p);
+  });
+
+  it("publishProduct sets status active and emits event", () => {
+    const bus = new EventBus();
+    const pc = new ProductCatalog(bus);
+    const events: unknown[] = [];
+    bus.subscribe("catalog.product_published", (e) => { events.push(e.payload); });
+    const p = pc.createProduct({ sku: "SKU-002", name: "Gadget", description: "A gadget", type: "digital", status: "draft", basePriceUsd: 49.99, tags: [], imageUrls: [] });
+    pc.publishProduct(p.id);
+    assert.equal(pc.getProduct(p.id)!.status, "active");
+    assert.equal(events.length, 1);
+  });
+
+  it("addVariant links to product and emits event", () => {
+    const bus = new EventBus();
+    const pc = new ProductCatalog(bus);
+    const events: unknown[] = [];
+    bus.subscribe("catalog.variant_added", (e) => { events.push(e.payload); });
+    const p = pc.createProduct({ sku: "SKU-003", name: "Shirt", description: "A shirt", type: "physical", status: "active", basePriceUsd: 19.99, tags: [], imageUrls: [] });
+    const v = pc.addVariant({ productId: p.id, sku: "SKU-003-BLU-M", attributes: { color: "blue", size: "M" }, additionalPriceUsd: 2, stockQuantity: 10, active: true });
+    assert.ok(v!.id);
+    assert.equal(pc.getProduct(p.id)!.variants.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("discontinueProduct sets status and emits event", () => {
+    const bus = new EventBus();
+    const pc = new ProductCatalog(bus);
+    const events: unknown[] = [];
+    bus.subscribe("catalog.product_discontinued", (e) => { events.push(e.payload); });
+    const p = pc.createProduct({ sku: "SKU-004", name: "OldItem", description: "Old", type: "physical", status: "active", basePriceUsd: 9.99, tags: [], imageUrls: [] });
+    pc.discontinueProduct(p.id, "SKU-NEW");
+    assert.equal(pc.getProduct(p.id)!.status, "discontinued");
+    assert.equal(pc.getProduct(p.id)!.replacedBySku, "SKU-NEW");
+    assert.equal(events.length, 1);
+  });
+
+  it("listProducts filters by status and type", () => {
+    const bus = new EventBus();
+    const pc = new ProductCatalog(bus);
+    pc.createProduct({ sku: "A1", name: "A1", description: "", type: "physical", status: "active", basePriceUsd: 10, tags: [], imageUrls: [] });
+    pc.createProduct({ sku: "A2", name: "A2", description: "", type: "digital", status: "draft", basePriceUsd: 20, tags: [], imageUrls: [] });
+    assert.equal(pc.listProducts("active").length, 1);
+    assert.equal(pc.listProducts(undefined, "digital").length, 1);
+    assert.equal(pc.listProducts().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const pc = new ProductCatalog(bus);
+    const p = pc.createProduct({ sku: "S1", name: "S1", description: "", type: "physical", status: "draft", basePriceUsd: 100, tags: [], imageUrls: [] });
+    pc.publishProduct(p.id);
+    pc.addVariant({ productId: p.id, sku: "S1-V1", attributes: { color: "red" }, additionalPriceUsd: 5, stockQuantity: 5, active: true });
+    const s = pc.summary();
+    assert.equal(s.totalProducts, 1);
+    assert.equal(s.activeProducts, 1);
+    assert.equal(s.totalVariants, 1);
+    assert.equal(s.avgBasePrice, 100);
   });
 });
