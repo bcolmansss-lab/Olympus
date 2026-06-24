@@ -4587,3 +4587,120 @@ describe("ApplicantTracker", () => {
     assert.equal(m.sourceBreakdown["referral"], 1);
   });
 });
+
+// KnowledgeBase
+import { KnowledgeBase } from "../knowledge-base/knowledge-base.js";
+
+describe("KnowledgeBase", () => {
+  it("publishArticle emits kb.article_published", () => {
+    const bus = new EventBus();
+    const kb = new KnowledgeBase(bus);
+    const events: unknown[] = [];
+    bus.subscribe("kb.article_published", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    kb.createCollection({ id: "col-1", name: "Engineering", description: "Eng docs", ownerTeam: "eng" });
+    kb.publishArticle({
+      title: "Deploy Guide",
+      content: "# Deploy\nSteps...",
+      type: "runbook",
+      collectionId: "col-1",
+      authorId: "author-1",
+      reviewIntervalDays: 90,
+    });
+    assert.equal(events.length, 1);
+    const ev = events[0] as { title: string; authorId: string };
+    assert.equal(ev.title, "Deploy Guide");
+    assert.equal(ev.authorId, "author-1");
+  });
+
+  it("recordView increments viewCount and emits event", () => {
+    const bus = new EventBus();
+    const kb = new KnowledgeBase(bus);
+    const viewEvents: unknown[] = [];
+    bus.subscribe("kb.article_viewed", (ev) => { viewEvents.push((ev as { payload: unknown }).payload); });
+    kb.createCollection({ id: "col-1", name: "Eng", description: "desc", ownerTeam: "eng" });
+    const art = kb.publishArticle({
+      title: "Howto",
+      content: "content",
+      type: "howto",
+      collectionId: "col-1",
+      authorId: "author-1",
+      reviewIntervalDays: 90,
+    });
+    kb.recordView(art.id, "viewer-1");
+    kb.recordView(art.id, "viewer-2");
+    assert.equal(kb.get(art.id)!.viewCount, 2);
+    assert.equal(viewEvents.length, 2);
+    const ev = viewEvents[0] as { articleId: string; viewerId: string };
+    assert.equal(ev.articleId, art.id);
+    assert.equal(ev.viewerId, "viewer-1");
+  });
+
+  it("search returns matching articles by title keyword", () => {
+    const bus = new EventBus();
+    const kb = new KnowledgeBase(bus);
+    kb.createCollection({ id: "col-1", name: "Eng", description: "desc", ownerTeam: "eng" });
+    kb.publishArticle({ title: "Database Backup Guide", content: "backup steps", type: "howto", collectionId: "col-1", authorId: "a1", reviewIntervalDays: 90 });
+    kb.publishArticle({ title: "Deploy Runbook", content: "deploy steps", type: "runbook", collectionId: "col-1", authorId: "a1", reviewIntervalDays: 90 });
+    const results = kb.search("backup");
+    assert.equal(results.length, 1);
+    assert.equal(results[0]!.title, "Database Backup Guide");
+  });
+
+  it("checkStaleness marks old articles stale", () => {
+    const bus = new EventBus();
+    const kb = new KnowledgeBase(bus);
+    const staleEvents: unknown[] = [];
+    bus.subscribe("kb.article_stale", (ev) => { staleEvents.push((ev as { payload: unknown }).payload); });
+    kb.createCollection({ id: "col-1", name: "HR", description: "HR docs", ownerTeam: "hr" });
+    const oldDate = new Date();
+    oldDate.setDate(oldDate.getDate() - 100);
+    kb.publishArticle({
+      title: "Old Policy",
+      content: "outdated content",
+      type: "policy",
+      collectionId: "col-1",
+      authorId: "hr-1",
+      reviewIntervalDays: 90,
+      lastReviewedAt: oldDate.toISOString(),
+    });
+    const staled = kb.checkStaleness();
+    assert.equal(staled.length, 1);
+    assert.equal(staled[0]!.status, "stale");
+    assert.equal(staleEvents.length, 1);
+  });
+
+  it("updateArticle increments version", () => {
+    const bus = new EventBus();
+    const kb = new KnowledgeBase(bus);
+    kb.createCollection({ id: "col-1", name: "Eng", description: "desc", ownerTeam: "eng" });
+    const art = kb.publishArticle({
+      title: "API Guide",
+      content: "v1 content",
+      type: "reference",
+      collectionId: "col-1",
+      authorId: "a1",
+      reviewIntervalDays: 90,
+    });
+    assert.equal(art.version, 1);
+    const updated = kb.updateArticle(art.id, { content: "v2 content", reviewedBy: "reviewer-1" });
+    assert.ok(updated);
+    assert.equal(updated!.version, 2);
+    assert.equal(updated!.reviewedBy, "reviewer-1");
+    assert.ok(updated!.lastReviewedAt);
+  });
+
+  it("summary returns topArticles sorted by views", () => {
+    const bus = new EventBus();
+    const kb = new KnowledgeBase(bus);
+    kb.createCollection({ id: "col-1", name: "Eng", description: "desc", ownerTeam: "eng" });
+    const a1 = kb.publishArticle({ title: "Popular Article", content: "c", type: "howto", collectionId: "col-1", authorId: "a1", reviewIntervalDays: 90 });
+    const a2 = kb.publishArticle({ title: "Less Popular", content: "c", type: "howto", collectionId: "col-1", authorId: "a1", reviewIntervalDays: 90 });
+    for (let i = 0; i < 10; i++) kb.recordView(a1.id, `u${i}`);
+    for (let i = 0; i < 3; i++) kb.recordView(a2.id, `u${i}`);
+    const s = kb.summary();
+    assert.equal(s.totalArticles, 2);
+    assert.equal(s.totalViews, 13);
+    assert.equal(s.topArticles[0]!.id, a1.id);
+    assert.equal(s.topArticles[0]!.viewCount, 10);
+  });
+});

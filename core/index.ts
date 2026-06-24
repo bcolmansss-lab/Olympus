@@ -54,6 +54,7 @@ import { PricingEngine } from "./pricing/pricing-engine.js";
 import { AssetManager } from "./assets/asset-manager.js";
 import { ExpenseManager } from "./expenses/expense-manager.js";
 import { ApplicantTracker } from "./recruitment/ats.js";
+import { KnowledgeBase } from "./knowledge-base/knowledge-base.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -143,6 +144,8 @@ export class Olympus {
   readonly expenses: ExpenseManager;
   /** Applicant tracker — job requisitions, candidate pipeline, interview scheduling, offer management. */
   readonly recruitment: ApplicantTracker;
+  /** Knowledge base — internal wiki, runbooks, playbooks, and documentation management. */
+  readonly kb: KnowledgeBase;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -189,6 +192,7 @@ export class Olympus {
     this.assets = new AssetManager(this.bus);
     this.expenses = new ExpenseManager(this.bus);
     this.recruitment = new ApplicantTracker(this.bus);
+    this.kb = new KnowledgeBase(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -242,3 +246,4 @@ export { PricingEngine, type BillingModel, type DiscountType, type QuoteStatus, 
 export { AssetManager, type AssetType, type AssetStatus, type DepreciationMethod, type Asset, type DepreciationRecord, type AssetSummary } from "./assets/index.js";
 export { ExpenseManager, type ExpenseCategory, type ExpenseStatus, type Expense, type ExpensePolicy, type ExpenseSummary } from "./expenses/index.js";
 export { ApplicantTracker, type CandidateStage, type JobStatus, type InterviewType, type JobRequisition, type Candidate as JobCandidate, type Scorecard, type RecruitmentMetrics } from "./recruitment/index.js";
+export { KnowledgeBase, type ArticleStatus, type ArticleType, type Article as KBArticle, type Collection as KBCollection, type KBSummary } from "./knowledge-base/index.js";

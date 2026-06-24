@@ -54,6 +54,7 @@ export function seedCompany(olympus: Olympus): void {
   seedAssets(olympus);
   seedExpenses(olympus);
   seedRecruitment(olympus);
+  seedKnowledgeBase(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1583,4 +1584,92 @@ export function seedRecruitment(olympus: Olympus): void {
   });
   ats.advanceStage(c5.id, "screening");
   ats.advanceStage(c5.id, "rejected", "Skills not aligned with L5 requirements");
+}
+
+function seedKnowledgeBase(olympus: Olympus): void {
+  const kb = olympus.kb;
+
+  // Collections
+  const engCol = kb.createCollection({
+    id: "col-eng-runbooks",
+    name: "Engineering Runbooks",
+    description: "Operational runbooks for engineering incidents and on-call procedures",
+    ownerTeam: "engineering",
+  });
+  const productCol = kb.createCollection({
+    id: "col-product-playbooks",
+    name: "Product Playbooks",
+    description: "Playbooks guiding product launches, user research, and roadmap decisions",
+    ownerTeam: "product",
+  });
+  const companyCol = kb.createCollection({
+    id: "col-company-policies",
+    name: "Company Policies",
+    description: "HR, legal, and operational policies for all Helios Robotics staff",
+    ownerTeam: "hr",
+  });
+
+  // Articles
+  const runbook = kb.publishArticle({
+    id: "art-api-incident",
+    title: "API Incident Response Runbook",
+    content: "# API Incident Response\n\n## Steps\n1. Page on-call engineer\n2. Assess severity\n3. Open incident channel\n4. Communicate status",
+    type: "runbook",
+    collectionId: engCol.id,
+    authorId: "eng-lead-1",
+    tags: ["api", "incident", "on-call"],
+    reviewIntervalDays: 90,
+  });
+
+  const playbook = kb.publishArticle({
+    id: "art-onboarding-playbook",
+    title: "Customer Onboarding Playbook",
+    content: "# Customer Onboarding\n\n## Week 1\n- Kickoff call\n- Technical setup\n\n## Week 2\n- Training sessions",
+    type: "playbook",
+    collectionId: productCol.id,
+    authorId: "product-mgr-1",
+    tags: ["onboarding", "customer", "success"],
+    reviewIntervalDays: 90,
+  });
+
+  // Remote work policy — reviewed 100 days ago, will be stale
+  const hundredDaysAgo = new Date();
+  hundredDaysAgo.setDate(hundredDaysAgo.getDate() - 100);
+  kb.publishArticle({
+    id: "art-remote-work-policy",
+    title: "Remote Work Policy",
+    content: "# Remote Work Policy\n\nHelios Robotics supports flexible remote work arrangements...",
+    type: "policy",
+    collectionId: companyCol.id,
+    authorId: "hr-director-1",
+    tags: ["remote", "policy", "hr"],
+    reviewIntervalDays: 90,
+    lastReviewedAt: hundredDaysAgo.toISOString(),
+  });
+
+  kb.publishArticle({
+    id: "art-db-backup-howto",
+    title: "Database Backup Howto",
+    content: "# Database Backup\n\n## Daily Backups\nBackups run nightly at 02:00 UTC...",
+    type: "howto",
+    collectionId: engCol.id,
+    authorId: "eng-lead-1",
+    tags: ["database", "backup", "ops"],
+    reviewIntervalDays: 90,
+  });
+
+  kb.publishArticle({
+    id: "art-perf-review",
+    title: "Performance Review Process",
+    content: "# Performance Review Process\n\nReviews are conducted bi-annually...",
+    type: "reference",
+    collectionId: companyCol.id,
+    authorId: "hr-director-1",
+    tags: ["hr", "performance", "review"],
+    reviewIntervalDays: 180,
+  });
+
+  // Record views on popular articles
+  for (let i = 0; i < 12; i++) kb.recordView(runbook.id, `user-${i}`);
+  for (let i = 0; i < 8; i++) kb.recordView(playbook.id, `user-${i}`);
 }
