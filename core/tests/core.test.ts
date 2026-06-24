@@ -7123,3 +7123,136 @@ describe("ProductUsageTracker", () => {
     assert.equal(s.topFeatures[0]!.feature, "reports");
   });
 });
+
+// ── DataWarehouse ─────────────────────────────────────────────────────────────
+import { DataWarehouse } from "../data-warehouse/data-warehouse.js";
+
+describe("DataWarehouse", () => {
+  it("registerTable emits event", () => {
+    const bus = new EventBus();
+    const dw = new DataWarehouse(bus);
+    const events: unknown[] = [];
+    bus.subscribe("dw.table_registered", (e) => { events.push(e.payload); });
+    dw.registerTable({ name: "fact_orders", schema: "analytics", description: "Order facts", owner: "data-eng", status: "active", columns: [], rowCount: 1000000, sizeGb: 2.5, expectedFreshnessMins: 60, upstreamTables: [], tags: ["core"] });
+    assert.equal(events.length, 1);
+  });
+
+  it("refreshTable updates stats", () => {
+    const bus = new EventBus();
+    const dw = new DataWarehouse(bus);
+    const t = dw.registerTable({ name: "dim_customers", schema: "analytics", description: "Customer dim", owner: "data-eng", status: "building", columns: [], rowCount: 0, sizeGb: 0, expectedFreshnessMins: 120, upstreamTables: [], tags: [] });
+    dw.refreshTable(t.id, 50000, 0.8);
+    assert.equal(dw.getTable(t.id)!.rowCount, 50000);
+    assert.equal(dw.getTable(t.id)!.status, "active");
+  });
+
+  it("recordPipelineRun emits failure event", () => {
+    const bus = new EventBus();
+    const dw = new DataWarehouse(bus);
+    const events: unknown[] = [];
+    bus.subscribe("dw.pipeline_failed", (e) => { events.push(e.payload); });
+    const t = dw.registerTable({ name: "agg_revenue", schema: "bi", description: "", owner: "eng", status: "active", columns: [], rowCount: 100, sizeGb: 0.1, expectedFreshnessMins: 30, upstreamTables: [], tags: [] });
+    const p = dw.registerPipeline({ name: "revenue_agg", sourceTableIds: [], targetTableId: t.id, scheduleExpression: "0 * * * *", lastRunStatus: "never_run" });
+    dw.recordPipelineRun(p.id, "failure", 45, "timeout exceeded");
+    assert.equal(events.length, 1);
+  });
+
+  it("listTables filters by status", () => {
+    const bus = new EventBus();
+    const dw = new DataWarehouse(bus);
+    dw.registerTable({ name: "t1", schema: "s", description: "", owner: "eng", status: "active", columns: [], rowCount: 100, sizeGb: 0.1, expectedFreshnessMins: 60, upstreamTables: [], tags: [] });
+    dw.registerTable({ name: "t2", schema: "s", description: "", owner: "eng", status: "deprecated", columns: [], rowCount: 0, sizeGb: 0, expectedFreshnessMins: 0, upstreamTables: [], tags: [] });
+    assert.equal(dw.listTables("active").length, 1);
+    assert.equal(dw.listTables("deprecated").length, 1);
+  });
+
+  it("checkFreshness emits alert for stale table", () => {
+    const bus = new EventBus();
+    const dw = new DataWarehouse(bus);
+    const events: unknown[] = [];
+    bus.subscribe("dw.freshness_alert", (e) => { events.push(e.payload); });
+    const t = dw.registerTable({ name: "stale_table", schema: "s", description: "", owner: "eng", status: "active", columns: [], rowCount: 100, sizeGb: 0.1, expectedFreshnessMins: 5, upstreamTables: [], tags: [] });
+    // Set lastRefreshed to 10 mins ago
+    dw.getTable(t.id)!.lastRefreshedAt = new Date(Date.now() - 600000).toISOString();
+    const fresh = dw.checkFreshness(t.id);
+    assert.equal(fresh, false);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const dw = new DataWarehouse(bus);
+    dw.registerTable({ name: "a", schema: "s", description: "", owner: "e", status: "active", columns: [], rowCount: 1000, sizeGb: 1, expectedFreshnessMins: 60, upstreamTables: [], tags: [] });
+    dw.registerTable({ name: "b", schema: "s", description: "", owner: "e", status: "error", columns: [], rowCount: 0, sizeGb: 0, expectedFreshnessMins: 30, upstreamTables: [], tags: [] });
+    const s = dw.summary();
+    assert.equal(s.totalTables, 2);
+    assert.equal(s.activeTables, 1);
+    assert.equal(s.totalRows, 1000);
+  });
+});
+
+// ── CostCenterManager ─────────────────────────────────────────────────────────
+import { CostCenterManager } from "../cost-center/cost-center.js";
+
+describe("CostCenterManager", () => {
+  it("createCenter and recordAllocation emits events", () => {
+    const bus = new EventBus();
+    const cc = new CostCenterManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("cost.allocation_recorded", (e) => { events.push(e.payload); });
+    const center = cc.createCenter({ name: "Engineering", department: "R&D", ownerId: "cto-1", annualBudgetUsd: 5000000 });
+    cc.recordAllocation({ centerId: center.id, category: "payroll", description: "June payroll", amountUsd: 300000, month: "2026-06", method: "direct" });
+    assert.equal(events.length, 1);
+    assert.equal(cc.getCenter(center.id)!.ytdActualUsd, 300000);
+  });
+
+  it("budget_exceeded event fires when over budget", () => {
+    const bus = new EventBus();
+    const cc = new CostCenterManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("cost.budget_exceeded", (e) => { events.push(e.payload); });
+    const center = cc.createCenter({ name: "Marketing", department: "GTM", ownerId: "cmo-1", annualBudgetUsd: 100000 });
+    cc.recordAllocation({ centerId: center.id, category: "marketing", description: "Campaign", amountUsd: 120000, month: "2026-06", method: "direct" });
+    assert.equal(events.length, 1);
+  });
+
+  it("varianceReport shows over_budget status", () => {
+    const bus = new EventBus();
+    const cc = new CostCenterManager(bus);
+    const center = cc.createCenter({ name: "Sales", department: "GTM", ownerId: "cro-1", annualBudgetUsd: 200000 });
+    cc.recordAllocation({ centerId: center.id, category: "travel", description: "Conferences", amountUsd: 250000, month: "2026-05", method: "direct" });
+    const report = cc.varianceReport(center.id);
+    assert.equal(report!.status, "over_budget");
+    assert.equal(report!.varianceUsd, 50000);
+  });
+
+  it("listAllocations filters by month", () => {
+    const bus = new EventBus();
+    const cc = new CostCenterManager(bus);
+    const center = cc.createCenter({ name: "Ops", department: "Operations", ownerId: "coo-1", annualBudgetUsd: 1000000 });
+    cc.recordAllocation({ centerId: center.id, category: "infrastructure", description: "AWS", amountUsd: 50000, month: "2026-06", method: "usage" });
+    cc.recordAllocation({ centerId: center.id, category: "software", description: "SaaS", amountUsd: 20000, month: "2026-07", method: "direct" });
+    assert.equal(cc.listAllocations(center.id, "2026-06").length, 1);
+  });
+
+  it("listCenters filters by department", () => {
+    const bus = new EventBus();
+    const cc = new CostCenterManager(bus);
+    cc.createCenter({ name: "Eng A", department: "R&D", ownerId: "cto-1", annualBudgetUsd: 1000000 });
+    cc.createCenter({ name: "Sales B", department: "GTM", ownerId: "cro-1", annualBudgetUsd: 500000 });
+    assert.equal(cc.listCenters("R&D").length, 1);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const cc = new CostCenterManager(bus);
+    const c1 = cc.createCenter({ name: "Eng", department: "R&D", ownerId: "cto", annualBudgetUsd: 1000000 });
+    const c2 = cc.createCenter({ name: "Mkt", department: "GTM", ownerId: "cmo", annualBudgetUsd: 200000 });
+    cc.recordAllocation({ centerId: c1.id, category: "payroll", description: "", amountUsd: 800000, month: "2026", method: "direct" });
+    cc.recordAllocation({ centerId: c2.id, category: "marketing", description: "", amountUsd: 250000, month: "2026", method: "direct" });
+    const s = cc.summary();
+    assert.equal(s.totalCenters, 2);
+    assert.equal(s.overBudgetCenters, 1); // only marketing is over
+    assert.equal(s.totalActualUsd, 1050000);
+  });
+});

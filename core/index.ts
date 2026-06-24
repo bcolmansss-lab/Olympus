@@ -85,6 +85,8 @@ import { MarketResearch } from "./market-research/market-research.js";
 import { PRManager } from "./pr-comms/pr-manager.js";
 import { SalesIntelligence } from "./sales-intel/sales-intel.js";
 import { ProductUsageTracker } from "./product-usage/product-usage.js";
+import { DataWarehouse } from "./data-warehouse/data-warehouse.js";
+import { CostCenterManager } from "./cost-center/cost-center.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -236,6 +238,10 @@ export class Olympus {
   readonly salesIntel: SalesIntelligence;
   /** Product usage tracker — feature adoption, DAU/MAU, power user detection, expansion signals. */
   readonly productUsage: ProductUsageTracker;
+  /** Data warehouse — table catalog, schema registry, pipeline monitoring, freshness alerts. */
+  readonly dataWarehouse: DataWarehouse;
+  /** Cost center manager — departmental budgets, allocations, variance analysis, chargebacks. */
+  readonly costCenter: CostCenterManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -313,6 +319,8 @@ export class Olympus {
     this.prComms = new PRManager(this.bus);
     this.salesIntel = new SalesIntelligence(this.bus);
     this.productUsage = new ProductUsageTracker(this.bus);
+    this.dataWarehouse = new DataWarehouse(this.bus);
+    this.costCenter = new CostCenterManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -397,3 +405,5 @@ export { MarketResearch, type StudyType, type WinLossOutcome as MRWinLossOutcome
 export { PRManager, type ReleaseStatus, type PRChannel, type CoverageSentiment, type CrisisSeverity, type PressRelease, type MediaCoverage, type CrisisRecord, type PRSummary } from "./pr-comms/index.js";
 export { SalesIntelligence, type SalesSignalType, type SalesActivityType, type BuyingSignal, type SalesActivity, type QuotaRecord, type SalesTerritory, type SalesIntelSummary } from "./sales-intel/index.js";
 export { ProductUsageTracker, type FeatureEvent, type FeatureAdoption as PUFeatureAdoption, type UserSession, type UsageSummary } from "./product-usage/index.js";
+export { DataWarehouse, type TableStatus, type ColumnType, type ColumnSchema, type DWTable, type DWPipeline, type DWSummary } from "./data-warehouse/index.js";
+export { CostCenterManager, type CostCategory, type AllocationMethod, type CostCenter, type CostAllocation, type CostVarianceReport, type CostSummary } from "./cost-center/index.js";
