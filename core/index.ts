@@ -95,6 +95,8 @@ import { TreasuryManager } from "./treasury/treasury-manager.js";
 import { LoyaltyProgram } from "./loyalty/loyalty-program.js";
 import { MATracker } from "./m-and-a/ma-tracker.js";
 import { APIGateway } from "./api-gateway/api-gateway.js";
+import { InternationalExpansion } from "./international/international-expansion.js";
+import { PricingOptimizer } from "./pricing-optimizer/pricing-optimizer.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -266,6 +268,10 @@ export class Olympus {
   readonly mAndA: MATracker;
   /** API gateway — endpoint catalog, rate limit tracking, SLA monitoring, deprecation management. */
   readonly apiGateway: APIGateway;
+  /** International expansion — market entry tracking, legal entities, compliance requirements. */
+  readonly international: InternationalExpansion;
+  /** Pricing optimizer — dynamic recommendations, elasticity models, discount management. */
+  readonly pricingOptimizer: PricingOptimizer;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -353,6 +359,8 @@ export class Olympus {
     this.loyalty = new LoyaltyProgram(this.bus);
     this.mAndA = new MATracker(this.bus);
     this.apiGateway = new APIGateway(this.bus);
+    this.international = new InternationalExpansion(this.bus);
+    this.pricingOptimizer = new PricingOptimizer(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -447,3 +455,5 @@ export { TreasuryManager, type AccountType as BankAccountType, type Currency, ty
 export { LoyaltyProgram, type LoyaltyTier, type LoyaltyMember, type PointsTransaction, type LoyaltyReward, type LoyaltySummary } from "./loyalty/index.js";
 export { MATracker, type DealType, type DealStatus, type DDItem, type ValuationModel, type MADeal, type MASummary } from "./m-and-a/index.js";
 export { APIGateway, type HttpMethod, type EndpointStatus, type AuthScheme, type APIEndpoint, type APIUsageRecord, type GatewayConsumer, type GatewaySummary } from "./api-gateway/index.js";
+export { InternationalExpansion, type MarketStatus, type EntityType, type ComplianceStatus, type ComplianceRequirement, type LegalEntity, type Market, type ExpansionSummary } from "./international/index.js";
+export { PricingOptimizer, type PricingStrategy, type DiscountType as PODiscountType, type PriceElasticityModel, type PricingRecommendation, type Discount as PODiscount, type PricingOptimizerSummary } from "./pricing-optimizer/index.js";

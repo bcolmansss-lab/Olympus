@@ -7785,3 +7785,132 @@ describe("APIGateway", () => {
     assert.equal(s.totalRequests, 50);
   });
 });
+
+// ── InternationalExpansion ────────────────────────────────────────────────────
+import { InternationalExpansion } from "../international/international-expansion.js";
+
+describe("InternationalExpansion", () => {
+  it("addMarket and enterMarket emits event", () => {
+    const bus = new EventBus();
+    const ie = new InternationalExpansion(bus);
+    const events: unknown[] = [];
+    bus.subscribe("intl.market_entered", (e) => { events.push(e.payload); });
+    const market = ie.addMarket({ country: "Germany", countryCode: "DE", region: "Europe", status: "planning", currency: "EUR", language: "de", gtmScore: 65, notes: "Strong manufacturing base" });
+    ie.enterMarket(market.id, "2026-09-01");
+    assert.equal(events.length, 1);
+    assert.equal(ie.getMarket(market.id)!.status, "active");
+  });
+
+  it("registerEntity emits event", () => {
+    const bus = new EventBus();
+    const ie = new InternationalExpansion(bus);
+    const events: unknown[] = [];
+    bus.subscribe("intl.entity_registered", (e) => { events.push(e.payload); });
+    const market = ie.addMarket({ country: "Japan", countryCode: "JP", region: "APAC", status: "entering", currency: "JPY", language: "ja", gtmScore: 70, notes: "" });
+    ie.registerEntity({ marketId: market.id, country: "JP", entityType: "subsidiary", registrationId: "JP-2026-001", name: "Helios Robotics KK", status: "active" });
+    assert.equal(events.length, 1);
+  });
+
+  it("addRequirement emits compliance_gap for non_compliant", () => {
+    const bus = new EventBus();
+    const ie = new InternationalExpansion(bus);
+    const events: unknown[] = [];
+    bus.subscribe("intl.compliance_gap", (e) => { events.push(e.payload); });
+    const market = ie.addMarket({ country: "Brazil", countryCode: "BR", region: "LATAM", status: "planning", currency: "BRL", language: "pt", gtmScore: 50, notes: "" });
+    ie.addRequirement({ marketId: market.id, category: "tax", title: "CNPJ Registration", status: "non_compliant", dueDate: "2026-10-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("updateRequirementStatus changes status", () => {
+    const bus = new EventBus();
+    const ie = new InternationalExpansion(bus);
+    const market = ie.addMarket({ country: "Canada", countryCode: "CA", region: "North America", status: "active", entryDate: "2025-01-01", currency: "CAD", language: "en", gtmScore: 85, notes: "" });
+    const req = ie.addRequirement({ marketId: market.id, category: "privacy", title: "PIPEDA Compliance", status: "in_progress" });
+    ie.updateRequirementStatus(req!.id, "compliant");
+    assert.equal(ie.listRequirements(market.id)[0]!.status, "compliant");
+  });
+
+  it("listMarkets filters by status", () => {
+    const bus = new EventBus();
+    const ie = new InternationalExpansion(bus);
+    ie.addMarket({ country: "UK", countryCode: "GB", region: "Europe", status: "active", currency: "GBP", language: "en", gtmScore: 90, notes: "" });
+    ie.addMarket({ country: "India", countryCode: "IN", region: "APAC", status: "evaluating", currency: "INR", language: "en", gtmScore: 55, notes: "" });
+    assert.equal(ie.listMarkets("active").length, 1);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const ie = new InternationalExpansion(bus);
+    const m1 = ie.addMarket({ country: "France", countryCode: "FR", region: "Europe", status: "active", currency: "EUR", language: "fr", gtmScore: 80, notes: "" });
+    ie.addMarket({ country: "Mexico", countryCode: "MX", region: "LATAM", status: "entering", currency: "MXN", language: "es", gtmScore: 60, notes: "" });
+    ie.addRequirement({ marketId: m1.id, category: "legal", title: "GDPR", status: "non_compliant" });
+    const s = ie.summary();
+    assert.equal(s.totalMarkets, 2);
+    assert.equal(s.activeMarkets, 1);
+    assert.equal(s.enteringMarkets, 1);
+    assert.equal(s.openComplianceGaps, 1);
+  });
+});
+
+// ── PricingOptimizer ──────────────────────────────────────────────────────────
+import { PricingOptimizer } from "../pricing-optimizer/pricing-optimizer.js";
+
+describe("PricingOptimizer", () => {
+  it("generateRecommendation emits event", () => {
+    const bus = new EventBus();
+    const po = new PricingOptimizer(bus);
+    const events: unknown[] = [];
+    bus.subscribe("pricing.recommendation_generated", (e) => { events.push(e.payload); });
+    po.generateRecommendation({ sku: "robot-arm-pro", strategy: "value_based", currentPriceUsd: 50000, recommendedPriceUsd: 55000, minPriceUsd: 45000, maxPriceUsd: 60000, expectedRevenueDeltaPct: 8.5, confidence: 82, rationale: "Market benchmark analysis" });
+    assert.equal(events.length, 1);
+  });
+
+  it("applyRecommendation marks applied", () => {
+    const bus = new EventBus();
+    const po = new PricingOptimizer(bus);
+    const rec = po.generateRecommendation({ sku: "sku-1", strategy: "competitive", currentPriceUsd: 100, recommendedPriceUsd: 95, minPriceUsd: 85, maxPriceUsd: 110, expectedRevenueDeltaPct: 3, confidence: 75, rationale: "Match competitor" });
+    po.applyRecommendation(rec.id);
+    assert.equal(po.getRecommendation(rec.id)!.applied, true);
+    assert.equal(po.listRecommendations(false).length, 0);
+  });
+
+  it("updateElasticity emits event", () => {
+    const bus = new EventBus();
+    const po = new PricingOptimizer(bus);
+    const events: unknown[] = [];
+    bus.subscribe("pricing.elasticity_updated", (e) => { events.push(e.payload); });
+    po.updateElasticity("sku-2", -1.5, 1200, 0.87);
+    assert.equal(events.length, 1);
+    assert.equal(po.getElasticityModel("sku-2")!.elasticity, -1.5);
+  });
+
+  it("createDiscount and approveDiscount emits event", () => {
+    const bus = new EventBus();
+    const po = new PricingOptimizer(bus);
+    const events: unknown[] = [];
+    bus.subscribe("pricing.discount_approved", (e) => { events.push(e.payload); });
+    const d = po.createDiscount({ sku: "sku-3", type: "percentage", value: 15, validFrom: "2026-07-01", validUntil: "2026-07-31", approved: false });
+    po.approveDiscount(d.id, "cmo-1");
+    assert.equal(events.length, 1);
+  });
+
+  it("useDiscount tracks usage and respects max", () => {
+    const bus = new EventBus();
+    const po = new PricingOptimizer(bus);
+    const d = po.createDiscount({ code: "SAVE10", type: "percentage", value: 10, maxUsages: 2, validFrom: "2026-01-01", validUntil: "2026-12-31", approved: true });
+    assert.equal(po.useDiscount(d.id), true);
+    assert.equal(po.useDiscount(d.id), true);
+    assert.equal(po.useDiscount(d.id), false); // exceeded max
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const po = new PricingOptimizer(bus);
+    po.generateRecommendation({ sku: "s1", strategy: "skimming", currentPriceUsd: 200, recommendedPriceUsd: 220, minPriceUsd: 180, maxPriceUsd: 250, expectedRevenueDeltaPct: 12, confidence: 90, rationale: "High WTP segment" });
+    po.generateRecommendation({ sku: "s2", strategy: "penetration", currentPriceUsd: 100, recommendedPriceUsd: 85, minPriceUsd: 75, maxPriceUsd: 100, expectedRevenueDeltaPct: 5, confidence: 70, rationale: "Grow share" });
+    const s = po.summary();
+    assert.equal(s.totalRecommendations, 2);
+    assert.equal(s.applied, 0);
+    assert.equal(s.avgConfidence, 80);
+  });
+});
