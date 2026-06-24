@@ -7857,6 +7857,7 @@ import { PricingOptimizer } from "../pricing-optimizer/pricing-optimizer.js";
 import { TalentIntelligence } from "../talent-intel/talent-intelligence.js";
 import { ProductCatalog } from "../product-catalog/product-catalog.js";
 import { FacilitiesManager } from "../facilities/facilities-manager.js";
+import { ContractManager as NewContractManager } from "../contracts/contract-manager.js";
 
 describe("PricingOptimizer", () => {
   it("generateRecommendation emits event", () => {
@@ -8114,3 +8115,61 @@ describe("FacilitiesManager", () => {
   });
 });
 
+describe("ContractManager (new)", () => {
+  it("createContract stores contract", () => {
+    const bus = new EventBus();
+    const cm = new NewContractManager(bus);
+    const c = cm.createContract({ title: "SaaS Agreement", type: "vendor", status: "draft", counterparty: "Acme Corp", valueUsd: 120000, startDate: "2026-01-01", endDate: "2027-01-01", autoRenew: true, tags: [] });
+    assert.ok(c.id);
+    assert.equal(cm.getContract(c.id)?.title, "SaaS Agreement");
+  });
+
+  it("signContract sets status active and emits event", () => {
+    const bus = new EventBus();
+    const cm = new NewContractManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("contracts.contract_signed", (e) => { events.push(e.payload); });
+    const c = cm.createContract({ title: "NDA", type: "nda", status: "pending_signature", counterparty: "Partner", valueUsd: 0, startDate: "2026-01-01", endDate: "2028-01-01", autoRenew: false, tags: [] });
+    cm.signContract(c.id);
+    assert.equal(cm.getContract(c.id)!.status, "active");
+    assert.equal(events.length, 1);
+  });
+
+  it("addObligation links to contract", () => {
+    const bus = new EventBus();
+    const cm = new NewContractManager(bus);
+    const c = cm.createContract({ title: "MSA", type: "customer", status: "active", counterparty: "Client", valueUsd: 500000, startDate: "2026-01-01", endDate: "2027-01-01", autoRenew: true, tags: [] });
+    const ob = cm.addObligation({ contractId: c.id, description: "Deliver Q1 report", dueDate: "2026-04-01", status: "pending", owner: "pm1" });
+    assert.ok(ob!.id);
+    assert.equal(cm.getContract(c.id)!.obligations.length, 1);
+  });
+
+  it("completeObligation updates status", () => {
+    const bus = new EventBus();
+    const cm = new NewContractManager(bus);
+    const c = cm.createContract({ title: "MSA2", type: "service", status: "active", counterparty: "Vendor", valueUsd: 50000, startDate: "2026-01-01", endDate: "2027-01-01", autoRenew: false, tags: [] });
+    const ob = cm.addObligation({ contractId: c.id, description: "Onboarding", dueDate: "2026-09-01", status: "pending", owner: "ops" });
+    cm.completeObligation(ob!.id);
+    assert.equal(cm.listObligations(c.id)[0]!.status, "completed");
+  });
+
+  it("listContracts filters by status and type", () => {
+    const bus = new EventBus();
+    const cm = new NewContractManager(bus);
+    cm.createContract({ title: "C1", type: "vendor", status: "active", counterparty: "V1", valueUsd: 10000, startDate: "2026-01-01", endDate: "2027-01-01", autoRenew: false, tags: [] });
+    cm.createContract({ title: "C2", type: "nda", status: "draft", counterparty: "P1", valueUsd: 0, startDate: "2026-01-01", endDate: "2027-01-01", autoRenew: false, tags: [] });
+    assert.equal(cm.listContracts("active").length, 1);
+    assert.equal(cm.listContracts(undefined, "nda").length, 1);
+    assert.equal(cm.listContracts().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const cm = new NewContractManager(bus);
+    cm.createContract({ title: "C1", type: "vendor", status: "active", counterparty: "V1", valueUsd: 100000, startDate: "2026-01-01", endDate: "2029-01-01", autoRenew: true, tags: [] });
+    const s = cm.summary();
+    assert.equal(s.totalContracts, 1);
+    assert.equal(s.activeContracts, 1);
+    assert.equal(s.totalValueUsd, 100000);
+  });
+});

@@ -100,6 +100,7 @@ import { PricingOptimizer } from "./pricing-optimizer/pricing-optimizer.js";
 import { TalentIntelligence } from "./talent-intel/talent-intelligence.js";
 import { ProductCatalog } from "./product-catalog/product-catalog.js";
 import { FacilitiesManager } from "./facilities/facilities-manager.js";
+import { ContractManager as NewContractManager } from "./contracts/contract-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -281,6 +282,8 @@ export class Olympus {
   readonly productCatalog: ProductCatalog;
   /** Facilities manager — office space, lease management, maintenance, room bookings. */
   readonly facilities: FacilitiesManager;
+  /** Contract manager — contract lifecycle, obligations, renewal alerts, spend analytics. */
+  readonly contracts: NewContractManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -373,6 +376,7 @@ export class Olympus {
     this.talentIntel = new TalentIntelligence(this.bus);
     this.productCatalog = new ProductCatalog(this.bus);
     this.facilities = new FacilitiesManager(this.bus);
+    this.contracts = new NewContractManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
