@@ -91,6 +91,8 @@ import { GrantManager } from "./grants/grant-manager.js";
 import { ESGTracker } from "./esg/esg-tracker.js";
 import { InsuranceManager } from "./insurance/insurance-manager.js";
 import { WorkforceScheduler } from "./workforce-scheduler/workforce-scheduler.js";
+import { TreasuryManager } from "./treasury/treasury-manager.js";
+import { LoyaltyProgram } from "./loyalty/loyalty-program.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -254,6 +256,10 @@ export class Olympus {
   readonly insurance: InsuranceManager;
   /** Workforce scheduler — shift scheduling, availability, overtime detection, labor cost forecasting. */
   readonly workforceScheduler: WorkforceScheduler;
+  /** Treasury manager — bank accounts, cash transfers, FX exposure, liquidity monitoring. */
+  readonly treasury: TreasuryManager;
+  /** Loyalty program — points earning, tier upgrades, reward redemption, referral tracking. */
+  readonly loyalty: LoyaltyProgram;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -337,6 +343,8 @@ export class Olympus {
     this.esg = new ESGTracker(this.bus);
     this.insurance = new InsuranceManager(this.bus);
     this.workforceScheduler = new WorkforceScheduler(this.bus);
+    this.treasury = new TreasuryManager(this.bus);
+    this.loyalty = new LoyaltyProgram(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -427,3 +435,5 @@ export { GrantManager, type GrantStatus, type GrantType, type GrantMilestone, ty
 export { ESGTracker, type ESGCategory, type MetricFrequency, type ESGMetric, type ESGDataPoint, type ESGReport, type ESGSummary } from "./esg/index.js";
 export { InsuranceManager, type InsuranceType, type PolicyStatus, type ClaimStatus, type InsurancePolicy, type InsuranceClaim, type InsuranceSummary } from "./insurance/index.js";
 export { WorkforceScheduler, type ShiftStatus, type DayOfWeek, type ShiftTemplate, type Shift, type EmployeeAvailability, type ScheduleSummary } from "./workforce-scheduler/index.js";
+export { TreasuryManager, type AccountType as BankAccountType, type Currency, type BankAccount, type CashTransfer, type FXPosition, type TreasurySummary } from "./treasury/index.js";
+export { LoyaltyProgram, type LoyaltyTier, type LoyaltyMember, type PointsTransaction, type LoyaltyReward, type LoyaltySummary } from "./loyalty/index.js";

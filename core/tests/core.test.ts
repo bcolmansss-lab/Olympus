@@ -7521,3 +7521,140 @@ describe("WorkforceScheduler", () => {
     assert.equal(s.confirmedShifts, 2);
   });
 });
+
+// ── TreasuryManager ───────────────────────────────────────────────────────────
+import { TreasuryManager } from "../treasury/treasury-manager.js";
+
+describe("TreasuryManager", () => {
+  it("addAccount emits low_balance_alert when below threshold", () => {
+    const bus = new EventBus();
+    const tm = new TreasuryManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("treasury.low_balance_alert", (e) => { events.push(e.payload); });
+    tm.addAccount({ name: "Operating Account", bank: "Chase", accountType: "operating", currency: "USD", balanceUsd: 50000, lowBalanceThresholdUsd: 100000 });
+    assert.equal(events.length, 1);
+  });
+
+  it("executeTransfer updates balances and emits event", () => {
+    const bus = new EventBus();
+    const tm = new TreasuryManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("treasury.transfer_executed", (e) => { events.push(e.payload); });
+    const op = tm.addAccount({ name: "Ops", bank: "JPM", accountType: "operating", currency: "USD", balanceUsd: 5000000, lowBalanceThresholdUsd: 500000 });
+    const payroll = tm.addAccount({ name: "Payroll", bank: "JPM", accountType: "payroll", currency: "USD", balanceUsd: 100000, lowBalanceThresholdUsd: 50000 });
+    tm.executeTransfer({ fromAccountId: op.id, toAccountId: payroll.id, amountUsd: 500000, currency: "USD", purpose: "June payroll funding", approvedBy: "cfo-1" });
+    assert.equal(events.length, 1);
+    assert.equal(tm.getAccount(op.id)!.balanceUsd, 4500000);
+    assert.equal(tm.getAccount(payroll.id)!.balanceUsd, 600000);
+  });
+
+  it("updateBalance emits low_balance_alert", () => {
+    const bus = new EventBus();
+    const tm = new TreasuryManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("treasury.low_balance_alert", (e) => { events.push(e.payload); });
+    const acc = tm.addAccount({ name: "Reserve", bank: "BofA", accountType: "reserve", currency: "USD", balanceUsd: 2000000, lowBalanceThresholdUsd: 1000000 });
+    tm.updateBalance(acc.id, 800000);
+    assert.equal(events.length, 1);
+  });
+
+  it("setFXPosition emits alert when over threshold", () => {
+    const bus = new EventBus();
+    const tm = new TreasuryManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("treasury.fx_exposure_alert", (e) => { events.push(e.payload); });
+    tm.setFXPosition({ currency: "EUR", exposureUsd: 3000000, direction: "long", hedged: false, alertThresholdUsd: 2000000 });
+    assert.equal(events.length, 1);
+  });
+
+  it("listAccounts filters by type", () => {
+    const bus = new EventBus();
+    const tm = new TreasuryManager(bus);
+    tm.addAccount({ name: "Ops", bank: "Chase", accountType: "operating", currency: "USD", balanceUsd: 1000000, lowBalanceThresholdUsd: 200000 });
+    tm.addAccount({ name: "Tax", bank: "Chase", accountType: "tax", currency: "USD", balanceUsd: 500000, lowBalanceThresholdUsd: 100000 });
+    assert.equal(tm.listAccounts("operating").length, 1);
+    assert.equal(tm.listAccounts("tax").length, 1);
+  });
+
+  it("summary returns correct totals", () => {
+    const bus = new EventBus();
+    const tm = new TreasuryManager(bus);
+    tm.addAccount({ name: "Ops", bank: "Chase", accountType: "operating", currency: "USD", balanceUsd: 2000000, lowBalanceThresholdUsd: 500000 });
+    tm.addAccount({ name: "Reserve", bank: "BofA", accountType: "reserve", currency: "USD", balanceUsd: 5000000, lowBalanceThresholdUsd: 1000000 });
+    const s = tm.summary();
+    assert.equal(s.totalCashUsd, 7000000);
+    assert.equal(s.operatingCashUsd, 2000000);
+    assert.equal(s.reserveCashUsd, 5000000);
+  });
+});
+
+// ── LoyaltyProgram ────────────────────────────────────────────────────────────
+import { LoyaltyProgram } from "../loyalty/loyalty-program.js";
+
+describe("LoyaltyProgram", () => {
+  it("enroll creates bronze member", () => {
+    const bus = new EventBus();
+    const lp = new LoyaltyProgram(bus);
+    const member = lp.enroll("cust-1");
+    assert.equal(member.tier, "bronze");
+    assert.equal(member.points, 0);
+  });
+
+  it("earnPoints emits event and updates balance", () => {
+    const bus = new EventBus();
+    const lp = new LoyaltyProgram(bus);
+    const events: unknown[] = [];
+    bus.subscribe("loyalty.points_earned", (e) => { events.push(e.payload); });
+    lp.enroll("cust-2");
+    lp.earnPoints("cust-2", 500, "purchase");
+    assert.equal(events.length, 1);
+    assert.equal(lp.getMember("cust-2")!.points, 500);
+  });
+
+  it("tier_upgraded event fires when crossing threshold", () => {
+    const bus = new EventBus();
+    const lp = new LoyaltyProgram(bus);
+    const events: unknown[] = [];
+    bus.subscribe("loyalty.tier_upgraded", (e) => { events.push(e.payload); });
+    lp.enroll("cust-3");
+    lp.earnPoints("cust-3", 1000, "purchase"); // crosses silver threshold
+    assert.equal(events.length, 1);
+    assert.equal(lp.getMember("cust-3")!.tier, "silver");
+  });
+
+  it("redeemReward deducts points and emits event", () => {
+    const bus = new EventBus();
+    const lp = new LoyaltyProgram(bus);
+    const events: unknown[] = [];
+    bus.subscribe("loyalty.reward_redeemed", (e) => { events.push(e.payload); });
+    lp.enroll("cust-4");
+    lp.earnPoints("cust-4", 2000, "purchase");
+    const reward = lp.addReward({ name: "Free Shipping", description: "One free delivery", pointsCost: 500, valueUsd: 25, category: "shipping", active: true });
+    lp.redeemReward("cust-4", reward.id);
+    assert.equal(events.length, 1);
+    assert.equal(lp.getMember("cust-4")!.points, 1500);
+  });
+
+  it("redeemReward returns undefined when insufficient points", () => {
+    const bus = new EventBus();
+    const lp = new LoyaltyProgram(bus);
+    lp.enroll("cust-5");
+    lp.earnPoints("cust-5", 100, "trial");
+    const reward = lp.addReward({ name: "Premium Gift", description: "Gift basket", pointsCost: 5000, valueUsd: 200, category: "gift", active: true });
+    const result = lp.redeemReward("cust-5", reward.id);
+    assert.equal(result, undefined);
+  });
+
+  it("summary returns correct tier breakdown", () => {
+    const bus = new EventBus();
+    const lp = new LoyaltyProgram(bus);
+    lp.enroll("c1"); lp.earnPoints("c1", 5000, "p"); // gold
+    lp.enroll("c2"); lp.earnPoints("c2", 1000, "p"); // silver
+    lp.enroll("c3"); // bronze
+    const s = lp.summary();
+    assert.equal(s.totalMembers, 3);
+    assert.equal(s.byTier.bronze, 1);
+    assert.equal(s.byTier.silver, 1);
+    assert.equal(s.byTier.gold, 1);
+  });
+});
