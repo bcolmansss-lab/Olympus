@@ -81,6 +81,8 @@ import { RoadmapManager } from "./roadmap/roadmap-manager.js";
 import { CustomerJourneyAnalytics } from "./journey/customer-journey.js";
 import { LegalCaseManager } from "./legal/legal-case-manager.js";
 import { QualityManager } from "./quality/quality-manager.js";
+import { MarketResearch } from "./market-research/market-research.js";
+import { PRManager } from "./pr-comms/pr-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -224,6 +226,10 @@ export class Olympus {
   readonly legal: LegalCaseManager;
   /** Quality manager — defect tracking, audits, corrective actions, QA metrics. */
   readonly quality: QualityManager;
+  /** Market research — TAM/SAM/SOM studies, win/loss tracking, competitor profiling. */
+  readonly marketResearch: MarketResearch;
+  /** PR & communications — press releases, media coverage, crisis management. */
+  readonly prComms: PRManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -297,6 +303,8 @@ export class Olympus {
     this.journey = new CustomerJourneyAnalytics(this.bus);
     this.legal = new LegalCaseManager(this.bus);
     this.quality = new QualityManager(this.bus);
+    this.marketResearch = new MarketResearch(this.bus);
+    this.prComms = new PRManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -377,3 +385,5 @@ export { RoadmapManager, type RoadmapItemStatus, type RoadmapItemType, type Road
 export { CustomerJourneyAnalytics, type JourneyStage, type TouchpointChannel, type Touchpoint, type CustomerJourney, type FunnelAnalysis, type JourneySummary } from "./journey/index.js";
 export { LegalCaseManager, type LegalCaseType, type LegalCaseStatus, type CasePriority, type LegalDeadline, type LegalCase, type LegalSummary } from "./legal/index.js";
 export { QualityManager, type DefectSeverity, type DefectStatus, type AuditType, type Defect, type QualityAudit, type QualitySummary } from "./quality/index.js";
+export { MarketResearch, type StudyType, type WinLossOutcome as MRWinLossOutcome, type MarketStudy, type WinLossRecord as MRWinLossRecord, type CompetitorProfile, type MarketResearchSummary } from "./market-research/index.js";
+export { PRManager, type ReleaseStatus, type PRChannel, type CoverageSentiment, type CrisisSeverity, type PressRelease, type MediaCoverage, type CrisisRecord, type PRSummary } from "./pr-comms/index.js";

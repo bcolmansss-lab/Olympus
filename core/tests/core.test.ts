@@ -6875,3 +6875,127 @@ describe("QualityManager", () => {
     assert.equal(s.openDefects, 2);
   });
 });
+
+// ── MarketResearch ───────────────────────────────────────���────────────────────
+import { MarketResearch } from "../market-research/market-research.js";
+
+describe("MarketResearch", () => {
+  it("createStudy and publishStudy emits event", () => {
+    const bus = new EventBus();
+    const mr = new MarketResearch(bus);
+    const events: unknown[] = [];
+    bus.subscribe("market.study_published", (e) => { events.push(e.payload); });
+    const s = mr.createStudy({ title: "Industrial Robotics TAM 2026", type: "tam_sam_som", status: "draft", summary: "Global robotics market", tamUsd: 50_000_000_000, samUsd: 5_000_000_000, somUsd: 500_000_000, confidence: 75, tags: ["robotics"] });
+    mr.publishStudy(s.id);
+    assert.equal(events.length, 1);
+    assert.equal(mr.getStudy(s.id)!.status, "published");
+  });
+
+  it("recordWinLoss emits event", () => {
+    const bus = new EventBus();
+    const mr = new MarketResearch(bus);
+    const events: unknown[] = [];
+    bus.subscribe("market.win_loss_recorded", (e) => { events.push(e.payload); });
+    mr.recordWinLoss({ dealId: "deal-1", outcome: "won", competitor: "RoboTech", reason: "better integration", dealValueUsd: 250000, segment: "manufacturing" });
+    assert.equal(events.length, 1);
+  });
+
+  it("listWinLoss filters by outcome", () => {
+    const bus = new EventBus();
+    const mr = new MarketResearch(bus);
+    mr.recordWinLoss({ dealId: "d1", outcome: "won", reason: "price", dealValueUsd: 100000, segment: "auto" });
+    mr.recordWinLoss({ dealId: "d2", outcome: "lost", competitor: "Rival", reason: "features", dealValueUsd: 200000, segment: "auto" });
+    assert.equal(mr.listWinLoss("won").length, 1);
+    assert.equal(mr.listWinLoss("lost").length, 1);
+  });
+
+  it("upsertCompetitor creates and lists profile", () => {
+    const bus = new EventBus();
+    const mr = new MarketResearch(bus);
+    mr.upsertCompetitor({ name: "RoboTech", category: "industrial", strengths: ["brand", "support"], weaknesses: ["price"], winRateAgainstUs: 35 });
+    assert.equal(mr.listCompetitors().length, 1);
+  });
+
+  it("summary computes win rate correctly", () => {
+    const bus = new EventBus();
+    const mr = new MarketResearch(bus);
+    mr.recordWinLoss({ dealId: "d1", outcome: "won", reason: "price", dealValueUsd: 100000, segment: "x" });
+    mr.recordWinLoss({ dealId: "d2", outcome: "won", reason: "features", dealValueUsd: 150000, segment: "x" });
+    mr.recordWinLoss({ dealId: "d3", outcome: "lost", reason: "timing", dealValueUsd: 50000, segment: "x" });
+    const s = mr.summary();
+    assert.equal(s.winRate, 67);
+  });
+
+  it("listStudies filters by status", () => {
+    const bus = new EventBus();
+    const mr = new MarketResearch(bus);
+    const st = mr.createStudy({ title: "Trend Report", type: "trend", status: "draft", summary: "...", confidence: 80, tags: [] });
+    mr.publishStudy(st.id);
+    mr.createStudy({ title: "Survey 2026", type: "survey", status: "draft", summary: "...", confidence: 60, tags: [] });
+    assert.equal(mr.listStudies("published").length, 1);
+    assert.equal(mr.listStudies("draft").length, 1);
+  });
+});
+
+// ── PRManager ─────────────────────────────────────────────────────────────────
+import { PRManager } from "../pr-comms/pr-manager.js";
+
+describe("PRManager", () => {
+  it("createRelease and publishRelease emits event", () => {
+    const bus = new EventBus();
+    const pr = new PRManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("pr.release_published", (e) => { events.push(e.payload); });
+    const r = pr.createRelease({ title: "Helios Robotics Raises Series B", content: "...", status: "approved", channel: "wire", authorId: "comms-1", tags: ["funding"] });
+    pr.publishRelease(r.id);
+    assert.equal(events.length, 1);
+    assert.equal(pr.getRelease(r.id)!.status, "published");
+  });
+
+  it("publishRelease returns undefined if not approved", () => {
+    const bus = new EventBus();
+    const pr = new PRManager(bus);
+    const r = pr.createRelease({ title: "Draft Release", content: "...", status: "draft", channel: "blog", authorId: "comms-1", tags: [] });
+    const result = pr.publishRelease(r.id);
+    assert.equal(result, undefined);
+  });
+
+  it("recordCoverage emits event", () => {
+    const bus = new EventBus();
+    const pr = new PRManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("pr.coverage_recorded", (e) => { events.push(e.payload); });
+    pr.recordCoverage({ outlet: "TechCrunch", headline: "Helios Secures $50M", sentiment: "positive", reachEstimate: 2500000, publishedAt: new Date().toISOString() });
+    assert.equal(events.length, 1);
+  });
+
+  it("openCrisis escalates critical and high severity", () => {
+    const bus = new EventBus();
+    const pr = new PRManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("pr.crisis_escalated", (e) => { events.push(e.payload); });
+    pr.openCrisis({ title: "Data Breach Report", summary: "False media report", severity: "critical", status: "active" });
+    assert.equal(events.length, 1);
+  });
+
+  it("addResponseAction and resolveCrisis", () => {
+    const bus = new EventBus();
+    const pr = new PRManager(bus);
+    const c = pr.openCrisis({ title: "Supply Delay", summary: "Parts delayed", severity: "medium", status: "monitoring" });
+    pr.addResponseAction(c.id, "Issued public statement");
+    pr.resolveCrisis(c.id);
+    assert.equal(pr.listCrises()[0]!.status, "resolved");
+    assert.equal(pr.listCrises()[0]!.responseActions.length, 1);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const pr = new PRManager(bus);
+    pr.recordCoverage({ outlet: "Forbes", headline: "Great Product", sentiment: "positive", reachEstimate: 1000000, publishedAt: new Date().toISOString() });
+    pr.recordCoverage({ outlet: "TechBlast", headline: "Concerns raised", sentiment: "negative", reachEstimate: 200000, publishedAt: new Date().toISOString() });
+    const s = pr.summary();
+    assert.equal(s.positiveCoverage, 1);
+    assert.equal(s.negativeCoverage, 1);
+    assert.equal(s.totalReach, 1200000);
+  });
+});
