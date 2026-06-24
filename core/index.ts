@@ -53,6 +53,7 @@ import { CommunicationHub } from "./communication/communication-hub.js";
 import { PricingEngine } from "./pricing/pricing-engine.js";
 import { AssetManager } from "./assets/asset-manager.js";
 import { ExpenseManager } from "./expenses/expense-manager.js";
+import { ApplicantTracker } from "./recruitment/ats.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -140,6 +141,8 @@ export class Olympus {
   readonly assets: AssetManager;
   /** Expense manager — employee expense submissions, approval workflows, policy enforcement, and reimbursement tracking. */
   readonly expenses: ExpenseManager;
+  /** Applicant tracker — job requisitions, candidate pipeline, interview scheduling, offer management. */
+  readonly recruitment: ApplicantTracker;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -185,6 +188,7 @@ export class Olympus {
     this.pricing = new PricingEngine(this.bus);
     this.assets = new AssetManager(this.bus);
     this.expenses = new ExpenseManager(this.bus);
+    this.recruitment = new ApplicantTracker(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -237,3 +241,4 @@ export { CommunicationHub, type CommChannel, type EngagementType, type SequenceS
 export { PricingEngine, type BillingModel, type DiscountType, type QuoteStatus, type PricingTier, type Product as PricingProduct, type Discount as PricingDiscount, type QuoteLineItem, type Quote as PricingQuote, type PricingSummary } from "./pricing/index.js";
 export { AssetManager, type AssetType, type AssetStatus, type DepreciationMethod, type Asset, type DepreciationRecord, type AssetSummary } from "./assets/index.js";
 export { ExpenseManager, type ExpenseCategory, type ExpenseStatus, type Expense, type ExpensePolicy, type ExpenseSummary } from "./expenses/index.js";
+export { ApplicantTracker, type CandidateStage, type JobStatus, type InterviewType, type JobRequisition, type Candidate as JobCandidate, type Scorecard, type RecruitmentMetrics } from "./recruitment/index.js";

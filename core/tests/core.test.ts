@@ -4405,3 +4405,185 @@ describe("ExpenseManager", () => {
     assert.equal(s.pendingReimbursementUsd, 40);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ApplicantTracker
+// ---------------------------------------------------------------------------
+
+import { ApplicantTracker } from "../recruitment/ats.js";
+
+describe("ApplicantTracker", () => {
+  it("openRequisition stores job", () => {
+    const bus = new EventBus();
+    const ats = new ApplicantTracker(bus);
+    const req = ats.openRequisition({
+      title: "Senior Engineer",
+      department: "engineering",
+      level: "L5",
+      status: "open",
+      headcount: 2,
+      salaryMinUsd: 180_000,
+      salaryMaxUsd: 230_000,
+      requiredSkills: ["TypeScript"],
+      hiringManagerId: "mgr-1",
+    });
+    assert.ok(req.id);
+    assert.equal(req.title, "Senior Engineer");
+    assert.equal(req.filledCount, 0);
+    assert.ok(req.openedAt);
+    assert.deepEqual(ats.getRequisition(req.id), req);
+  });
+
+  it("addCandidate stores candidate", () => {
+    const bus = new EventBus();
+    const ats = new ApplicantTracker(bus);
+    const req = ats.openRequisition({
+      title: "PM",
+      department: "product",
+      level: "Senior",
+      status: "open",
+      headcount: 1,
+      salaryMinUsd: 150_000,
+      salaryMaxUsd: 190_000,
+      requiredSkills: ["Product strategy"],
+      hiringManagerId: "vp-1",
+    });
+    const candidate = ats.addCandidate({
+      jobId: req.id,
+      name: "Alice Doe",
+      email: "alice@example.com",
+      stage: "applied",
+      source: "linkedin",
+    });
+    assert.ok(candidate.id);
+    assert.equal(candidate.name, "Alice Doe");
+    assert.equal(candidate.stage, "applied");
+    assert.deepEqual(candidate.scorecards, []);
+    assert.deepEqual(ats.get(candidate.id), candidate);
+  });
+
+  it("advanceStage emits recruitment.candidate_advanced", () => {
+    const bus = new EventBus();
+    const ats = new ApplicantTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("recruitment.candidate_advanced", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    const req = ats.openRequisition({
+      title: "Engineer",
+      department: "eng",
+      level: "L4",
+      status: "open",
+      headcount: 1,
+      salaryMinUsd: 150_000,
+      salaryMaxUsd: 200_000,
+      requiredSkills: ["Node.js"],
+      hiringManagerId: "mgr-1",
+    });
+    const c = ats.addCandidate({
+      jobId: req.id,
+      name: "Bob Smith",
+      email: "bob@example.com",
+      stage: "applied",
+      source: "referral",
+    });
+    ats.advanceStage(c.id, "screening");
+    assert.equal(events.length, 1);
+    const ev = events[0] as { candidateId: string; from: string; to: string };
+    assert.equal(ev.candidateId, c.id);
+    assert.equal(ev.from, "applied");
+    assert.equal(ev.to, "screening");
+    assert.equal(ats.get(c.id)!.stage, "screening");
+  });
+
+  it("extendOffer emits recruitment.offer_extended and sets offer fields", () => {
+    const bus = new EventBus();
+    const ats = new ApplicantTracker(bus);
+    const offerEvents: unknown[] = [];
+    bus.subscribe("recruitment.offer_extended", (ev) => { offerEvents.push((ev as { payload: unknown }).payload); });
+    const req = ats.openRequisition({
+      title: "Designer",
+      department: "design",
+      level: "Mid",
+      status: "open",
+      headcount: 1,
+      salaryMinUsd: 120_000,
+      salaryMaxUsd: 160_000,
+      requiredSkills: ["Figma"],
+      hiringManagerId: "mgr-2",
+    });
+    const c = ats.addCandidate({
+      jobId: req.id,
+      name: "Carol White",
+      email: "carol@example.com",
+      stage: "onsite",
+      source: "job_board",
+    });
+    ats.extendOffer(c.id, 145_000, 0.1);
+    assert.equal(offerEvents.length, 1);
+    const ev = offerEvents[0] as { offerUsd: number; equity: number };
+    assert.equal(ev.offerUsd, 145_000);
+    assert.equal(ev.equity, 0.1);
+    const updated = ats.get(c.id)!;
+    assert.equal(updated.stage, "offer");
+    assert.equal(updated.offerSalaryUsd, 145_000);
+    assert.equal(updated.offerEquityPct, 0.1);
+  });
+
+  it("hire emits recruitment.hired and increments filledCount", () => {
+    const bus = new EventBus();
+    const ats = new ApplicantTracker(bus);
+    const hireEvents: unknown[] = [];
+    bus.subscribe("recruitment.hired", (ev) => { hireEvents.push((ev as { payload: unknown }).payload); });
+    const req = ats.openRequisition({
+      title: "Analyst",
+      department: "finance",
+      level: "Junior",
+      status: "open",
+      headcount: 1,
+      salaryMinUsd: 90_000,
+      salaryMaxUsd: 120_000,
+      requiredSkills: ["Excel"],
+      hiringManagerId: "cfo-1",
+    });
+    const c = ats.addCandidate({
+      jobId: req.id,
+      name: "Dan Lee",
+      email: "dan@example.com",
+      stage: "offer",
+      source: "inbound",
+    });
+    c.offerSalaryUsd = 105_000;
+    ats.hire(c.id, "2026-08-01");
+    assert.equal(hireEvents.length, 1);
+    const ev = hireEvents[0] as { startDate: string };
+    assert.equal(ev.startDate, "2026-08-01");
+    assert.equal(ats.get(c.id)!.stage, "hired");
+    assert.equal(ats.getRequisition(req.id)!.filledCount, 1);
+    assert.equal(ats.getRequisition(req.id)!.status, "filled");
+  });
+
+  it("metrics returns pipeline breakdown", () => {
+    const bus = new EventBus();
+    const ats = new ApplicantTracker(bus);
+    const req = ats.openRequisition({
+      title: "QA Engineer",
+      department: "qa",
+      level: "Mid",
+      status: "open",
+      headcount: 2,
+      salaryMinUsd: 100_000,
+      salaryMaxUsd: 140_000,
+      requiredSkills: ["Testing"],
+      hiringManagerId: "qa-mgr-1",
+    });
+    ats.addCandidate({ jobId: req.id, name: "E1", email: "e1@example.com", stage: "applied", source: "linkedin" });
+    ats.addCandidate({ jobId: req.id, name: "E2", email: "e2@example.com", stage: "screening", source: "referral" });
+    ats.addCandidate({ jobId: req.id, name: "E3", email: "e3@example.com", stage: "applied", source: "linkedin" });
+    const m = ats.metrics();
+    assert.equal(m.openRequisitions, 1);
+    assert.equal(m.totalCandidates, 3);
+    assert.equal(m.pipelineByStage["applied"], 2);
+    assert.equal(m.pipelineByStage["screening"], 1);
+    assert.equal(m.sourceBreakdown["linkedin"], 2);
+    assert.equal(m.sourceBreakdown["referral"], 1);
+  });
+});

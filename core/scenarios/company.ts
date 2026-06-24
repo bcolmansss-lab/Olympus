@@ -53,6 +53,7 @@ export function seedCompany(olympus: Olympus): void {
   seedPricing(olympus);
   seedAssets(olympus);
   seedExpenses(olympus);
+  seedRecruitment(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1452,4 +1453,134 @@ function seedExpenses(olympus: Olympus): void {
   });
   expenses.approve(e6.id, "manager-helios");
   expenses.reimburse(e6.id);
+}
+
+export function seedRecruitment(olympus: Olympus): void {
+  const ats = olympus.recruitment;
+
+  // 3 open requisitions
+  const backendReq = ats.openRequisition({
+    title: "Senior Backend Engineer",
+    department: "engineering",
+    level: "L5",
+    status: "open",
+    headcount: 2,
+    salaryMinUsd: 180_000,
+    salaryMaxUsd: 230_000,
+    requiredSkills: ["TypeScript", "Node.js", "PostgreSQL"],
+    niceToHaveSkills: ["Rust", "Kafka"],
+    hiringManagerId: "eng-manager-1",
+    recruiterId: "recruiter-1",
+  });
+
+  const pmReq = ats.openRequisition({
+    title: "Product Manager",
+    department: "product",
+    level: "Senior",
+    status: "open",
+    headcount: 1,
+    salaryMinUsd: 150_000,
+    salaryMaxUsd: 190_000,
+    requiredSkills: ["Product strategy", "Roadmap planning", "Stakeholder management"],
+    hiringManagerId: "product-vp-1",
+    recruiterId: "recruiter-1",
+  });
+
+  const salesReq = ats.openRequisition({
+    title: "Head of Sales",
+    department: "sales",
+    level: "Director",
+    status: "open",
+    headcount: 1,
+    salaryMinUsd: 200_000,
+    salaryMaxUsd: 250_000,
+    equityPct: 0.25,
+    requiredSkills: ["Enterprise sales", "Team leadership", "CRM"],
+    hiringManagerId: "ceo-1",
+  });
+
+  // 5 candidates across these roles at various stages
+
+  // 1. Hired — Backend Engineer, started already
+  const c1 = ats.addCandidate({
+    jobId: backendReq.id,
+    name: "Priya Sharma",
+    email: "priya.sharma@example.com",
+    stage: "applied",
+    source: "linkedin",
+    currentCompany: "Stripe",
+    currentTitle: "Backend Engineer",
+  });
+  ats.advanceStage(c1.id, "screening");
+  ats.advanceStage(c1.id, "technical");
+  ats.advanceStage(c1.id, "onsite");
+  ats.extendOffer(c1.id, 210_000);
+  ats.hire(c1.id, isoDate(daysAgo(30)));
+
+  // 2. Offer stage — PM candidate
+  const c2 = ats.addCandidate({
+    jobId: pmReq.id,
+    name: "James Liu",
+    email: "james.liu@example.com",
+    stage: "applied",
+    source: "referral",
+    currentCompany: "Figma",
+    currentTitle: "Senior PM",
+  });
+  ats.advanceStage(c2.id, "screening");
+  ats.advanceStage(c2.id, "phone_screen");
+  ats.advanceStage(c2.id, "technical");
+  ats.extendOffer(c2.id, 175_000);
+  // Add scorecards for the offer-stage candidate
+  ats.addScorecard(c2.id, {
+    interviewType: "technical",
+    interviewerId: "eng-lead-1",
+    rating: 4,
+    notes: "Strong product thinking, solid technical understanding of trade-offs.",
+  });
+  ats.addScorecard(c2.id, {
+    interviewType: "panel",
+    interviewerId: "panel-lead-1",
+    rating: 5,
+    notes: "Exceptional communication, clear vision for roadmap. Strong yes.",
+  });
+
+  // 3. Interview stage — Backend candidate
+  const c3 = ats.addCandidate({
+    jobId: backendReq.id,
+    name: "Alex Okafor",
+    email: "alex.okafor@example.com",
+    stage: "applied",
+    source: "job_board",
+    currentCompany: "Shopify",
+    currentTitle: "Staff Engineer",
+  });
+  ats.advanceStage(c3.id, "screening");
+  ats.advanceStage(c3.id, "technical");
+
+  // 4. Interview stage — Sales candidate
+  const c4 = ats.addCandidate({
+    jobId: salesReq.id,
+    name: "Morgan Chen",
+    email: "morgan.chen@example.com",
+    stage: "applied",
+    source: "executive_search",
+    currentCompany: "Salesforce",
+    currentTitle: "VP Sales",
+  });
+  ats.advanceStage(c4.id, "screening");
+  ats.advanceStage(c4.id, "phone_screen");
+
+  // 5. Rejected — Backend candidate
+  const c5 = ats.addCandidate({
+    jobId: backendReq.id,
+    name: "Taylor Brooks",
+    email: "taylor.brooks@example.com",
+    stage: "applied",
+    source: "inbound",
+    currentCompany: "Startup XYZ",
+    currentTitle: "Junior Engineer",
+  });
+  ats.advanceStage(c5.id, "screening");
+  ats.advanceStage(c5.id, "rejected", "Skills not aligned with L5 requirements");
 }
