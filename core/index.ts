@@ -69,6 +69,8 @@ import { AccessControl } from "./access/access-control.js";
 import { NotificationCenter } from "./notifications-center/notification-center.js";
 import { StrategyEngine } from "./strategy/strategy-engine.js";
 import { OrgIntelligence } from "./org/org-intelligence.js";
+import { RevenueIntelEngine } from "./revenue-intel/revenue-intel.js";
+import { ChurnPredictor } from "./churn/churn-predictor.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -188,6 +190,10 @@ export class Olympus {
   readonly strategy: StrategyEngine;
   /** Org intelligence — org chart analysis, team topology, span of control, and org health metrics. */
   readonly orgIntel: OrgIntelligence;
+  /** Revenue intelligence — cohort analysis, LTV modeling, and expansion revenue tracking. */
+  readonly revenueIntel: RevenueIntelEngine;
+  /** Churn predictor — rule-based churn scoring, early warning signals, and retention playbooks. */
+  readonly churnPredictor: ChurnPredictor;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -249,6 +255,8 @@ export class Olympus {
     this.notifCenter = new NotificationCenter(this.bus);
     this.strategy = new StrategyEngine(this.bus);
     this.orgIntel = new OrgIntelligence();
+    this.revenueIntel = new RevenueIntelEngine(this.bus);
+    this.churnPredictor = new ChurnPredictor(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -317,3 +325,5 @@ export { AccessControl, type PrincipalType, type PermissionEffect, type Role, ty
 export { NotificationCenter, type NotifChannel, type NotifCategory, type DigestFrequency, type NotifPreference, type NotifMessage, type DigestEntry, type NotifCenterSummary } from "./notifications-center/index.js";
 export { StrategyEngine, type InitiativeStatus, type StrategicHorizon, type StrategicPillar, type Initiative, type Milestone, type StrategySummary } from "./strategy/index.js";
 export { OrgIntelligence, type TeamTopology, type OrgHealthDimension, type Team as OrgTeam, type SpanAnalysis, type OrgHealthReport } from "./org/index.js";
+export { RevenueIntelEngine, type CohortPeriod, type RevenueSegment, type ExpansionType, type RevenueCohort, type ExpansionEvent, type LtvModel, type RevenueIntelSummary } from "./revenue-intel/index.js";
+export { ChurnPredictor, type ChurnRiskTier, type SignalType as ChurnSignalType, type ChurnSignal, type ChurnScore, type RetentionPlaybook, type ChurnSummary } from "./churn/index.js";

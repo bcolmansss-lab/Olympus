@@ -6000,3 +6000,169 @@ describe("OrgIntelligence", () => {
     assert.equal(all.length, 3);
   });
 });
+
+import { RevenueIntelEngine } from "../revenue-intel/revenue-intel.js";
+import { ChurnPredictor } from "../churn/churn-predictor.js";
+
+describe("RevenueIntelEngine", () => {
+  it("addCohort computes retentionPct", () => {
+    const bus = new EventBus();
+    const ri = new RevenueIntelEngine(bus);
+    const cohort = ri.addCohort({
+      period: "2024-Q1",
+      cohortPeriod: "quarterly",
+      segment: "enterprise",
+      accountCount: 10,
+      initialArrUsd: 100_000,
+      currentArrUsd: 90_000,
+      avgLtvUsd: 50_000,
+      churnedCount: 1,
+      expandedCount: 0,
+    });
+    assert.ok(Math.abs(cohort.retentionPct - 90) < 0.001);
+  });
+
+  it("addCohort emits revenue.cohort_analyzed", () => {
+    const bus = new EventBus();
+    const ri = new RevenueIntelEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("revenue.cohort_analyzed", (e) => { events.push(e); });
+    ri.addCohort({
+      period: "2024-Q2",
+      cohortPeriod: "quarterly",
+      segment: "smb",
+      accountCount: 5,
+      initialArrUsd: 50_000,
+      currentArrUsd: 45_000,
+      avgLtvUsd: 10_000,
+      churnedCount: 1,
+      expandedCount: 0,
+    });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordExpansion emits revenue.expansion_detected", () => {
+    const bus = new EventBus();
+    const ri = new RevenueIntelEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("revenue.expansion_detected", (e) => { events.push(e); });
+    ri.recordExpansion({
+      accountId: "acct-1",
+      type: "upsell",
+      previousArrUsd: 1_000,
+      newArrUsd: 2_000,
+      expansionUsd: 1_000,
+      occurredAt: new Date().toISOString(),
+    });
+    assert.equal(events.length, 1);
+  });
+
+  it("setLtvModel computes predictedLtvUsd", () => {
+    const bus = new EventBus();
+    const ri = new RevenueIntelEngine(bus);
+    const model = ri.setLtvModel({
+      segment: "enterprise",
+      avgContractLengthMonths: 24,
+      avgMrrUsd: 8_000,
+      avgChurnRateMonthly: 0.02,
+      predictedLtvUsd: 0,
+      confidenceScore: 80,
+    });
+    // 8000 / 0.02 = 400000
+    assert.ok(Math.abs(model.predictedLtvUsd - 400_000) < 0.001);
+  });
+
+  it("summary identifies bestCohort by retention", () => {
+    const bus = new EventBus();
+    const ri = new RevenueIntelEngine(bus);
+    ri.addCohort({ period: "2024-Q1", cohortPeriod: "quarterly", segment: "enterprise", accountCount: 10, initialArrUsd: 100_000, currentArrUsd: 80_000, avgLtvUsd: 50_000, churnedCount: 2, expandedCount: 0 });
+    ri.addCohort({ period: "2024-Q2", cohortPeriod: "quarterly", segment: "enterprise", accountCount: 10, initialArrUsd: 100_000, currentArrUsd: 95_000, avgLtvUsd: 55_000, churnedCount: 0, expandedCount: 1 });
+    const s = ri.summary();
+    assert.equal(s.bestCohort, "2024-Q2");
+  });
+
+  it("listExpansions filters by accountId", () => {
+    const bus = new EventBus();
+    const ri = new RevenueIntelEngine(bus);
+    ri.recordExpansion({ accountId: "acct-a", type: "upsell", previousArrUsd: 1_000, newArrUsd: 2_000, expansionUsd: 1_000, occurredAt: new Date().toISOString() });
+    ri.recordExpansion({ accountId: "acct-b", type: "cross_sell", previousArrUsd: 500, newArrUsd: 700, expansionUsd: 200, occurredAt: new Date().toISOString() });
+    ri.recordExpansion({ accountId: "acct-a", type: "seat_expansion", previousArrUsd: 2_000, newArrUsd: 2_500, expansionUsd: 500, occurredAt: new Date().toISOString() });
+    const aExpansions = ri.listExpansions("acct-a");
+    assert.equal(aExpansions.length, 2);
+    const bExpansions = ri.listExpansions("acct-b");
+    assert.equal(bExpansions.length, 1);
+  });
+});
+
+describe("ChurnPredictor", () => {
+  it("recordSignal stores signal", () => {
+    const bus = new EventBus();
+    const cp = new ChurnPredictor(bus);
+    cp.recordSignal({ type: "payment_failure", accountId: "acct-1", severity: 2, detail: "Card declined" });
+    cp.recordSignal({ type: "usage_drop", accountId: "acct-1", severity: 1, detail: "Usage down 40%" });
+    // score the account to verify signals are picked up
+    const score = cp.scoreAccount("acct-1");
+    assert.equal(score.signals.length, 2);
+  });
+
+  it("scoreAccount computes score from signals", () => {
+    const bus = new EventBus();
+    const cp = new ChurnPredictor(bus);
+    // payment_failure weight=20, severity=2 → 40; usage_drop weight=15, severity=1 → 15 = 55
+    cp.recordSignal({ type: "payment_failure", accountId: "acct-2", severity: 2, detail: "Payment failed" });
+    cp.recordSignal({ type: "usage_drop", accountId: "acct-2", severity: 1, detail: "Usage drop" });
+    const score = cp.scoreAccount("acct-2");
+    assert.equal(score.score, 55);
+  });
+
+  it("scoreAccount assigns correct tier", () => {
+    const bus = new EventBus();
+    const cp = new ChurnPredictor(bus);
+    // champion_left weight=18, severity=3 → 54 → high tier
+    cp.recordSignal({ type: "champion_left", accountId: "acct-3", severity: 3, detail: "Champion left" });
+    const score = cp.scoreAccount("acct-3");
+    assert.equal(score.tier, "high");
+  });
+
+  it("scoreAccount emits churn.risk_scored", () => {
+    const bus = new EventBus();
+    const cp = new ChurnPredictor(bus);
+    const events: unknown[] = [];
+    bus.subscribe("churn.risk_scored", (e) => { events.push(e); });
+    cp.recordSignal({ type: "contract_aging", accountId: "acct-4", severity: 1, detail: "Old contract" });
+    cp.scoreAccount("acct-4");
+    assert.equal(events.length, 1);
+  });
+
+  it("scoreAccount triggers playbook for high risk", () => {
+    const bus = new EventBus();
+    const cp = new ChurnPredictor(bus);
+    cp.addPlaybook({ id: "pb-high", name: "High Risk", triggerTier: "high", steps: ["Step 1"], owner: "CSM" });
+    const triggered: unknown[] = [];
+    bus.subscribe("churn.playbook_triggered", (e) => { triggered.push(e); });
+    // champion_left weight=18, severity=3 → 54 → high tier → triggers playbook
+    cp.recordSignal({ type: "champion_left", accountId: "acct-5", severity: 3, detail: "Champion left" });
+    cp.scoreAccount("acct-5");
+    assert.equal(triggered.length, 1);
+  });
+
+  it("summary returns byTier counts", () => {
+    const bus = new EventBus();
+    const cp = new ChurnPredictor(bus);
+    // low score: contract_aging sev1 → 5
+    cp.recordSignal({ type: "contract_aging", accountId: "low-acct", severity: 1, detail: "Aging" });
+    cp.scoreAccount("low-acct");
+    // medium: nps_decline sev2 → 24... need >=25. Let's use engagement_drop sev2 → 30
+    cp.recordSignal({ type: "engagement_drop", accountId: "med-acct", severity: 2, detail: "Drop" });
+    cp.scoreAccount("med-acct");
+    // high: champion_left sev3 → 54
+    cp.recordSignal({ type: "champion_left", accountId: "high-acct", severity: 3, detail: "Left" });
+    cp.scoreAccount("high-acct");
+    const s = cp.summary();
+    assert.equal(s.totalScored, 3);
+    assert.equal(s.byTier.low, 1);
+    assert.equal(s.byTier.medium, 1);
+    assert.equal(s.byTier.high, 1);
+    assert.equal(s.byTier.critical, 0);
+  });
+});

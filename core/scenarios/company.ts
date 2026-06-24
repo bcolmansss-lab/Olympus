@@ -69,6 +69,8 @@ export function seedCompany(olympus: Olympus): void {
   seedNotifCenter(olympus);
   seedStrategy(olympus);
   seedOrgIntel(olympus);
+  seedRevenueIntel(olympus);
+  seedChurnPrediction(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -2627,4 +2629,140 @@ function seedOrgIntel(olympus: Olympus): void {
     managerId: "emp-cto",
     memberIds: ["emp-analyst1", "emp-analyst2", "emp-analyst3"],
   });
+}
+
+function seedRevenueIntel(olympus: Olympus): void {
+  const ri = olympus.revenueIntel;
+
+  ri.addCohort({
+    id: "cohort-2024q1-ent",
+    period: "2024-Q1",
+    cohortPeriod: "quarterly",
+    segment: "enterprise",
+    accountCount: 8,
+    initialArrUsd: 320_000,
+    currentArrUsd: 304_000,
+    avgLtvUsd: 120_000,
+    churnedCount: 2,
+    expandedCount: 1,
+  });
+
+  ri.addCohort({
+    id: "cohort-2024q2-ent",
+    period: "2024-Q2",
+    cohortPeriod: "quarterly",
+    segment: "enterprise",
+    accountCount: 6,
+    initialArrUsd: 240_000,
+    currentArrUsd: 252_000,
+    avgLtvUsd: 130_000,
+    churnedCount: 0,
+    expandedCount: 2,
+  });
+
+  ri.addCohort({
+    id: "cohort-2024q1-mm",
+    period: "2024-Q1",
+    cohortPeriod: "quarterly",
+    segment: "mid_market",
+    accountCount: 15,
+    initialArrUsd: 180_000,
+    currentArrUsd: 162_000,
+    avgLtvUsd: 40_000,
+    churnedCount: 3,
+    expandedCount: 0,
+  });
+
+  ri.addCohort({
+    id: "cohort-2024q2-smb",
+    period: "2024-Q2",
+    cohortPeriod: "quarterly",
+    segment: "smb",
+    accountCount: 22,
+    initialArrUsd: 88_000,
+    currentArrUsd: 79_000,
+    avgLtvUsd: 12_000,
+    churnedCount: 4,
+    expandedCount: 1,
+  });
+
+  ri.recordExpansion({
+    accountId: "cascade-corp",
+    type: "seat_expansion",
+    previousArrUsd: 2_400,
+    newArrUsd: 3_200,
+    expansionUsd: 800,
+    occurredAt: isoDate(daysAgo(30)),
+  });
+
+  ri.recordExpansion({
+    accountId: "vertex-tech",
+    type: "upsell",
+    previousArrUsd: 3_200,
+    newArrUsd: 4_800,
+    expansionUsd: 1_600,
+    occurredAt: isoDate(daysAgo(20)),
+  });
+
+  ri.recordExpansion({
+    accountId: "pinnacle-inc",
+    type: "cross_sell",
+    previousArrUsd: 1_800,
+    newArrUsd: 2_400,
+    expansionUsd: 600,
+    occurredAt: isoDate(daysAgo(10)),
+  });
+
+  ri.setLtvModel({
+    segment: "enterprise",
+    avgContractLengthMonths: 24,
+    avgMrrUsd: 8_000,
+    avgChurnRateMonthly: 0.012,
+    predictedLtvUsd: 0, // computed by setLtvModel
+    confidenceScore: 85,
+  });
+
+  ri.setLtvModel({
+    segment: "mid_market",
+    avgContractLengthMonths: 18,
+    avgMrrUsd: 2_000,
+    avgChurnRateMonthly: 0.02,
+    predictedLtvUsd: 0, // computed by setLtvModel
+    confidenceScore: 75,
+  });
+}
+
+function seedChurnPrediction(olympus: Olympus): void {
+  const cp = olympus.churnPredictor;
+
+  cp.addPlaybook({
+    id: "pb-high-risk",
+    name: "High Risk Retention",
+    triggerTier: "high",
+    steps: ["Executive outreach", "QBR", "Custom success plan"],
+    owner: "VP Customer Success",
+  });
+
+  cp.addPlaybook({
+    id: "pb-critical-save",
+    name: "Critical Save",
+    triggerTier: "critical",
+    steps: ["CEO call", "SLA credits", "Dedicated CSM"],
+    owner: "CEO",
+  });
+
+  // cascade-corp: champion_left (sev 3) + nps_decline (sev 2) → high/critical
+  cp.recordSignal({ type: "champion_left", accountId: "cascade-corp", severity: 3, detail: "Primary champion left the company" });
+  cp.recordSignal({ type: "nps_decline", accountId: "cascade-corp", severity: 2, detail: "NPS dropped from 8 to 4" });
+
+  // pinnacle-inc: payment_failure (sev 2) + usage_drop (sev 1) → medium/high
+  cp.recordSignal({ type: "payment_failure", accountId: "pinnacle-inc", severity: 2, detail: "Payment failed twice this quarter" });
+  cp.recordSignal({ type: "usage_drop", accountId: "pinnacle-inc", severity: 1, detail: "DAU dropped 30%" });
+
+  // vertex-tech: contract_aging (sev 1) → low
+  cp.recordSignal({ type: "contract_aging", accountId: "vertex-tech", severity: 1, detail: "Contract is 18 months old" });
+
+  cp.scoreAccount("cascade-corp");
+  cp.scoreAccount("pinnacle-inc");
+  cp.scoreAccount("vertex-tech");
 }
