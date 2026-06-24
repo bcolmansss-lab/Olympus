@@ -87,6 +87,8 @@ import { SalesIntelligence } from "./sales-intel/sales-intel.js";
 import { ProductUsageTracker } from "./product-usage/product-usage.js";
 import { DataWarehouse } from "./data-warehouse/data-warehouse.js";
 import { CostCenterManager } from "./cost-center/cost-center.js";
+import { GrantManager } from "./grants/grant-manager.js";
+import { ESGTracker } from "./esg/esg-tracker.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -242,6 +244,10 @@ export class Olympus {
   readonly dataWarehouse: DataWarehouse;
   /** Cost center manager — departmental budgets, allocations, variance analysis, chargebacks. */
   readonly costCenter: CostCenterManager;
+  /** Grant manager — grant applications, awards, milestone reporting, compliance tracking. */
+  readonly grants: GrantManager;
+  /** ESG tracker — environmental/social/governance metrics, carbon tracking, DEI reporting. */
+  readonly esg: ESGTracker;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -321,6 +327,8 @@ export class Olympus {
     this.productUsage = new ProductUsageTracker(this.bus);
     this.dataWarehouse = new DataWarehouse(this.bus);
     this.costCenter = new CostCenterManager(this.bus);
+    this.grants = new GrantManager(this.bus);
+    this.esg = new ESGTracker(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -407,3 +415,5 @@ export { SalesIntelligence, type SalesSignalType, type SalesActivityType, type B
 export { ProductUsageTracker, type FeatureEvent, type FeatureAdoption as PUFeatureAdoption, type UserSession, type UsageSummary } from "./product-usage/index.js";
 export { DataWarehouse, type TableStatus, type ColumnType, type ColumnSchema, type DWTable, type DWPipeline, type DWSummary } from "./data-warehouse/index.js";
 export { CostCenterManager, type CostCategory, type AllocationMethod, type CostCenter, type CostAllocation, type CostVarianceReport, type CostSummary } from "./cost-center/index.js";
+export { GrantManager, type GrantStatus, type GrantType, type GrantMilestone, type Grant, type GrantSummary } from "./grants/index.js";
+export { ESGTracker, type ESGCategory, type MetricFrequency, type ESGMetric, type ESGDataPoint, type ESGReport, type ESGSummary } from "./esg/index.js";

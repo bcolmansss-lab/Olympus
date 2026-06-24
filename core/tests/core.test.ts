@@ -7256,3 +7256,137 @@ describe("CostCenterManager", () => {
     assert.equal(s.totalActualUsd, 1050000);
   });
 });
+
+// ── GrantManager ──────────────────────────────────────────────────────────────
+import { GrantManager } from "../grants/grant-manager.js";
+
+describe("GrantManager", () => {
+  it("createGrant and awardGrant emits event", () => {
+    const bus = new EventBus();
+    const gm = new GrantManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("grant.awarded", (e) => { events.push(e.payload); });
+    const g = gm.createGrant({ title: "DOE Robotics Grant", fundingSource: "U.S. Department of Energy", type: "federal", status: "submitted", requestedAmountUsd: 2000000, principalInvestigator: "dr-kim", complianceNotes: "Annual reporting required", tags: ["R&D"] });
+    gm.awardGrant(g.id, 1800000);
+    assert.equal(events.length, 1);
+    assert.equal(gm.getGrant(g.id)!.awardedAmountUsd, 1800000);
+  });
+
+  it("addMilestone emits deadline_approaching when due soon", () => {
+    const bus = new EventBus();
+    const gm = new GrantManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("grant.deadline_approaching", (e) => { events.push(e.payload); });
+    const g = gm.createGrant({ title: "NSF Grant", fundingSource: "NSF", type: "federal", status: "active", requestedAmountUsd: 500000, principalInvestigator: "dr-lee", complianceNotes: "", tags: [] });
+    const soon = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
+    gm.addMilestone({ grantId: g.id, title: "Q2 Report", description: "Quarterly progress report", dueDate: soon, status: "pending" });
+    assert.equal(events.length, 1);
+  });
+
+  it("submitMilestone emits event and marks submitted", () => {
+    const bus = new EventBus();
+    const gm = new GrantManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("grant.milestone_submitted", (e) => { events.push(e.payload); });
+    const g = gm.createGrant({ title: "SBIR Phase 1", fundingSource: "SBA", type: "federal", status: "active", requestedAmountUsd: 150000, principalInvestigator: "dr-chen", complianceNotes: "", tags: [] });
+    const m = gm.addMilestone({ grantId: g.id, title: "Technical Report", description: "6-month technical report", dueDate: "2026-12-01", status: "pending" });
+    gm.submitMilestone(m!.id, "https://reports.helios.ai/sbir-q2");
+    assert.equal(events.length, 1);
+    assert.equal(gm.getMilestone(m!.id)!.status, "submitted");
+  });
+
+  it("listGrants filters by status", () => {
+    const bus = new EventBus();
+    const gm = new GrantManager(bus);
+    gm.createGrant({ title: "G1", fundingSource: "Foundation A", type: "foundation", status: "active", requestedAmountUsd: 100000, principalInvestigator: "pi1", complianceNotes: "", tags: [] });
+    gm.createGrant({ title: "G2", fundingSource: "Foundation B", type: "foundation", status: "drafting", requestedAmountUsd: 50000, principalInvestigator: "pi2", complianceNotes: "", tags: [] });
+    assert.equal(gm.listGrants("active").length, 1);
+  });
+
+  it("listMilestones filters by grantId", () => {
+    const bus = new EventBus();
+    const gm = new GrantManager(bus);
+    const g1 = gm.createGrant({ title: "G3", fundingSource: "Corp X", type: "corporate", status: "active", requestedAmountUsd: 200000, principalInvestigator: "pi3", complianceNotes: "", tags: [] });
+    const g2 = gm.createGrant({ title: "G4", fundingSource: "Corp Y", type: "corporate", status: "active", requestedAmountUsd: 300000, principalInvestigator: "pi4", complianceNotes: "", tags: [] });
+    gm.addMilestone({ grantId: g1.id, title: "M1", description: "", dueDate: "2026-12-31", status: "pending" });
+    gm.addMilestone({ grantId: g2.id, title: "M2", description: "", dueDate: "2026-12-31", status: "pending" });
+    assert.equal(gm.listMilestones(g1.id).length, 1);
+  });
+
+  it("summary returns correct success rate", () => {
+    const bus = new EventBus();
+    const gm = new GrantManager(bus);
+    const g1 = gm.createGrant({ title: "Won", fundingSource: "A", type: "federal", status: "submitted", requestedAmountUsd: 1000000, principalInvestigator: "pi", complianceNotes: "", tags: [] });
+    gm.awardGrant(g1.id, 900000);
+    gm.createGrant({ title: "Lost", fundingSource: "B", type: "federal", status: "rejected", requestedAmountUsd: 500000, principalInvestigator: "pi", complianceNotes: "", tags: [] });
+    const s = gm.summary();
+    assert.equal(s.successRate, 50);
+    assert.equal(s.totalAwardedUsd, 900000);
+  });
+});
+
+// ── ESGTracker ────────────────────────────────────────────────────────────────
+import { ESGTracker } from "../esg/esg-tracker.js";
+
+describe("ESGTracker", () => {
+  it("defineMetric and recordDataPoint emits event", () => {
+    const bus = new EventBus();
+    const esg = new ESGTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("esg.metric_recorded", (e) => { events.push(e.payload); });
+    const m = esg.defineMetric({ name: "Carbon Emissions", category: "environmental", unit: "tCO2e", description: "Annual scope 1+2", frequency: "annual" });
+    esg.recordDataPoint({ metricId: m.id, value: 450, period: "2026" });
+    assert.equal(events.length, 1);
+  });
+
+  it("target_missed event fires when value exceeds target by >10%", () => {
+    const bus = new EventBus();
+    const esg = new ESGTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("esg.target_missed", (e) => { events.push(e.payload); });
+    const m = esg.defineMetric({ name: "Water Usage", category: "environmental", unit: "m3", description: "Annual water", frequency: "annual", target: 10000 });
+    esg.recordDataPoint({ metricId: m.id, value: 12000, period: "2026" }); // 20% over
+    assert.equal(events.length, 1);
+  });
+
+  it("publishReport emits event", () => {
+    const bus = new EventBus();
+    const esg = new ESGTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("esg.report_published", (e) => { events.push(e.payload); });
+    esg.publishReport({ period: "2026", overallScore: 78, environmentalScore: 72, socialScore: 85, governanceScore: 77, highlights: ["Reduced emissions 15%"], improvements: ["Increase board diversity"], publishedAt: new Date().toISOString() });
+    assert.equal(events.length, 1);
+  });
+
+  it("listMetrics filters by category", () => {
+    const bus = new EventBus();
+    const esg = new ESGTracker(bus);
+    esg.defineMetric({ name: "GHG", category: "environmental", unit: "tCO2e", description: "", frequency: "annual" });
+    esg.defineMetric({ name: "Gender Pay Gap", category: "social", unit: "%", description: "", frequency: "annual" });
+    esg.defineMetric({ name: "Board Independence", category: "governance", unit: "%", description: "", frequency: "annual" });
+    assert.equal(esg.listMetrics("environmental").length, 1);
+    assert.equal(esg.listMetrics().length, 3);
+  });
+
+  it("listDataPoints filters by metricId", () => {
+    const bus = new EventBus();
+    const esg = new ESGTracker(bus);
+    const m1 = esg.defineMetric({ name: "M1", category: "social", unit: "%", description: "", frequency: "quarterly" });
+    const m2 = esg.defineMetric({ name: "M2", category: "governance", unit: "count", description: "", frequency: "quarterly" });
+    esg.recordDataPoint({ metricId: m1.id, value: 50, period: "2026-Q1" });
+    esg.recordDataPoint({ metricId: m2.id, value: 3, period: "2026-Q1" });
+    assert.equal(esg.listDataPoints(m1.id).length, 1);
+  });
+
+  it("summary returns correct category counts", () => {
+    const bus = new EventBus();
+    const esg = new ESGTracker(bus);
+    esg.defineMetric({ name: "E1", category: "environmental", unit: "u", description: "", frequency: "annual" });
+    esg.defineMetric({ name: "E2", category: "environmental", unit: "u", description: "", frequency: "annual" });
+    esg.defineMetric({ name: "S1", category: "social", unit: "u", description: "", frequency: "annual" });
+    const s = esg.summary();
+    assert.equal(s.byCategory.environmental, 2);
+    assert.equal(s.byCategory.social, 1);
+    assert.equal(s.byCategory.governance, 0);
+  });
+});
