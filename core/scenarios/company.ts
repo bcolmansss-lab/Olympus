@@ -52,6 +52,7 @@ export function seedCompany(olympus: Olympus): void {
   seedCommunication(olympus);
   seedPricing(olympus);
   seedAssets(olympus);
+  seedExpenses(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1382,4 +1383,73 @@ function seedAssets(olympus: Olympus): void {
   assets.applyDepreciation(macbook.id, period2);
   assets.applyDepreciation(serverRack.id, period1);
   assets.applyDepreciation(serverRack.id, period2);
+}
+
+function seedExpenses(olympus: Olympus): void {
+  const expenses = olympus.expenses;
+
+  // 1. emp-priya meals $68 (within limit) → approved → reimbursed
+  const e1 = expenses.submitExpense({
+    employeeId: "emp-priya",
+    category: "meals",
+    amountUsd: 68,
+    description: "Team lunch",
+    receiptUrl: "https://receipts.helios.io/meals-priya-1.pdf",
+    expenseDate: isoDate(daysAgo(20)),
+  });
+  expenses.approve(e1.id, "manager-helios");
+  expenses.reimburse(e1.id);
+
+  // 2. emp-james travel $450 (within limit) → approved
+  const e2 = expenses.submitExpense({
+    employeeId: "emp-james",
+    category: "travel",
+    amountUsd: 450,
+    description: "Flight to NYC client meeting",
+    receiptUrl: "https://receipts.helios.io/travel-james-1.pdf",
+    expenseDate: isoDate(daysAgo(15)),
+  });
+  expenses.approve(e2.id, "manager-helios");
+
+  // 3. emp-alice software $1200 (no receipt → violation) → under_review
+  expenses.submitExpense({
+    employeeId: "emp-alice",
+    category: "software",
+    amountUsd: 1200,
+    description: "Annual SaaS subscription",
+    expenseDate: isoDate(daysAgo(10)),
+  });
+
+  // 4. emp-priya entertainment $200 (exceeds $150 limit → violation) → rejected
+  const e4 = expenses.submitExpense({
+    employeeId: "emp-priya",
+    category: "entertainment",
+    amountUsd: 200,
+    description: "Client dinner",
+    receiptUrl: "https://receipts.helios.io/entertainment-priya-1.pdf",
+    expenseDate: isoDate(daysAgo(8)),
+  });
+  expenses.reject(e4.id, "Exceeds entertainment policy", "manager-helios");
+
+  // 5. emp-james training $3500 (needs finance approval) → submitted
+  expenses.submitExpense({
+    employeeId: "emp-james",
+    category: "training",
+    amountUsd: 3500,
+    description: "Industry conference registration",
+    receiptUrl: "https://receipts.helios.io/training-james-1.pdf",
+    expenseDate: isoDate(daysAgo(3)),
+  });
+
+  // 6. emp-alice meals $55 → submitted → reimbursed
+  const e6 = expenses.submitExpense({
+    employeeId: "emp-alice",
+    category: "meals",
+    amountUsd: 55,
+    description: "Working lunch",
+    receiptUrl: "https://receipts.helios.io/meals-alice-1.pdf",
+    expenseDate: isoDate(daysAgo(5)),
+  });
+  expenses.approve(e6.id, "manager-helios");
+  expenses.reimburse(e6.id);
 }

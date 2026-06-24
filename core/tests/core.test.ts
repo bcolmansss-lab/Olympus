@@ -4279,3 +4279,129 @@ describe("AssetManager", () => {
     assert.equal(s.warrantyExpiringSoon, 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ExpenseManager
+// ---------------------------------------------------------------------------
+
+import { ExpenseManager } from "../expenses/expense-manager.js";
+
+describe("ExpenseManager", () => {
+  it("submitExpense emits expense.submitted", () => {
+    const bus = new EventBus();
+    const manager = new ExpenseManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("expense.submitted", (event) => { events.push((event as { payload: unknown }).payload); });
+    manager.submitExpense({
+      employeeId: "emp-1",
+      category: "meals",
+      amountUsd: 30,
+      description: "Lunch",
+      receiptUrl: "https://example.com/receipt.pdf",
+      expenseDate: "2026-06-01",
+    });
+    assert.equal(events.length, 1);
+    const ev = events[0] as { expenseId: string; employeeId: string; amountUsd: number; category: string };
+    assert.equal(ev.employeeId, "emp-1");
+    assert.equal(ev.amountUsd, 30);
+    assert.equal(ev.category, "meals");
+  });
+
+  it("submitExpense detects policy violation on category limit", () => {
+    const bus = new EventBus();
+    const manager = new ExpenseManager(bus);
+    const violations: unknown[] = [];
+    bus.subscribe("expense.policy_violation", (event) => { violations.push((event as { payload: unknown }).payload); });
+    const expense = manager.submitExpense({
+      employeeId: "emp-2",
+      category: "entertainment",
+      amountUsd: 200,
+      description: "Client dinner",
+      receiptUrl: "https://example.com/receipt.pdf",
+      expenseDate: "2026-06-01",
+    });
+    assert.equal(expense.status, "under_review");
+    assert.ok(expense.policyViolations.length > 0);
+    assert.ok(violations.length > 0);
+  });
+
+  it("submitExpense flags missing receipt", () => {
+    const bus = new EventBus();
+    const manager = new ExpenseManager(bus);
+    const expense = manager.submitExpense({
+      employeeId: "emp-3",
+      category: "software",
+      amountUsd: 100,
+      description: "Software license",
+      expenseDate: "2026-06-01",
+    });
+    assert.equal(expense.status, "under_review");
+    assert.ok(expense.policyViolations.some((v) => v.includes("Receipt required")));
+  });
+
+  it("approve emits expense.approved", () => {
+    const bus = new EventBus();
+    const manager = new ExpenseManager(bus);
+    const approvals: unknown[] = [];
+    bus.subscribe("expense.approved", (event) => { approvals.push((event as { payload: unknown }).payload); });
+    const expense = manager.submitExpense({
+      employeeId: "emp-4",
+      category: "meals",
+      amountUsd: 50,
+      description: "Team lunch",
+      receiptUrl: "https://example.com/receipt.pdf",
+      expenseDate: "2026-06-01",
+    });
+    manager.approve(expense.id, "manager-1");
+    assert.equal(approvals.length, 1);
+    const ev = approvals[0] as { approvedBy: string };
+    assert.equal(ev.approvedBy, "manager-1");
+    assert.equal(manager.get(expense.id)!.status, "approved");
+  });
+
+  it("reject emits expense.rejected with reason", () => {
+    const bus = new EventBus();
+    const manager = new ExpenseManager(bus);
+    const rejections: unknown[] = [];
+    bus.subscribe("expense.rejected", (event) => { rejections.push((event as { payload: unknown }).payload); });
+    const expense = manager.submitExpense({
+      employeeId: "emp-5",
+      category: "entertainment",
+      amountUsd: 200,
+      description: "Client entertainment",
+      receiptUrl: "https://example.com/receipt.pdf",
+      expenseDate: "2026-06-01",
+    });
+    manager.reject(expense.id, "Exceeds entertainment policy", "manager-1");
+    assert.equal(rejections.length, 1);
+    const ev = rejections[0] as { reason: string };
+    assert.equal(ev.reason, "Exceeds entertainment policy");
+    assert.equal(manager.get(expense.id)!.status, "rejected");
+  });
+
+  it("summary computes pendingReimbursementUsd correctly", () => {
+    const bus = new EventBus();
+    const manager = new ExpenseManager(bus);
+    const e1 = manager.submitExpense({
+      employeeId: "emp-6",
+      category: "meals",
+      amountUsd: 60,
+      description: "Lunch",
+      receiptUrl: "https://example.com/r1.pdf",
+      expenseDate: "2026-06-01",
+    });
+    const e2 = manager.submitExpense({
+      employeeId: "emp-6",
+      category: "meals",
+      amountUsd: 40,
+      description: "Dinner",
+      receiptUrl: "https://example.com/r2.pdf",
+      expenseDate: "2026-06-02",
+    });
+    manager.approve(e1.id, "mgr");
+    manager.approve(e2.id, "mgr");
+    manager.reimburse(e1.id); // e1 reimbursed; e2 pending
+    const s = manager.summary();
+    assert.equal(s.pendingReimbursementUsd, 40);
+  });
+});

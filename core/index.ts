@@ -52,6 +52,7 @@ import { SupportTicketManager } from "./support/ticket-manager.js";
 import { CommunicationHub } from "./communication/communication-hub.js";
 import { PricingEngine } from "./pricing/pricing-engine.js";
 import { AssetManager } from "./assets/asset-manager.js";
+import { ExpenseManager } from "./expenses/expense-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -137,6 +138,8 @@ export class Olympus {
   readonly pricing: PricingEngine;
   /** Asset manager — hardware, software, and infrastructure asset lifecycle tracking. */
   readonly assets: AssetManager;
+  /** Expense manager — employee expense submissions, approval workflows, policy enforcement, and reimbursement tracking. */
+  readonly expenses: ExpenseManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -181,6 +184,7 @@ export class Olympus {
     this.comms = new CommunicationHub(this.bus);
     this.pricing = new PricingEngine(this.bus);
     this.assets = new AssetManager(this.bus);
+    this.expenses = new ExpenseManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -232,3 +236,4 @@ export { SupportTicketManager, type TicketPriority, type TicketStatus, type Tick
 export { CommunicationHub, type CommChannel, type EngagementType, type SequenceStatus, type MessageStatus, type SequenceStep, type CommSequence, type CommMessage, type EngagementEvent, type SequenceAnalytics, type CommSummary } from "./communication/index.js";
 export { PricingEngine, type BillingModel, type DiscountType, type QuoteStatus, type PricingTier, type Product as PricingProduct, type Discount as PricingDiscount, type QuoteLineItem, type Quote as PricingQuote, type PricingSummary } from "./pricing/index.js";
 export { AssetManager, type AssetType, type AssetStatus, type DepreciationMethod, type Asset, type DepreciationRecord, type AssetSummary } from "./assets/index.js";
+export { ExpenseManager, type ExpenseCategory, type ExpenseStatus, type Expense, type ExpensePolicy, type ExpenseSummary } from "./expenses/index.js";
