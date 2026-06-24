@@ -107,6 +107,8 @@ import { KPIDashboard } from "./kpi-dashboard/kpi-dashboard.js";
 import { FleetManager } from "./fleet/fleet-manager.js";
 import { SubscriptionManager } from "./subscription-mgr/subscription-manager.js";
 import { RealEstateManager } from "./real-estate/real-estate-manager.js";
+import { PermitManager } from "./permits/permit-manager.js";
+import { TaxManager } from "./tax-mgr/tax-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -302,6 +304,8 @@ export class Olympus {
   readonly subscriptionMgr: SubscriptionManager;
   /** Real estate manager — property portfolio management, valuation tracking, and rental income analytics. */
   readonly realEstate: RealEstateManager;
+  readonly permits: PermitManager;
+  readonly taxMgr: TaxManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -401,6 +405,8 @@ export class Olympus {
     this.fleet = new FleetManager(this.bus);
     this.subscriptionMgr = new SubscriptionManager(this.bus);
     this.realEstate = new RealEstateManager(this.bus);
+    this.permits = new PermitManager(this.bus);
+    this.taxMgr = new TaxManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -506,3 +512,5 @@ export { KPIDashboard, type KPIDirection, type KPIFrequency, type KPIDefinition,
 export { FleetManager, type VehicleStatus, type VehicleType, type IncidentSeverity as FleetIncidentSeverity, type Vehicle, type FleetIncident, type FleetSummary } from "./fleet/index.js";
 export { SubscriptionManager, type SubscriptionStatus, type BillingInterval, type SubscriptionPlan, type Subscription as SubMgrSubscription, type SubscriptionSummary } from "./subscription-mgr/index.js";
 export { RealEstateManager, type PropertyType, type PropertyStatus, type RELeaseStatus, type Property, type RELease, type RealEstateSummary } from "./real-estate/index.js";
+export { PermitManager, type PermitStatus, type PermitCategory, type BusinessPermit, type PermitInspection, type PermitSummary } from "./permits/index.js";
+export { TaxManager, type TaxType, type TaxFilingStatus, type TaxFrequency, type TaxObligation, type TaxPayment, type TaxSummary } from "./tax-mgr/index.js";

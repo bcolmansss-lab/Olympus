@@ -10,6 +10,8 @@ import type { IncomingMessage } from "node:http";
 import { EventBus } from "../events/event-bus.js";
 import { SubscriptionManager } from "../subscription-mgr/subscription-manager.js";
 import { RealEstateManager } from "../real-estate/real-estate-manager.js";
+import { PermitManager } from "../permits/permit-manager.js";
+import { TaxManager } from "../tax-mgr/tax-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -8676,5 +8678,126 @@ describe("RealEstateManager", () => {
     assert.equal(s.totalPortfolioValueUsd, 4500000);
     assert.equal(s.unrealizedGainUsd, 500000);
     assert.equal(s.monthlyRentalIncomeUsd, 40000);
+  });
+});
+
+describe("PermitManager", () => {
+  it("issuePermit stores permit and emits event", () => {
+    const bus = new EventBus();
+    const pm = new PermitManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("permits.permit_issued", (e) => { events.push(e.payload); });
+    const p = pm.issuePermit({ type: "business_license", name: "General Business License", issuingAuthority: "City of Miami", permitNumber: "BL-2026-001", status: "active", issuedAt: "2026-01-01", expiresAt: "2027-01-01", renewalLeadDays: 60, annualFeeUsd: 500 });
+    assert.ok(p.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("issuePermit emits permit_expiring when expires within 30 days", () => {
+    const bus = new EventBus();
+    const pm = new PermitManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("permits.permit_expiring", (e) => { events.push(e.payload); });
+    pm.issuePermit({ type: "fire", name: "Fire Safety Certificate", issuingAuthority: "Fire Dept", permitNumber: "FS-2026-001", status: "active", issuedAt: "2025-07-01", expiresAt: "2026-07-10", renewalLeadDays: 30, annualFeeUsd: 200 });
+    assert.equal(events.length, 1);
+  });
+
+  it("scheduleInspection stores inspection and emits event", () => {
+    const bus = new EventBus();
+    const pm = new PermitManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("permits.inspection_scheduled", (e) => { events.push(e.payload); });
+    const p = pm.issuePermit({ type: "health_safety", name: "Health Permit", issuingAuthority: "Health Dept", permitNumber: "HP-001", status: "active", issuedAt: "2026-01-01", expiresAt: "2027-01-01", renewalLeadDays: 45, annualFeeUsd: 300 });
+    const insp = pm.scheduleInspection(p.id, "2026-08-01", "Inspector Jones");
+    assert.ok(insp!.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("completeInspection records result", () => {
+    const bus = new EventBus();
+    const pm = new PermitManager(bus);
+    const p = pm.issuePermit({ type: "building", name: "Building Permit", issuingAuthority: "City Hall", permitNumber: "BP-001", status: "active", issuedAt: "2026-01-01", expiresAt: "2027-01-01", renewalLeadDays: 30, annualFeeUsd: 750 });
+    const insp = pm.scheduleInspection(p.id, "2026-09-01");
+    pm.completeInspection(insp!.id, true, "All clear");
+    assert.equal(pm.listInspections(p.id)[0]!.passed, true);
+  });
+
+  it("listPermits filters by status", () => {
+    const bus = new EventBus();
+    const pm = new PermitManager(bus);
+    pm.issuePermit({ type: "zoning", name: "Zoning Permit", issuingAuthority: "Planning Dept", permitNumber: "ZP-001", status: "active", issuedAt: "2026-01-01", expiresAt: "2030-01-01", renewalLeadDays: 90, annualFeeUsd: 1000 });
+    pm.issuePermit({ type: "environmental", name: "Env Permit", issuingAuthority: "EPA", permitNumber: "EP-001", status: "expired", issuedAt: "2020-01-01", expiresAt: "2025-12-31", renewalLeadDays: 60, annualFeeUsd: 2000 });
+    assert.equal(pm.listPermits("active").length, 1);
+    assert.equal(pm.listPermits().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const pm = new PermitManager(bus);
+    pm.issuePermit({ type: "food_service", name: "Food Service License", issuingAuthority: "Health Dept", permitNumber: "FS-001", status: "active", issuedAt: "2026-01-01", expiresAt: "2030-01-01", renewalLeadDays: 60, annualFeeUsd: 400 });
+    const s = pm.summary();
+    assert.equal(s.totalPermits, 1);
+    assert.equal(s.activePermits, 1);
+    assert.equal(s.totalAnnualFeesUsd, 400);
+  });
+});
+
+describe("TaxManager", () => {
+  it("createObligation stores obligation", () => {
+    const bus = new EventBus();
+    const tm = new TaxManager(bus);
+    const o = tm.createObligation({ taxType: "income", jurisdiction: "US-Federal", frequency: "annual", status: "upcoming", periodStart: "2026-01-01", periodEnd: "2026-12-31", dueDate: "2027-04-15", estimatedLiabilityUsd: 500000 });
+    assert.ok(o.id);
+    assert.equal(tm.getObligation(o.id)?.taxType, "income");
+  });
+
+  it("createObligation emits filing_due when due within 30 days", () => {
+    const bus = new EventBus();
+    const tm = new TaxManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("tax.filing_due", (e) => { events.push(e.payload); });
+    tm.createObligation({ taxType: "sales", jurisdiction: "FL", frequency: "monthly", status: "upcoming", periodStart: "2026-06-01", periodEnd: "2026-06-30", dueDate: "2026-07-10", estimatedLiabilityUsd: 12000 });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordPayment updates paidUsd and emits event", () => {
+    const bus = new EventBus();
+    const tm = new TaxManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("tax.payment_recorded", (e) => { events.push(e.payload); });
+    const o = tm.createObligation({ taxType: "payroll", jurisdiction: "US-Federal", frequency: "quarterly", status: "upcoming", periodStart: "2026-01-01", periodEnd: "2026-03-31", dueDate: "2026-04-30", estimatedLiabilityUsd: 80000 });
+    tm.recordPayment(o.id, 80000, "TXN-001", "ach");
+    assert.equal(tm.getObligation(o.id)!.paidUsd, 80000);
+    assert.equal(events.length, 1);
+  });
+
+  it("fileReturn sets status filed", () => {
+    const bus = new EventBus();
+    const tm = new TaxManager(bus);
+    const o = tm.createObligation({ taxType: "vat", jurisdiction: "EU-DE", frequency: "monthly", status: "upcoming", periodStart: "2026-05-01", periodEnd: "2026-05-31", dueDate: "2026-06-30", estimatedLiabilityUsd: 25000 });
+    tm.fileReturn(o.id, 24800);
+    assert.equal(tm.getObligation(o.id)!.status, "filed");
+    assert.equal(tm.getObligation(o.id)!.actualLiabilityUsd, 24800);
+  });
+
+  it("triggerAudit sets status under_audit and emits event", () => {
+    const bus = new EventBus();
+    const tm = new TaxManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("tax.audit_triggered", (e) => { events.push(e.payload); });
+    const o = tm.createObligation({ taxType: "income", jurisdiction: "US-Federal", frequency: "annual", status: "filed", periodStart: "2024-01-01", periodEnd: "2024-12-31", dueDate: "2025-04-15", estimatedLiabilityUsd: 450000 });
+    tm.triggerAudit(o.id, 2024);
+    assert.equal(tm.getObligation(o.id)!.status, "under_audit");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const tm = new TaxManager(bus);
+    tm.createObligation({ taxType: "property", jurisdiction: "Miami-Dade", frequency: "annual", status: "upcoming", periodStart: "2026-01-01", periodEnd: "2026-12-31", dueDate: "2026-11-01", estimatedLiabilityUsd: 150000 });
+    tm.createObligation({ taxType: "sales", jurisdiction: "FL", frequency: "monthly", status: "overdue", periodStart: "2026-04-01", periodEnd: "2026-04-30", dueDate: "2026-05-20", estimatedLiabilityUsd: 8000 });
+    const s = tm.summary();
+    assert.equal(s.totalObligations, 2);
+    assert.equal(s.overdue, 1);
+    assert.equal(s.totalEstimatedLiabilityUsd, 158000);
   });
 });
