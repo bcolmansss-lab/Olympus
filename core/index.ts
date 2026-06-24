@@ -89,6 +89,8 @@ import { DataWarehouse } from "./data-warehouse/data-warehouse.js";
 import { CostCenterManager } from "./cost-center/cost-center.js";
 import { GrantManager } from "./grants/grant-manager.js";
 import { ESGTracker } from "./esg/esg-tracker.js";
+import { InsuranceManager } from "./insurance/insurance-manager.js";
+import { WorkforceScheduler } from "./workforce-scheduler/workforce-scheduler.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -248,6 +250,10 @@ export class Olympus {
   readonly grants: GrantManager;
   /** ESG tracker — environmental/social/governance metrics, carbon tracking, DEI reporting. */
   readonly esg: ESGTracker;
+  /** Insurance manager — policy tracking, claims management, renewal alerts, coverage analysis. */
+  readonly insurance: InsuranceManager;
+  /** Workforce scheduler — shift scheduling, availability, overtime detection, labor cost forecasting. */
+  readonly workforceScheduler: WorkforceScheduler;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -329,6 +335,8 @@ export class Olympus {
     this.costCenter = new CostCenterManager(this.bus);
     this.grants = new GrantManager(this.bus);
     this.esg = new ESGTracker(this.bus);
+    this.insurance = new InsuranceManager(this.bus);
+    this.workforceScheduler = new WorkforceScheduler(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -417,3 +425,5 @@ export { DataWarehouse, type TableStatus, type ColumnType, type ColumnSchema, ty
 export { CostCenterManager, type CostCategory, type AllocationMethod, type CostCenter, type CostAllocation, type CostVarianceReport, type CostSummary } from "./cost-center/index.js";
 export { GrantManager, type GrantStatus, type GrantType, type GrantMilestone, type Grant, type GrantSummary } from "./grants/index.js";
 export { ESGTracker, type ESGCategory, type MetricFrequency, type ESGMetric, type ESGDataPoint, type ESGReport, type ESGSummary } from "./esg/index.js";
+export { InsuranceManager, type InsuranceType, type PolicyStatus, type ClaimStatus, type InsurancePolicy, type InsuranceClaim, type InsuranceSummary } from "./insurance/index.js";
+export { WorkforceScheduler, type ShiftStatus, type DayOfWeek, type ShiftTemplate, type Shift, type EmployeeAvailability, type ScheduleSummary } from "./workforce-scheduler/index.js";

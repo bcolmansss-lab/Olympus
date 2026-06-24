@@ -7390,3 +7390,134 @@ describe("ESGTracker", () => {
     assert.equal(s.byCategory.governance, 0);
   });
 });
+
+// ── InsuranceManager ──────────────────────────────────────────────────────────
+import { InsuranceManager } from "../insurance/insurance-manager.js";
+
+describe("InsuranceManager", () => {
+  it("addPolicy and fileClaim emits events", () => {
+    const bus = new EventBus();
+    const im = new InsuranceManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("insurance.claim_filed", (e) => { events.push(e.payload); });
+    const policy = im.addPolicy({ type: "cyber", carrier: "AIG", policyNumber: "CYB-2026-001", status: "active", coverageLimitUsd: 10000000, deductibleUsd: 50000, annualPremiumUsd: 120000, effectiveDate: "2026-01-01", expirationDate: "2027-01-01", notes: "Ransomware coverage included" });
+    im.fileClaim({ policyId: policy.id, type: "cyber", description: "Phishing incident", status: "filed", estimatedLossUsd: 200000 });
+    assert.equal(events.length, 1);
+  });
+
+  it("settleClaim emits settled event", () => {
+    const bus = new EventBus();
+    const im = new InsuranceManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("insurance.claim_settled", (e) => { events.push(e.payload); });
+    const policy = im.addPolicy({ type: "general_liability", carrier: "Chubb", policyNumber: "GL-001", status: "active", coverageLimitUsd: 5000000, deductibleUsd: 25000, annualPremiumUsd: 80000, effectiveDate: "2026-01-01", expirationDate: "2027-01-01", notes: "" });
+    const claim = im.fileClaim({ policyId: policy.id, type: "general_liability", description: "Slip and fall", status: "filed", estimatedLossUsd: 75000 })!;
+    im.settleClaim(claim.id, 60000, "settled out of court");
+    assert.equal(events.length, 1);
+    assert.equal(im.getClaim(claim.id)!.settledAmountUsd, 60000);
+  });
+
+  it("renewal_due event fires when policy expires within 30 days", () => {
+    const bus = new EventBus();
+    const im = new InsuranceManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("insurance.renewal_due", (e) => { events.push(e.payload); });
+    const soonExpiry = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
+    im.addPolicy({ type: "professional_liability", carrier: "Travelers", policyNumber: "PL-001", status: "active", coverageLimitUsd: 2000000, deductibleUsd: 10000, annualPremiumUsd: 45000, effectiveDate: "2025-07-01", expirationDate: soonExpiry, notes: "" });
+    assert.equal(events.length, 1);
+  });
+
+  it("renewPolicy updates expiration and premium", () => {
+    const bus = new EventBus();
+    const im = new InsuranceManager(bus);
+    const policy = im.addPolicy({ type: "umbrella", carrier: "Hartford", policyNumber: "U-001", status: "active", coverageLimitUsd: 20000000, deductibleUsd: 100000, annualPremiumUsd: 200000, effectiveDate: "2025-01-01", expirationDate: "2026-01-01", notes: "" });
+    im.renewPolicy(policy.id, "2027-01-01", 210000);
+    assert.equal(im.getPolicy(policy.id)!.expirationDate, "2027-01-01");
+    assert.equal(im.getPolicy(policy.id)!.annualPremiumUsd, 210000);
+  });
+
+  it("listClaims filters by policyId", () => {
+    const bus = new EventBus();
+    const im = new InsuranceManager(bus);
+    const p1 = im.addPolicy({ type: "property", carrier: "State Farm", policyNumber: "P-001", status: "active", coverageLimitUsd: 3000000, deductibleUsd: 5000, annualPremiumUsd: 30000, effectiveDate: "2026-01-01", expirationDate: "2027-01-01", notes: "" });
+    const p2 = im.addPolicy({ type: "workers_comp", carrier: "Liberty", policyNumber: "WC-001", status: "active", coverageLimitUsd: 1000000, deductibleUsd: 0, annualPremiumUsd: 25000, effectiveDate: "2026-01-01", expirationDate: "2027-01-01", notes: "" });
+    im.fileClaim({ policyId: p1.id, type: "property", description: "Flood damage", status: "filed", estimatedLossUsd: 50000 });
+    im.fileClaim({ policyId: p2.id, type: "workers_comp", description: "Workplace injury", status: "filed", estimatedLossUsd: 30000 });
+    assert.equal(im.listClaims(p1.id).length, 1);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const im = new InsuranceManager(bus);
+    im.addPolicy({ type: "cyber", carrier: "AXA", policyNumber: "C-1", status: "active", coverageLimitUsd: 5000000, deductibleUsd: 50000, annualPremiumUsd: 100000, effectiveDate: "2026-01-01", expirationDate: "2027-06-01", notes: "" });
+    const p = im.addPolicy({ type: "general_liability", carrier: "Zurich", policyNumber: "GL-1", status: "active", coverageLimitUsd: 2000000, deductibleUsd: 10000, annualPremiumUsd: 40000, effectiveDate: "2026-01-01", expirationDate: "2027-06-01", notes: "" });
+    im.fileClaim({ policyId: p.id, type: "general_liability", description: "Test", status: "filed", estimatedLossUsd: 10000 });
+    const s = im.summary();
+    assert.equal(s.activePolicies, 2);
+    assert.equal(s.openClaims, 1);
+    assert.equal(s.totalAnnualPremiumUsd, 140000);
+  });
+});
+
+// ── WorkforceScheduler ────────────────────────────────────────────────────────
+import { WorkforceScheduler } from "../workforce-scheduler/workforce-scheduler.js";
+
+describe("WorkforceScheduler", () => {
+  it("assignShift emits event", () => {
+    const bus = new EventBus();
+    const ws = new WorkforceScheduler(bus);
+    const events: unknown[] = [];
+    bus.subscribe("workforce.shift_assigned", (e) => { events.push(e.payload); });
+    ws.assignShift({ employeeId: "emp-1", role: "engineer", date: "2026-07-07", startTime: "09:00", endTime: "17:00", durationHours: 8, status: "scheduled" });
+    assert.equal(events.length, 1);
+  });
+
+  it("assignShift emits overtime_alert when >40h in week", () => {
+    const bus = new EventBus();
+    const ws = new WorkforceScheduler(bus);
+    const events: unknown[] = [];
+    bus.subscribe("workforce.overtime_alert", (e) => { events.push(e.payload); });
+    for (let d = 7; d <= 12; d++) {
+      ws.assignShift({ employeeId: "emp-2", role: "tech", date: `2026-07-0${d}`, startTime: "08:00", endTime: "16:00", durationHours: 8, status: "scheduled" });
+    }
+    assert.ok(events.length >= 1);
+  });
+
+  it("checkCoverageGap emits event when under-staffed", () => {
+    const bus = new EventBus();
+    const ws = new WorkforceScheduler(bus);
+    const events: unknown[] = [];
+    bus.subscribe("workforce.coverage_gap", (e) => { events.push(e.payload); });
+    ws.assignShift({ employeeId: "emp-3", role: "nurse", date: "2026-07-15", startTime: "07:00", endTime: "15:00", durationHours: 8, status: "confirmed" });
+    const gap = ws.checkCoverageGap("2026-07-15", "nurse", 3);
+    assert.equal(gap, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("updateShiftStatus transitions correctly", () => {
+    const bus = new EventBus();
+    const ws = new WorkforceScheduler(bus);
+    const shift = ws.assignShift({ employeeId: "emp-4", role: "driver", date: "2026-07-20", startTime: "06:00", endTime: "14:00", durationHours: 8, status: "scheduled" });
+    ws.updateShiftStatus(shift.id, "confirmed");
+    assert.equal(ws.getShift(shift.id)!.status, "confirmed");
+  });
+
+  it("listShifts filters by date and employee", () => {
+    const bus = new EventBus();
+    const ws = new WorkforceScheduler(bus);
+    ws.assignShift({ employeeId: "emp-5", role: "tech", date: "2026-08-01", startTime: "09:00", endTime: "17:00", durationHours: 8, status: "scheduled" });
+    ws.assignShift({ employeeId: "emp-6", role: "tech", date: "2026-08-02", startTime: "09:00", endTime: "17:00", durationHours: 8, status: "scheduled" });
+    assert.equal(ws.listShifts("2026-08-01").length, 1);
+    assert.equal(ws.listShifts(undefined, "emp-5").length, 1);
+  });
+
+  it("summary computes labor cost", () => {
+    const bus = new EventBus();
+    const ws = new WorkforceScheduler(bus);
+    ws.assignShift({ employeeId: "emp-7", role: "op", date: "2026-08-10", startTime: "08:00", endTime: "16:00", durationHours: 8, status: "confirmed" });
+    ws.assignShift({ employeeId: "emp-8", role: "op", date: "2026-08-10", startTime: "08:00", endTime: "16:00", durationHours: 8, status: "confirmed" });
+    const s = ws.summary(50); // $50/hr
+    assert.equal(s.estimatedLaborCostUsd, 800); // 16h * $50
+    assert.equal(s.confirmedShifts, 2);
+  });
+});
