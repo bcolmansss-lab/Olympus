@@ -18,6 +18,8 @@ import { TrainingManager } from "../training/training-manager.js";
 import { ProcurementEngine } from "../procurement-engine/procurement-engine.js";
 import { ContentManager } from "../content-mgr/content-manager.js";
 import { ProjectPortfolio } from "../project-portfolio/project-portfolio.js";
+import { CryptoTreasury } from "../crypto-treasury/crypto-treasury.js";
+import { BoardGovernance } from "../board-governance/board-governance.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -9186,5 +9188,129 @@ describe("ProjectPortfolio", () => {
     assert.equal(s.active, 1);
     assert.equal(s.completed, 1);
     assert.equal(s.totalBudgetUsd, 700000);
+  });
+});
+
+describe("CryptoTreasury", () => {
+  it("addWallet stores wallet", () => {
+    const bus = new EventBus();
+    const ct = new CryptoTreasury(bus);
+    const w = ct.addWallet({ name: "Main Cold Wallet", address: "0xABCD1234", type: "cold", chain: "ethereum", assets: { eth: 100, btc: 0, usdc: 0, usdt: 0, sol: 0, other: 0 }, usdValueCache: 300000 });
+    assert.ok(w.id);
+    assert.equal(ct.getWallet(w.id)?.name, "Main Cold Wallet");
+  });
+
+  it("recordTransaction emits event", () => {
+    const bus = new EventBus();
+    const ct = new CryptoTreasury(bus);
+    const events: unknown[] = [];
+    bus.subscribe("crypto.transaction_recorded", (e) => { events.push(e.payload); });
+    const w = ct.addWallet({ name: "Hot Wallet", address: "0xDEF5678", type: "hot", chain: "ethereum", assets: { eth: 50, btc: 0, usdc: 50000, usdt: 0, sol: 0, other: 0 }, usdValueCache: 200000 });
+    ct.recordTransaction({ walletId: w.id, txHash: "0xtxhash1", asset: "eth", quantity: 5, usdValueAtTime: 15000, direction: "inbound", recordedAt: new Date().toISOString() });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordTransaction emits large_movement for amounts >= 100k", () => {
+    const bus = new EventBus();
+    const ct = new CryptoTreasury(bus);
+    const events: unknown[] = [];
+    bus.subscribe("crypto.large_movement", (e) => { events.push(e.payload); });
+    const w = ct.addWallet({ name: "Multisig", address: "0xMULTI", type: "multisig", chain: "bitcoin", assets: { btc: 10, eth: 0, usdc: 0, usdt: 0, sol: 0, other: 0 }, usdValueCache: 600000 });
+    ct.recordTransaction({ walletId: w.id, txHash: "0xbig1", asset: "btc", quantity: 2, usdValueAtTime: 120000, direction: "outbound", recordedAt: new Date().toISOString() });
+    assert.equal(events.length, 1);
+  });
+
+  it("addStakingPosition and recordStakingReward emit event", () => {
+    const bus = new EventBus();
+    const ct = new CryptoTreasury(bus);
+    const events: unknown[] = [];
+    bus.subscribe("crypto.staking_reward", (e) => { events.push(e.payload); });
+    const w = ct.addWallet({ name: "Staking Wallet", address: "0xSTAKE", type: "defi", chain: "ethereum", assets: { eth: 200, btc: 0, usdc: 0, usdt: 0, sol: 0, other: 0 }, usdValueCache: 600000 });
+    const pos = ct.addStakingPosition({ walletId: w.id, asset: "eth", stakedQuantity: 100, apy: 4.5, startedAt: "2026-01-01" })!;
+    ct.recordStakingReward(pos.id, 1350);
+    assert.equal(ct.listStakingPositions(w.id)[0]!.totalRewardsUsd, 1350);
+    assert.equal(events.length, 1);
+  });
+
+  it("listTransactions filters by walletId", () => {
+    const bus = new EventBus();
+    const ct = new CryptoTreasury(bus);
+    const w1 = ct.addWallet({ name: "W1", address: "0xW1", type: "hot", chain: "ethereum", assets: { eth: 10, btc: 0, usdc: 0, usdt: 0, sol: 0, other: 0 }, usdValueCache: 30000 });
+    const w2 = ct.addWallet({ name: "W2", address: "0xW2", type: "cold", chain: "bitcoin", assets: { btc: 1, eth: 0, usdc: 0, usdt: 0, sol: 0, other: 0 }, usdValueCache: 60000 });
+    ct.recordTransaction({ walletId: w1.id, txHash: "0xt1", asset: "eth", quantity: 1, usdValueAtTime: 3000, direction: "inbound", recordedAt: new Date().toISOString() });
+    ct.recordTransaction({ walletId: w2.id, txHash: "0xt2", asset: "btc", quantity: 0.1, usdValueAtTime: 6000, direction: "inbound", recordedAt: new Date().toISOString() });
+    assert.equal(ct.listTransactions(w1.id).length, 1);
+    assert.equal(ct.listTransactions().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const ct = new CryptoTreasury(bus);
+    ct.addWallet({ name: "Treasury", address: "0xTREAS", type: "multisig", chain: "ethereum", assets: { eth: 500, btc: 0, usdc: 1000000, usdt: 0, sol: 0, other: 0 }, usdValueCache: 2500000 });
+    const s = ct.summary();
+    assert.equal(s.totalWallets, 1);
+    assert.equal(s.totalValueUsd, 2500000);
+  });
+});
+
+describe("BoardGovernance", () => {
+  it("appointDirector stores director and emits event", () => {
+    const bus = new EventBus();
+    const bg = new BoardGovernance(bus);
+    const events: unknown[] = [];
+    bus.subscribe("governance.director_appointed", (e) => { events.push(e.payload); });
+    const d = bg.appointDirector({ name: "Jane Smith", role: "independent", email: "jane@board.com", appointedAt: "2026-01-01", committees: ["audit"], active: true });
+    assert.ok(d.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("scheduleMeeting stores meeting and emits event", () => {
+    const bus = new EventBus();
+    const bg = new BoardGovernance(bus);
+    const events: unknown[] = [];
+    bus.subscribe("governance.meeting_scheduled", (e) => { events.push(e.payload); });
+    const m = bg.scheduleMeeting({ type: "board", status: "scheduled", scheduledAt: "2026-09-15T10:00:00Z", location: "Boardroom A", quorumRequired: 5, attendees: [], agendaItems: ["Q3 Results", "Budget 2027"] });
+    assert.ok(m.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordResolution passes when voteFor > voteAgainst and emits event", () => {
+    const bus = new EventBus();
+    const bg = new BoardGovernance(bus);
+    const events: unknown[] = [];
+    bus.subscribe("governance.resolution_passed", (e) => { events.push(e.payload); });
+    const m = bg.scheduleMeeting({ type: "board", status: "completed", scheduledAt: "2026-08-01T09:00:00Z", location: "Virtual", quorumRequired: 5, attendees: ["d1", "d2", "d3", "d4", "d5"], agendaItems: [] });
+    const r = bg.recordResolution({ meetingId: m.id, title: "Approve FY2027 Budget", description: "Ratify the FY2027 budget as presented", status: "proposed", voteFor: 5, voteAgainst: 1, voteAbstain: 0 });
+    assert.equal(r!.status, "passed");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordResolution fails when voteFor <= voteAgainst", () => {
+    const bus = new EventBus();
+    const bg = new BoardGovernance(bus);
+    const m = bg.scheduleMeeting({ type: "board", status: "completed", scheduledAt: "2026-07-01T09:00:00Z", location: "HQ", quorumRequired: 5, attendees: [], agendaItems: [] });
+    const r = bg.recordResolution({ meetingId: m.id, title: "Acquire StartupX", description: "Approve acquisition", status: "proposed", voteFor: 2, voteAgainst: 4, voteAbstain: 1 });
+    assert.equal(r!.status, "failed");
+  });
+
+  it("listDirectors filters by active", () => {
+    const bus = new EventBus();
+    const bg = new BoardGovernance(bus);
+    bg.appointDirector({ name: "Alice", role: "chairman", email: "alice@co.com", appointedAt: "2020-01-01", committees: [], active: true });
+    bg.appointDirector({ name: "Bob", role: "executive", email: "bob@co.com", appointedAt: "2019-01-01", expiresAt: "2024-12-31", committees: [], active: false });
+    assert.equal(bg.listDirectors(true).length, 1);
+    assert.equal(bg.listDirectors().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const bg = new BoardGovernance(bus);
+    bg.appointDirector({ name: "Dir1", role: "independent", email: "d1@co.com", appointedAt: "2025-01-01", committees: ["audit"], active: true });
+    const m = bg.scheduleMeeting({ type: "board", status: "completed", scheduledAt: "2026-03-01T09:00:00Z", location: "HQ", quorumRequired: 3, attendees: ["d1"], agendaItems: [] });
+    bg.recordResolution({ meetingId: m.id, title: "Approve Policy", description: "", status: "proposed", voteFor: 3, voteAgainst: 0, voteAbstain: 0 });
+    const s = bg.summary();
+    assert.equal(s.totalDirectors, 1);
+    assert.equal(s.totalMeetings, 1);
+    assert.equal(s.passedResolutions, 1);
   });
 });

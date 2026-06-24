@@ -115,6 +115,8 @@ import { TrainingManager } from "./training/training-manager.js";
 import { ProcurementEngine } from "./procurement-engine/procurement-engine.js";
 import { ContentManager } from "./content-mgr/content-manager.js";
 import { ProjectPortfolio } from "./project-portfolio/project-portfolio.js";
+import { CryptoTreasury } from "./crypto-treasury/crypto-treasury.js";
+import { BoardGovernance } from "./board-governance/board-governance.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -318,6 +320,8 @@ export class Olympus {
   readonly procurementEngine: ProcurementEngine;
   readonly contentMgr: ContentManager;
   readonly projectPortfolio: ProjectPortfolio;
+  readonly cryptoTreasury: CryptoTreasury;
+  readonly boardGovernance: BoardGovernance;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -425,6 +429,8 @@ export class Olympus {
     this.procurementEngine = new ProcurementEngine(this.bus);
     this.contentMgr = new ContentManager(this.bus);
     this.projectPortfolio = new ProjectPortfolio(this.bus);
+    this.cryptoTreasury = new CryptoTreasury(this.bus);
+    this.boardGovernance = new BoardGovernance(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -538,3 +544,5 @@ export { TrainingManager, type CourseStatus, type EnrollmentStatus, type Deliver
 export { ProcurementEngine, type RFQStatus, type BidStatus, type POApprovalStatus, type RFQ, type Bid, type ProcurementPO, type ProcurementSummary as PEProcurementSummary } from "./procurement-engine/index.js";
 export { ContentManager, type ContentType, type ContentStatus, type ContentItem, type EditorialCalendarEntry, type ContentSummary } from "./content-mgr/index.js";
 export { ProjectPortfolio, type PortfolioProjectStatus, type StrategicPillar as PPStrategicPillar, type PortfolioProject, type PortfolioSummary } from "./project-portfolio/index.js";
+export { CryptoTreasury, type WalletType, type AssetType as CryptoAssetType, type TxDirection, type CryptoWallet, type CryptoTransaction, type StakingPosition, type CryptoTreasurySummary } from "./crypto-treasury/index.js";
+export { BoardGovernance, type MeetingType, type MeetingStatus as BoardMeetingStatus, type DirectorRole, type ResolutionStatus, type BoardDirector, type BoardMeeting, type BoardResolution, type GovernanceSummary } from "./board-governance/index.js";
