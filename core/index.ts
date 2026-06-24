@@ -67,6 +67,8 @@ import { FeedbackEngine } from "./feedback/feedback-engine.js";
 import { FlagManager } from "./feature-flags/flag-manager.js";
 import { AccessControl } from "./access/access-control.js";
 import { NotificationCenter } from "./notifications-center/notification-center.js";
+import { StrategyEngine } from "./strategy/strategy-engine.js";
+import { OrgIntelligence } from "./org/org-intelligence.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -182,6 +184,10 @@ export class Olympus {
   readonly access: AccessControl;
   /** Notification center — user notification preferences, digest scheduling, and delivery tracking. */
   readonly notifCenter: NotificationCenter;
+  /** Strategy engine — company vision, strategic pillars, initiative tracking, and goal cascading. */
+  readonly strategy: StrategyEngine;
+  /** Org intelligence — org chart analysis, team topology, span of control, and org health metrics. */
+  readonly orgIntel: OrgIntelligence;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -241,6 +247,8 @@ export class Olympus {
     this.flags = new FlagManager(this.bus);
     this.access = new AccessControl(this.bus);
     this.notifCenter = new NotificationCenter(this.bus);
+    this.strategy = new StrategyEngine(this.bus);
+    this.orgIntel = new OrgIntelligence();
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -307,3 +315,5 @@ export { FeedbackEngine, type NpsCategory, type SurveyType, type FeedbackSentime
 export { FlagManager, type FlagStatus, type RolloutStrategy, type TargetingRule, type FeatureFlag, type Experiment as FlagExperiment, type FlagSummary } from "./feature-flags/index.js";
 export { AccessControl, type PrincipalType, type PermissionEffect, type Role, type Permission, type Principal, type ApiKey, type AccessDecision, type AccessSummary } from "./access/index.js";
 export { NotificationCenter, type NotifChannel, type NotifCategory, type DigestFrequency, type NotifPreference, type NotifMessage, type DigestEntry, type NotifCenterSummary } from "./notifications-center/index.js";
+export { StrategyEngine, type InitiativeStatus, type StrategicHorizon, type StrategicPillar, type Initiative, type Milestone, type StrategySummary } from "./strategy/index.js";
+export { OrgIntelligence, type TeamTopology, type OrgHealthDimension, type Team as OrgTeam, type SpanAnalysis, type OrgHealthReport } from "./org/index.js";

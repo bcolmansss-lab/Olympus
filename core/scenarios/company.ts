@@ -67,6 +67,8 @@ export function seedCompany(olympus: Olympus): void {
   seedFeatureFlags(olympus);
   seedAccessControl(olympus);
   seedNotifCenter(olympus);
+  seedStrategy(olympus);
+  seedOrgIntel(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -2485,5 +2487,144 @@ function seedNotifCenter(olympus: Olympus): void {
     body: "Your daily summary of company metrics and alerts",
     channel: "email",
     priority: "low",
+  });
+}
+
+function seedStrategy(olympus: Olympus): void {
+  const se = olympus.strategy;
+
+  const plg = se.addPillar({
+    id: "pillar-plg",
+    name: "Product-Led Growth",
+    description: "Drive adoption and expansion through product experience",
+    owner: "emp-cpo",
+    horizon: "now",
+  });
+  const enterprise = se.addPillar({
+    id: "pillar-enterprise",
+    name: "Enterprise Expansion",
+    description: "Land and expand enterprise accounts",
+    owner: "emp-cro",
+    horizon: "next",
+  });
+  const ops = se.addPillar({
+    id: "pillar-ops",
+    name: "Operational Excellence",
+    description: "Build scalable, reliable, and efficient operations",
+    owner: "emp-cto",
+    horizon: "now",
+  });
+
+  se.addInitiative({
+    id: "init-onboarding",
+    pillarId: plg.id,
+    title: "Launch self-serve onboarding",
+    description: "Build a fully self-serve onboarding flow for new users",
+    owner: "emp-pm1",
+    status: "on_track",
+    progressPct: 65,
+    startDate: isoDate(daysAgo(60)),
+    targetDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+  });
+  se.addInitiative({
+    id: "init-enterprise",
+    pillarId: enterprise.id,
+    title: "Close 5 enterprise logos",
+    description: "Sign 5 enterprise reference customers this quarter",
+    owner: "emp-ae1",
+    status: "at_risk",
+    progressPct: 40,
+    startDate: isoDate(daysAgo(45)),
+    targetDate: isoDate(new Date(Date.now() + 45 * 86400_000)),
+  });
+  se.addInitiative({
+    id: "init-latency",
+    pillarId: ops.id,
+    title: "Reduce p99 latency to 200ms",
+    description: "Profile and optimize API latency to sub-200ms p99",
+    owner: "emp-alice",
+    status: "on_track",
+    progressPct: 80,
+    startDate: isoDate(daysAgo(30)),
+    targetDate: isoDate(new Date(Date.now() + 14 * 86400_000)),
+  });
+  se.addInitiative({
+    id: "init-marketplace",
+    pillarId: plg.id,
+    title: "Build partner integration marketplace",
+    description: "Create a public marketplace for third-party integrations",
+    owner: "emp-pm2",
+    status: "not_started",
+    progressPct: 0,
+    startDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+    targetDate: isoDate(new Date(Date.now() + 180 * 86400_000)),
+  });
+  const soc2 = se.addInitiative({
+    id: "init-soc2",
+    pillarId: ops.id,
+    title: "SOC2 Type II certification",
+    description: "Achieve SOC2 Type II compliance for enterprise sales",
+    owner: "emp-security",
+    status: "on_track",
+    progressPct: 90,
+    startDate: isoDate(daysAgo(120)),
+    targetDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+  });
+
+  // Milestones for SOC2
+  const gap = se.addMilestone({
+    id: "ms-gap",
+    initiativeId: soc2.id,
+    title: "Complete gap assessment",
+    dueDate: isoDate(daysAgo(90)),
+  });
+  se.completeMilestone(gap.id);
+
+  const controls = se.addMilestone({
+    id: "ms-controls",
+    initiativeId: soc2.id,
+    title: "Implement controls",
+    dueDate: isoDate(daysAgo(30)),
+  });
+  se.completeMilestone(controls.id);
+
+  se.addMilestone({
+    id: "ms-audit",
+    initiativeId: soc2.id,
+    title: "External audit",
+    dueDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+  });
+}
+
+function seedOrgIntel(olympus: Olympus): void {
+  const oi = olympus.orgIntel;
+
+  oi.addTeam({
+    id: "team-platform",
+    name: "Platform Engineering",
+    topology: "platform",
+    managerId: "emp-cto",
+    memberIds: ["emp-alice", "emp-bob", "emp-dev1"],
+  });
+  oi.addTeam({
+    id: "team-product",
+    name: "Product",
+    topology: "stream_aligned",
+    managerId: "emp-cpo",
+    memberIds: ["emp-priya", "emp-james"],
+  });
+  oi.addTeam({
+    id: "team-cs",
+    name: "Customer Success",
+    topology: "enabling",
+    managerId: "emp-vp-cs",
+    memberIds: ["emp-carol"],
+  });
+  oi.addTeam({
+    id: "team-data",
+    name: "Data",
+    topology: "complicated_subsystem",
+    managerId: "emp-cto",
+    memberIds: ["emp-analyst1", "emp-analyst2", "emp-analyst3"],
   });
 }

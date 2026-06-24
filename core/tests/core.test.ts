@@ -5832,3 +5832,171 @@ describe("NotificationCenter", () => {
     assert.equal(s.pendingNotifications, 2);
   });
 });
+
+import { StrategyEngine } from "../strategy/strategy-engine.js";
+import { OrgIntelligence } from "../org/org-intelligence.js";
+
+describe("StrategyEngine", () => {
+  it("addInitiative stores under pillar", () => {
+    const bus = new EventBus();
+    const se = new StrategyEngine(bus);
+    const pillar = se.addPillar({ name: "Growth", description: "Grow revenue", owner: "ceo", horizon: "now" });
+    const init = se.addInitiative({
+      pillarId: pillar.id,
+      title: "Launch feature X",
+      description: "Ship feature X",
+      owner: "pm",
+      status: "on_track",
+      progressPct: 50,
+      startDate: "2025-01-01",
+      targetDate: "2025-06-01",
+    });
+    const list = se.listInitiatives(pillar.id);
+    assert.equal(list.length, 1);
+    assert.equal(list[0]!.id, init.id);
+  });
+
+  it("updateInitiative emits strategy.initiative_updated", () => {
+    const bus = new EventBus();
+    const se = new StrategyEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("strategy.initiative_updated", (e) => { events.push(e); });
+    const pillar = se.addPillar({ name: "P1", description: "", owner: "o", horizon: "now" });
+    const init = se.addInitiative({
+      pillarId: pillar.id,
+      title: "Init A",
+      description: "",
+      owner: "o",
+      status: "not_started",
+      progressPct: 0,
+      startDate: "2025-01-01",
+      targetDate: "2025-12-01",
+    });
+    se.updateInitiative(init.id, { status: "on_track", progressPct: 30 });
+    assert.equal(events.length, 1);
+  });
+
+  it("completeMilestone sets completed and emits event", () => {
+    const bus = new EventBus();
+    const se = new StrategyEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("strategy.milestone_completed", (e) => { events.push(e); });
+    const pillar = se.addPillar({ name: "P2", description: "", owner: "o", horizon: "now" });
+    const init = se.addInitiative({
+      pillarId: pillar.id,
+      title: "Init B",
+      description: "",
+      owner: "o",
+      status: "on_track",
+      progressPct: 0,
+      startDate: "2025-01-01",
+      targetDate: "2025-12-01",
+    });
+    const ms = se.addMilestone({ initiativeId: init.id, title: "M1", dueDate: "2025-06-01" });
+    const result = se.completeMilestone(ms.id);
+    assert.ok(result !== undefined);
+    assert.equal(result!.completed, true);
+    assert.ok(result!.completedAt !== undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("completeMilestone updates initiative progress", () => {
+    const bus = new EventBus();
+    const se = new StrategyEngine(bus);
+    const pillar = se.addPillar({ name: "P3", description: "", owner: "o", horizon: "now" });
+    const init = se.addInitiative({
+      pillarId: pillar.id,
+      title: "Init C",
+      description: "",
+      owner: "o",
+      status: "on_track",
+      progressPct: 0,
+      startDate: "2025-01-01",
+      targetDate: "2025-12-01",
+    });
+    const ms1 = se.addMilestone({ initiativeId: init.id, title: "M1", dueDate: "2025-03-01" });
+    se.addMilestone({ initiativeId: init.id, title: "M2", dueDate: "2025-06-01" });
+    se.completeMilestone(ms1.id);
+    const updated = se.getInitiative(init.id);
+    assert.equal(updated?.progressPct, 50);
+  });
+
+  it("summary computes onTrackPct", () => {
+    const bus = new EventBus();
+    const se = new StrategyEngine(bus);
+    const pillar = se.addPillar({ name: "P4", description: "", owner: "o", horizon: "now" });
+    se.addInitiative({ pillarId: pillar.id, title: "I1", description: "", owner: "o", status: "on_track", progressPct: 50, startDate: "2025-01-01", targetDate: "2025-12-01" });
+    se.addInitiative({ pillarId: pillar.id, title: "I2", description: "", owner: "o", status: "on_track", progressPct: 70, startDate: "2025-01-01", targetDate: "2025-12-01" });
+    se.addInitiative({ pillarId: pillar.id, title: "I3", description: "", owner: "o", status: "at_risk", progressPct: 20, startDate: "2025-01-01", targetDate: "2025-12-01" });
+    const s = se.summary();
+    // 2 on_track out of 3 active (none are not_started or cancelled)
+    assert.ok(Math.abs(s.onTrackPct - (2 / 3) * 100) < 0.01);
+  });
+
+  it("summary lists upcomingMilestones sorted by date", () => {
+    const bus = new EventBus();
+    const se = new StrategyEngine(bus);
+    const pillar = se.addPillar({ name: "P5", description: "", owner: "o", horizon: "now" });
+    const init = se.addInitiative({ pillarId: pillar.id, title: "I1", description: "", owner: "o", status: "on_track", progressPct: 0, startDate: "2025-01-01", targetDate: "2025-12-01" });
+    se.addMilestone({ initiativeId: init.id, title: "Late", dueDate: "2025-09-01" });
+    se.addMilestone({ initiativeId: init.id, title: "Early", dueDate: "2025-03-01" });
+    se.addMilestone({ initiativeId: init.id, title: "Mid", dueDate: "2025-06-01" });
+    const s = se.summary();
+    assert.equal(s.upcomingMilestones.length, 3);
+    assert.equal(s.upcomingMilestones[0]!.title, "Early");
+    assert.equal(s.upcomingMilestones[1]!.title, "Mid");
+    assert.equal(s.upcomingMilestones[2]!.title, "Late");
+  });
+});
+
+describe("OrgIntelligence", () => {
+  it("addTeam stores team", () => {
+    const oi = new OrgIntelligence();
+    const team = oi.addTeam({ name: "Engineering", topology: "platform", managerId: "mgr1", memberIds: ["e1", "e2", "e3"] });
+    assert.ok(oi.getTeam(team.id) !== undefined);
+    assert.equal(oi.getTeam(team.id)!.name, "Engineering");
+  });
+
+  it("analyzeSpans returns healthy for 3-8 reports", () => {
+    const oi = new OrgIntelligence();
+    oi.addTeam({ name: "Team A", topology: "stream_aligned", managerId: "mgr1", memberIds: ["e1", "e2", "e3", "e4", "e5"] });
+    const spans = oi.analyzeSpans();
+    assert.equal(spans.length, 1);
+    assert.equal(spans[0]!.recommendation, "healthy");
+  });
+
+  it("analyzeSpans returns too_narrow for <3", () => {
+    const oi = new OrgIntelligence();
+    oi.addTeam({ name: "Team B", topology: "enabling", managerId: "mgr2", memberIds: ["e1", "e2"] });
+    const spans = oi.analyzeSpans();
+    assert.equal(spans[0]!.recommendation, "too_narrow");
+  });
+
+  it("analyzeSpans returns too_wide for >8", () => {
+    const oi = new OrgIntelligence();
+    oi.addTeam({ name: "Team C", topology: "stream_aligned", managerId: "mgr3", memberIds: ["e1","e2","e3","e4","e5","e6","e7","e8","e9"] });
+    const spans = oi.analyzeSpans();
+    assert.equal(spans[0]!.recommendation, "too_wide");
+  });
+
+  it("generateHealthReport returns healthScore 0-100", () => {
+    const oi = new OrgIntelligence();
+    oi.addTeam({ name: "Platform", topology: "platform", managerId: "mgr1", memberIds: ["e1", "e2", "e3", "e4"] });
+    oi.addTeam({ name: "Product", topology: "stream_aligned", managerId: "mgr2", memberIds: ["e5", "e6", "e7"] });
+    const report = oi.generateHealthReport();
+    assert.ok(report.healthScore >= 0 && report.healthScore <= 100);
+    assert.ok(report.totalHeadcount > 0);
+  });
+
+  it("listTeams filters by topology", () => {
+    const oi = new OrgIntelligence();
+    oi.addTeam({ name: "Platform", topology: "platform", managerId: "m1", memberIds: ["e1", "e2", "e3"] });
+    oi.addTeam({ name: "Product", topology: "stream_aligned", managerId: "m2", memberIds: ["e4", "e5", "e6"] });
+    oi.addTeam({ name: "Enablement", topology: "enabling", managerId: "m3", memberIds: ["e7", "e8", "e9"] });
+    const platforms = oi.listTeams("platform");
+    assert.equal(platforms.length, 1);
+    assert.equal(platforms[0]!.name, "Platform");
+    const all = oi.listTeams();
+    assert.equal(all.length, 3);
+  });
+});
