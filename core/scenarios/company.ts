@@ -57,6 +57,7 @@ export function seedCompany(olympus: Olympus): void {
   seedKnowledgeBase(olympus);
   seedContractMgmt(olympus);
   seedPayroll(olympus);
+  seedInventory(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1792,4 +1793,18 @@ function seedPayroll(olympus: Olympus): void {
 
   payroll.processPayPeriod({ startDate: period1Start, endDate: period1End, frequency: "semimonthly", employeeIds: allEmployees });
   payroll.processPayPeriod({ startDate: period2Start, endDate: period2End, frequency: "semimonthly", employeeIds: allEmployees });
+}
+
+function seedInventory(olympus: Olympus): void {
+  const inv = olympus.inventory;
+
+  const laptop = inv.addSKU({ name: "Development Laptop", sku: "HW-001", category: "hardware", unitCostUsd: 1800, currentQty: 12, reservedQty: 0, reorderPoint: 3, reorderQty: 5, supplierName: "TechSupplier Inc" });
+  const chair = inv.addSKU({ name: "Office Chair", sku: "FURN-001", category: "furniture", unitCostUsd: 450, currentQty: 8, reservedQty: 0, reorderPoint: 5, reorderQty: 10, supplierName: "OfficePlus" });
+  inv.addSKU({ name: "API Credits Bundle", sku: "SW-001", category: "software", unitCostUsd: 500, currentQty: 2, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+  inv.addSKU({ name: "HDMI Cable 6ft", sku: "ACC-001", category: "accessories", unitCostUsd: 12, currentQty: 25, reservedQty: 0, reorderPoint: 10, reorderQty: 20 });
+  inv.addSKU({ name: "Standing Desk", sku: "FURN-002", category: "furniture", unitCostUsd: 800, currentQty: 0, reservedQty: 0, reorderPoint: 2, reorderQty: 3, supplierName: "OfficePlus" });
+
+  // Record movements
+  inv.recordMovement(laptop.id, "sale", -2, { notes: "Sold 2 laptops to new hires" });
+  inv.recordMovement(chair.id, "purchase", 5, { notes: "Received 5 chairs from OfficePlus" });
 }

@@ -57,6 +57,7 @@ import { ApplicantTracker } from "./recruitment/ats.js";
 import { KnowledgeBase } from "./knowledge-base/knowledge-base.js";
 import { ContractManager } from "./contracts-mgmt/contract-manager.js";
 import { PayrollEngine } from "./payroll/payroll-engine.js";
+import { InventoryManager } from "./inventory/inventory-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -152,6 +153,8 @@ export class Olympus {
   readonly contractMgmt: ContractManager;
   /** Payroll engine — pay period processing, compensation tracking, tax withholding, and payroll reporting. */
   readonly payroll: PayrollEngine;
+  /** Inventory manager — SKU catalog, stock levels, reorder alerts, and inventory valuation. */
+  readonly inventory: InventoryManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -201,6 +204,7 @@ export class Olympus {
     this.kb = new KnowledgeBase(this.bus);
     this.contractMgmt = new ContractManager(this.bus);
     this.payroll = new PayrollEngine(this.bus);
+    this.inventory = new InventoryManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -257,3 +261,4 @@ export { ApplicantTracker, type CandidateStage, type JobStatus, type InterviewTy
 export { KnowledgeBase, type ArticleStatus, type ArticleType, type Article as KBArticle, type Collection as KBCollection, type KBSummary } from "./knowledge-base/index.js";
 export { ContractManager, type ContractType, type ContractStatus as ContractMgmtStatus, type ContractParty, type Contract as ManagedContract, type ContractSummary as ContractMgmtSummary } from "./contracts-mgmt/index.js";
 export { PayrollEngine, type PayFrequency, type PayType, type CompensationComponent, type CompensationRecord, type PayStub, type PayPeriod, type PayrollSummary } from "./payroll/index.js";
+export { InventoryManager, type MovementType, type StockStatus, type SKU, type StockMovement, type InventorySummary } from "./inventory/index.js";

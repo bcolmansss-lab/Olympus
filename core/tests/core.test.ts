@@ -4919,3 +4919,78 @@ describe("PayrollEngine", () => {
     assert.equal(s.totalEmployees, 2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// InventoryManager
+// ---------------------------------------------------------------------------
+import { InventoryManager } from "../inventory/inventory-manager.js";
+describe("InventoryManager", () => {
+  it("addSKU sets status based on qty", () => {
+    const bus = new EventBus();
+    const inv = new InventoryManager(bus);
+    const inStock = inv.addSKU({ name: "Laptop", sku: "HW-1", category: "hardware", unitCostUsd: 1000, currentQty: 10, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+    const low = inv.addSKU({ name: "Cable", sku: "ACC-1", category: "accessories", unitCostUsd: 10, currentQty: 2, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+    const out = inv.addSKU({ name: "Desk", sku: "FURN-1", category: "furniture", unitCostUsd: 500, currentQty: 0, reservedQty: 0, reorderPoint: 2, reorderQty: 3 });
+    assert.equal(inStock.status, "in_stock");
+    assert.equal(low.status, "low_stock");
+    assert.equal(out.status, "out_of_stock");
+  });
+
+  it("recordMovement increases stock on purchase", () => {
+    const bus = new EventBus();
+    const inv = new InventoryManager(bus);
+    const sku = inv.addSKU({ name: "Chair", sku: "FURN-2", category: "furniture", unitCostUsd: 400, currentQty: 5, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+    inv.recordMovement(sku.id, "purchase", 10);
+    const updated = inv.getSKU(sku.id)!;
+    assert.equal(updated.currentQty, 15);
+  });
+
+  it("recordMovement emits inventory.stock_movement", () => {
+    const bus = new EventBus();
+    const inv = new InventoryManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("inventory.stock_movement", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    const sku = inv.addSKU({ name: "Monitor", sku: "HW-2", category: "hardware", unitCostUsd: 300, currentQty: 10, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+    inv.recordMovement(sku.id, "sale", -2);
+    assert.equal(events.length, 1);
+    const ev = events[0] as { skuId: string; type: string; quantity: number; newTotalQty: number };
+    assert.equal(ev.skuId, sku.id);
+    assert.equal(ev.type, "sale");
+    assert.equal(ev.quantity, -2);
+    assert.equal(ev.newTotalQty, 8);
+  });
+
+  it("recordMovement triggers low_stock alert when crossing threshold", () => {
+    const bus = new EventBus();
+    const inv = new InventoryManager(bus);
+    const lowEvents: unknown[] = [];
+    bus.subscribe("inventory.low_stock", (ev) => { lowEvents.push((ev as { payload: unknown }).payload); });
+    const sku = inv.addSKU({ name: "USB Hub", sku: "ACC-2", category: "accessories", unitCostUsd: 30, currentQty: 5, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+    inv.recordMovement(sku.id, "sale", -3); // drops to 2, crosses threshold
+    assert.equal(lowEvents.length, 1);
+    const ev = lowEvents[0] as { skuId: string; currentQty: number };
+    assert.equal(ev.skuId, sku.id);
+    assert.equal(ev.currentQty, 2);
+  });
+
+  it("reserve reduces available qty", () => {
+    const bus = new EventBus();
+    const inv = new InventoryManager(bus);
+    const sku = inv.addSKU({ name: "Keyboard", sku: "ACC-3", category: "accessories", unitCostUsd: 80, currentQty: 10, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+    const ok = inv.reserve(sku.id, 4);
+    assert.equal(ok, true);
+    assert.equal(inv.getSKU(sku.id)!.reservedQty, 4);
+    const fail = inv.reserve(sku.id, 7); // only 6 available
+    assert.equal(fail, false);
+  });
+
+  it("summary computes totalInventoryValueUsd", () => {
+    const bus = new EventBus();
+    const inv = new InventoryManager(bus);
+    inv.addSKU({ name: "Item A", sku: "X-1", category: "hardware", unitCostUsd: 100, currentQty: 3, reservedQty: 0, reorderPoint: 1, reorderQty: 2 });
+    inv.addSKU({ name: "Item B", sku: "X-2", category: "hardware", unitCostUsd: 200, currentQty: 5, reservedQty: 0, reorderPoint: 2, reorderQty: 3 });
+    const s = inv.summary();
+    assert.equal(s.totalInventoryValueUsd, 3 * 100 + 5 * 200); // 1300
+    assert.equal(s.totalSKUs, 2);
+  });
+});
