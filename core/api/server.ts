@@ -208,6 +208,10 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/facilities", handler: (_req, res) => res.json(200, { summary: this.olympus.facilities.summary(), locations: this.olympus.facilities.listLocations() }) },
       { method: "GET", pattern: "/v1/budget-planner", handler: (_req, res) => res.json(200, { summary: this.olympus.budgetPlanner.summary(), budgets: this.olympus.budgetPlanner.listBudgets() }) },
       { method: "GET", pattern: "/v1/campaigns", handler: (_req, res) => res.json(200, { summary: this.olympus.campaignMgr.summary(), campaigns: this.olympus.campaignMgr.listCampaigns() }) },
+      { method: "GET", pattern: "/v1/kpi-dashboard", handler: (_req, res) => res.json(200, { summary: this.olympus.kpiDashboard.summary(), kpis: this.olympus.kpiDashboard.listKPIs() }) },
+      { method: "GET", pattern: "/v1/fleet", handler: (_req, res) => res.json(200, { summary: this.olympus.fleet.summary(), vehicles: this.olympus.fleet.listVehicles() }) },
+      { method: "GET", pattern: "/v1/subscriptions", handler: (_req, res) => res.json(200, { summary: this.olympus.subscriptionMgr.summary(), subscriptions: this.olympus.subscriptionMgr.listSubscriptions() }) },
+      { method: "GET", pattern: "/v1/real-estate", handler: (_req, res) => res.json(200, { summary: this.olympus.realEstate.summary(), properties: this.olympus.realEstate.listProperties() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
 
 import { EventBus } from "../events/event-bus.js";
+import { SubscriptionManager } from "../subscription-mgr/subscription-manager.js";
+import { RealEstateManager } from "../real-estate/real-estate-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -7859,6 +7861,8 @@ import { ProductCatalog } from "../product-catalog/product-catalog.js";
 import { FacilitiesManager } from "../facilities/facilities-manager.js";
 import { BudgetPlanner } from "../budget-planner/budget-planner.js";
 import { CampaignManager } from "../campaign-mgr/campaign-manager.js";
+import { KPIDashboard } from "../kpi-dashboard/kpi-dashboard.js";
+import { FleetManager } from "../fleet/fleet-manager.js";
 import { ContractManager as NewContractManager } from "../contracts/contract-manager.js";
 
 describe("PricingOptimizer", () => {
@@ -8423,5 +8427,254 @@ describe("CampaignManager", () => {
     assert.equal(s.totalCampaigns, 2);
     assert.equal(s.activeCampaigns, 1);
     assert.equal(s.totalBudgetUsd, 15000);
+  });
+});
+
+describe("KPIDashboard", () => {
+  it("defineKPI stores KPI", () => {
+    const bus = new EventBus();
+    const kd = new KPIDashboard(bus);
+    const k = kd.defineKPI({ name: "ARR", description: "Annual Recurring Revenue", unit: "USD", direction: "higher_is_better", frequency: "monthly", target: 5000000, warningThreshold: 4000000, criticalThreshold: 3000000, ownerId: "cfo" });
+    assert.ok(k.id);
+    assert.equal(kd.getKPI(k.id)?.name, "ARR");
+  });
+
+  it("recordSnapshot emits snapshot_recorded event", () => {
+    const bus = new EventBus();
+    const kd = new KPIDashboard(bus);
+    const events: unknown[] = [];
+    bus.subscribe("kpi.snapshot_recorded", (e) => { events.push(e.payload); });
+    const k = kd.defineKPI({ name: "Churn Rate", description: "Monthly churn", unit: "%", direction: "lower_is_better", frequency: "monthly", target: 2, warningThreshold: 4, criticalThreshold: 6, ownerId: "csm" });
+    kd.recordSnapshot(k.id, 1.8);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordSnapshot emits threshold_breached when critical", () => {
+    const bus = new EventBus();
+    const kd = new KPIDashboard(bus);
+    const events: unknown[] = [];
+    bus.subscribe("kpi.threshold_breached", (e) => { events.push(e.payload); });
+    const k = kd.defineKPI({ name: "NPS", description: "Net Promoter Score", unit: "score", direction: "higher_is_better", frequency: "monthly", target: 50, warningThreshold: 30, criticalThreshold: 20, ownerId: "cx" });
+    kd.recordSnapshot(k.id, 15);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordSnapshot emits target_achieved when on target", () => {
+    const bus = new EventBus();
+    const kd = new KPIDashboard(bus);
+    const events: unknown[] = [];
+    bus.subscribe("kpi.target_achieved", (e) => { events.push(e.payload); });
+    const k = kd.defineKPI({ name: "CSAT", description: "Customer Satisfaction", unit: "%", direction: "higher_is_better", frequency: "monthly", target: 90, warningThreshold: 75, criticalThreshold: 60, ownerId: "cx" });
+    kd.recordSnapshot(k.id, 92);
+    assert.equal(events.length, 1);
+  });
+
+  it("latestValue returns most recent snapshot", () => {
+    const bus = new EventBus();
+    const kd = new KPIDashboard(bus);
+    const k = kd.defineKPI({ name: "MRR", description: "Monthly Recurring Revenue", unit: "USD", direction: "higher_is_better", frequency: "monthly", target: 400000, warningThreshold: 300000, criticalThreshold: 200000, ownerId: "cfo" });
+    kd.recordSnapshot(k.id, 350000);
+    kd.recordSnapshot(k.id, 380000);
+    assert.equal(kd.latestValue(k.id), 380000);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const kd = new KPIDashboard(bus);
+    const k = kd.defineKPI({ name: "Win Rate", description: "Sales win rate", unit: "%", direction: "higher_is_better", frequency: "weekly", target: 25, warningThreshold: 18, criticalThreshold: 10, ownerId: "sales" });
+    kd.recordSnapshot(k.id, 27);
+    const s = kd.summary();
+    assert.equal(s.totalKPIs, 1);
+    assert.equal(s.onTarget, 1);
+    assert.equal(s.totalSnapshots, 1);
+  });
+});
+
+describe("FleetManager", () => {
+  it("addVehicle stores vehicle", () => {
+    const bus = new EventBus();
+    const fm = new FleetManager(bus);
+    const v = fm.addVehicle({ plate: "ABC-123", make: "Toyota", model: "Camry", year: 2023, type: "sedan", status: "available", mileage: 5000, nextMaintenanceMileage: 10000, purchasePriceUsd: 28000 });
+    assert.ok(v.id);
+    assert.equal(fm.getVehicle(v.id)?.plate, "ABC-123");
+  });
+
+  it("assignDriver sets status assigned and emits event", () => {
+    const bus = new EventBus();
+    const fm = new FleetManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("fleet.vehicle_assigned", (e) => { events.push(e.payload); });
+    const v = fm.addVehicle({ plate: "XYZ-999", make: "Ford", model: "F-150", year: 2024, type: "truck", status: "available", mileage: 0, nextMaintenanceMileage: 5000, purchasePriceUsd: 45000 });
+    fm.assignDriver(v.id, "driver-1");
+    assert.equal(fm.getVehicle(v.id)!.status, "assigned");
+    assert.equal(events.length, 1);
+  });
+
+  it("reportIncident stores incident and emits event", () => {
+    const bus = new EventBus();
+    const fm = new FleetManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("fleet.incident_reported", (e) => { events.push(e.payload); });
+    const v = fm.addVehicle({ plate: "DEF-456", make: "Honda", model: "CR-V", year: 2022, type: "suv", status: "assigned", mileage: 12000, nextMaintenanceMileage: 15000, purchasePriceUsd: 32000 });
+    const inc = fm.reportIncident({ vehicleId: v.id, severity: "minor", description: "Fender scratch", repairCostUsd: 800, reportedAt: "2026-06-01" });
+    assert.ok(inc!.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("scheduleMaintenance sets status in_maintenance and emits event", () => {
+    const bus = new EventBus();
+    const fm = new FleetManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("fleet.maintenance_due", (e) => { events.push(e.payload); });
+    const v = fm.addVehicle({ plate: "GHI-789", make: "Chevy", model: "Malibu", year: 2021, type: "sedan", status: "available", mileage: 9500, nextMaintenanceMileage: 10000, purchasePriceUsd: 22000 });
+    fm.scheduleMaintenance(v.id, "oil_change", "2026-07-01");
+    assert.equal(fm.getVehicle(v.id)!.status, "in_maintenance");
+    assert.equal(events.length, 1);
+  });
+
+  it("listVehicles filters by status", () => {
+    const bus = new EventBus();
+    const fm = new FleetManager(bus);
+    fm.addVehicle({ plate: "AA-001", make: "Toyota", model: "Prius", year: 2023, type: "sedan", status: "available", mileage: 1000, nextMaintenanceMileage: 5000, purchasePriceUsd: 30000 });
+    fm.addVehicle({ plate: "BB-002", make: "Tesla", model: "Model 3", year: 2024, type: "electric", status: "assigned", mileage: 500, nextMaintenanceMileage: 8000, purchasePriceUsd: 42000 });
+    assert.equal(fm.listVehicles("available").length, 1);
+    assert.equal(fm.listVehicles().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const fm = new FleetManager(bus);
+    fm.addVehicle({ plate: "CC-003", make: "Ford", model: "Explorer", year: 2022, type: "suv", status: "available", mileage: 20000, nextMaintenanceMileage: 25000, purchasePriceUsd: 38000 });
+    const s = fm.summary();
+    assert.equal(s.totalVehicles, 1);
+    assert.equal(s.available, 1);
+    assert.equal(s.fleetValueUsd, 38000);
+  });
+});
+
+describe("SubscriptionManager", () => {
+  it("createPlan stores plan", () => {
+    const bus = new EventBus();
+    const sm = new SubscriptionManager(bus);
+    const p = sm.createPlan({ name: "Pro", description: "Professional plan", monthlyPriceUsd: 99, annualPriceUsd: 999, features: ["sso", "api"], maxUsers: 50, active: true });
+    assert.ok(p.id);
+    assert.equal(sm.listPlans()[0]?.name, "Pro");
+  });
+
+  it("subscribe activates and emits event", () => {
+    const bus = new EventBus();
+    const sm = new SubscriptionManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("subscription.activated", (e) => { events.push(e.payload); });
+    sm.subscribe({ customerId: "cust-1", planId: "plan-pro", status: "active", billingInterval: "monthly", mrrUsd: 99, currentPeriodStart: "2026-07-01", currentPeriodEnd: "2026-07-31" });
+    assert.equal(events.length, 1);
+  });
+
+  it("cancelSubscription sets status and emits event", () => {
+    const bus = new EventBus();
+    const sm = new SubscriptionManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("subscription.cancelled", (e) => { events.push(e.payload); });
+    const sub = sm.subscribe({ customerId: "cust-2", planId: "plan-basic", status: "active", billingInterval: "monthly", mrrUsd: 49, currentPeriodStart: "2026-06-01", currentPeriodEnd: "2026-06-30" });
+    sm.cancelSubscription(sub.id, "too expensive");
+    assert.equal(sm.getSubscription(sub.id)!.status, "cancelled");
+    assert.equal(events.length, 1);
+  });
+
+  it("upgradePlan updates mrr and emits event", () => {
+    const bus = new EventBus();
+    const sm = new SubscriptionManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("subscription.upgraded", (e) => { events.push(e.payload); });
+    const sub = sm.subscribe({ customerId: "cust-3", planId: "plan-starter", status: "active", billingInterval: "monthly", mrrUsd: 29, currentPeriodStart: "2026-07-01", currentPeriodEnd: "2026-07-31" });
+    sm.upgradePlan(sub.id, "plan-pro", 99);
+    assert.equal(sm.getSubscription(sub.id)!.mrrUsd, 99);
+    assert.equal(events.length, 1);
+  });
+
+  it("listSubscriptions filters by status", () => {
+    const bus = new EventBus();
+    const sm = new SubscriptionManager(bus);
+    sm.subscribe({ customerId: "c1", planId: "p1", status: "active", billingInterval: "monthly", mrrUsd: 99, currentPeriodStart: "2026-01-01", currentPeriodEnd: "2026-01-31" });
+    sm.subscribe({ customerId: "c2", planId: "p1", status: "trial", billingInterval: "monthly", mrrUsd: 0, currentPeriodStart: "2026-01-01", currentPeriodEnd: "2026-01-14" });
+    assert.equal(sm.listSubscriptions("active").length, 1);
+    assert.equal(sm.listSubscriptions().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const sm = new SubscriptionManager(bus);
+    sm.subscribe({ customerId: "c1", planId: "p1", status: "active", billingInterval: "monthly", mrrUsd: 500, currentPeriodStart: "2026-01-01", currentPeriodEnd: "2026-01-31" });
+    sm.subscribe({ customerId: "c2", planId: "p1", status: "active", billingInterval: "monthly", mrrUsd: 300, currentPeriodStart: "2026-01-01", currentPeriodEnd: "2026-01-31" });
+    const s = sm.summary();
+    assert.equal(s.totalSubscriptions, 2);
+    assert.equal(s.activeSubscriptions, 2);
+    assert.equal(s.totalMrrUsd, 800);
+    assert.equal(s.totalArrUsd, 9600);
+  });
+});
+
+describe("RealEstateManager", () => {
+  it("acquireProperty stores property and emits event", () => {
+    const bus = new EventBus();
+    const re = new RealEstateManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("realestate.property_acquired", (e) => { events.push(e.payload); });
+    const p = re.acquireProperty({ address: "123 Main St", city: "Miami", country: "US", type: "office", status: "owned", sqft: 5000, purchasePriceUsd: 2000000, currentValueUsd: 2000000, annualTaxUsd: 40000, acquisitionDate: "2026-01-01" });
+    assert.ok(p.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("signLease updates property status and emits event", () => {
+    const bus = new EventBus();
+    const re = new RealEstateManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("realestate.lease_signed", (e) => { events.push(e.payload); });
+    const p = re.acquireProperty({ address: "456 Oak Ave", city: "Austin", country: "US", type: "retail", status: "vacant", sqft: 2000, purchasePriceUsd: 800000, currentValueUsd: 800000, annualTaxUsd: 16000, acquisitionDate: "2025-06-01" });
+    re.signLease({ propertyId: p.id, tenant: "Acme Retail", status: "active", monthlyRentUsd: 8000, startDate: "2026-07-01", endDate: "2027-06-30", depositUsd: 16000 });
+    assert.equal(re.getProperty(p.id)!.status, "leased_out");
+    assert.equal(events.length, 1);
+  });
+
+  it("updateValuation emits event", () => {
+    const bus = new EventBus();
+    const re = new RealEstateManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("realestate.valuation_updated", (e) => { events.push(e.payload); });
+    const p = re.acquireProperty({ address: "789 Pine Rd", city: "Chicago", country: "US", type: "industrial", status: "owned", sqft: 20000, purchasePriceUsd: 5000000, currentValueUsd: 5000000, annualTaxUsd: 100000, acquisitionDate: "2024-01-01" });
+    re.updateValuation(p.id, 5500000);
+    assert.equal(re.getProperty(p.id)!.currentValueUsd, 5500000);
+    assert.equal(events.length, 1);
+  });
+
+  it("listProperties filters by status", () => {
+    const bus = new EventBus();
+    const re = new RealEstateManager(bus);
+    re.acquireProperty({ address: "A", city: "NYC", country: "US", type: "office", status: "owned", sqft: 1000, purchasePriceUsd: 1000000, currentValueUsd: 1000000, annualTaxUsd: 20000, acquisitionDate: "2026-01-01" });
+    re.acquireProperty({ address: "B", city: "LA", country: "US", type: "retail", status: "vacant", sqft: 500, purchasePriceUsd: 500000, currentValueUsd: 500000, annualTaxUsd: 10000, acquisitionDate: "2026-01-01" });
+    assert.equal(re.listProperties("vacant").length, 1);
+    assert.equal(re.listProperties().length, 2);
+  });
+
+  it("listLeases filters by propertyId and status", () => {
+    const bus = new EventBus();
+    const re = new RealEstateManager(bus);
+    const p = re.acquireProperty({ address: "C", city: "Houston", country: "US", type: "office", status: "owned", sqft: 3000, purchasePriceUsd: 1500000, currentValueUsd: 1500000, annualTaxUsd: 30000, acquisitionDate: "2025-01-01" });
+    re.signLease({ propertyId: p.id, tenant: "TechCo", status: "active", monthlyRentUsd: 15000, startDate: "2026-01-01", endDate: "2027-01-01", depositUsd: 30000 });
+    assert.equal(re.listLeases(p.id).length, 1);
+    assert.equal(re.listLeases(p.id, "active").length, 1);
+    assert.equal(re.listLeases(p.id, "expired").length, 0);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const re = new RealEstateManager(bus);
+    const p = re.acquireProperty({ address: "D", city: "SF", country: "US", type: "mixed_use", status: "owned", sqft: 8000, purchasePriceUsd: 4000000, currentValueUsd: 4500000, annualTaxUsd: 80000, acquisitionDate: "2023-01-01" });
+    re.signLease({ propertyId: p.id, tenant: "StartupCo", status: "active", monthlyRentUsd: 40000, startDate: "2026-01-01", endDate: "2027-01-01", depositUsd: 80000 });
+    const s = re.summary();
+    assert.equal(s.totalProperties, 1);
+    assert.equal(s.totalPortfolioValueUsd, 4500000);
+    assert.equal(s.unrealizedGainUsd, 500000);
+    assert.equal(s.monthlyRentalIncomeUsd, 40000);
   });
 });

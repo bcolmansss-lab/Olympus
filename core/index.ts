@@ -103,6 +103,10 @@ import { FacilitiesManager } from "./facilities/facilities-manager.js";
 import { ContractManager as NewContractManager } from "./contracts/contract-manager.js";
 import { BudgetPlanner } from "./budget-planner/budget-planner.js";
 import { CampaignManager } from "./campaign-mgr/campaign-manager.js";
+import { KPIDashboard } from "./kpi-dashboard/kpi-dashboard.js";
+import { FleetManager } from "./fleet/fleet-manager.js";
+import { SubscriptionManager } from "./subscription-mgr/subscription-manager.js";
+import { RealEstateManager } from "./real-estate/real-estate-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -290,6 +294,14 @@ export class Olympus {
   readonly budgetPlanner: BudgetPlanner;
   /** Campaign manager — marketing campaign lifecycle, A/B testing, spend management, ROI analytics. */
   readonly campaignMgr: CampaignManager;
+  /** KPI dashboard — KPI definition, target tracking, threshold alerting, and trend analysis. */
+  readonly kpiDashboard: KPIDashboard;
+  /** Fleet manager — vehicle/asset fleet management, maintenance scheduling, and cost analytics. */
+  readonly fleet: FleetManager;
+  /** Subscription manager — recurring subscription lifecycle, plan management, trial tracking, and MRR analytics. */
+  readonly subscriptionMgr: SubscriptionManager;
+  /** Real estate manager — property portfolio management, valuation tracking, and rental income analytics. */
+  readonly realEstate: RealEstateManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -385,6 +397,10 @@ export class Olympus {
     this.contracts = new NewContractManager(this.bus);
     this.budgetPlanner = new BudgetPlanner(this.bus);
     this.campaignMgr = new CampaignManager(this.bus);
+    this.kpiDashboard = new KPIDashboard(this.bus);
+    this.fleet = new FleetManager(this.bus);
+    this.subscriptionMgr = new SubscriptionManager(this.bus);
+    this.realEstate = new RealEstateManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -486,3 +502,7 @@ export { ProductCatalog, type ProductStatus, type ProductType, type ProductVaria
 export { FacilitiesManager, type LeaseStatus, type MaintenanceStatus, type MaintenancePriority, type FacilityLocation, type MaintenanceRequest, type RoomBooking, type FacilitiesSummary } from "./facilities/index.js";
 export { BudgetPlanner, type BudgetStatus, type BudgetPeriod, type BudgetLineItem, type Budget, type BudgetSummary } from "./budget-planner/index.js";
 export { CampaignManager, type CampaignStatus, type CampaignChannel, type CampaignVariant, type Campaign as MgrCampaign, type CampaignSummary } from "./campaign-mgr/index.js";
+export { KPIDashboard, type KPIDirection, type KPIFrequency, type KPIDefinition, type KPISnapshot, type KPIDashboardConfig, type KPISummary } from "./kpi-dashboard/index.js";
+export { FleetManager, type VehicleStatus, type VehicleType, type IncidentSeverity as FleetIncidentSeverity, type Vehicle, type FleetIncident, type FleetSummary } from "./fleet/index.js";
+export { SubscriptionManager, type SubscriptionStatus, type BillingInterval, type SubscriptionPlan, type Subscription as SubMgrSubscription, type SubscriptionSummary } from "./subscription-mgr/index.js";
+export { RealEstateManager, type PropertyType, type PropertyStatus, type RELeaseStatus, type Property, type RELease, type RealEstateSummary } from "./real-estate/index.js";
