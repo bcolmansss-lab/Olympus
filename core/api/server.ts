@@ -163,6 +163,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/recruitment", handler: (_req, res) => res.json(200, { metrics: this.olympus.recruitment.metrics(), openRoles: this.olympus.recruitment.listRequisitions("open") }) },
       { method: "GET", pattern: "/v1/kb", handler: (_req, res) => res.json(200, { summary: this.olympus.kb.summary(), collections: this.olympus.kb.listCollections() }) },
       { method: "GET", pattern: "/v1/contracts-mgmt", handler: (_req, res) => res.json(200, { summary: this.olympus.contractMgmt.summary(), expiring: this.olympus.contractMgmt.checkExpirations() }) },
+      { method: "GET", pattern: "/v1/payroll", handler: (_req, res) => res.json(200, { summary: this.olympus.payroll.summary(), recentPeriods: this.olympus.payroll.listPeriods().slice(-3) }) },
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
           startingArrUsd: 3_200_000,

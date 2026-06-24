@@ -4843,3 +4843,79 @@ describe("ContractManager", () => {
     assert.equal(s.byStatus["terminated"], 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PayrollEngine
+// ---------------------------------------------------------------------------
+import { PayrollEngine } from "../payroll/payroll-engine.js";
+
+describe("PayrollEngine", () => {
+  it("setCompensation stores record", () => {
+    const bus = new EventBus();
+    const engine = new PayrollEngine(bus);
+    engine.setCompensation({ employeeId: "emp-1", annualSalaryUsd: 120_000, payType: "salary", payFrequency: "biweekly", effectiveDate: "2025-01-01" });
+    const rec = engine.getCompensation("emp-1");
+    assert.ok(rec);
+    assert.equal(rec.annualSalaryUsd, 120_000);
+    assert.equal(rec.employeeId, "emp-1");
+  });
+
+  it("setCompensation emits payroll.compensation_updated when previous salary provided", () => {
+    const bus = new EventBus();
+    const engine = new PayrollEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("payroll.compensation_updated", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    engine.setCompensation({ employeeId: "emp-2", annualSalaryUsd: 150_000, payType: "salary", payFrequency: "semimonthly", effectiveDate: "2025-06-01", previousSalaryUsd: 130_000 });
+    assert.equal(events.length, 1);
+    const ev = events[0] as { employeeId: string; oldSalaryUsd: number; newSalaryUsd: number };
+    assert.equal(ev.employeeId, "emp-2");
+    assert.equal(ev.oldSalaryUsd, 130_000);
+    assert.equal(ev.newSalaryUsd, 150_000);
+  });
+
+  it("processPayPeriod creates stubs for all employees", () => {
+    const bus = new EventBus();
+    const engine = new PayrollEngine(bus);
+    engine.setCompensation({ employeeId: "emp-a", annualSalaryUsd: 100_000, payType: "salary", payFrequency: "monthly", effectiveDate: "2025-01-01" });
+    engine.setCompensation({ employeeId: "emp-b", annualSalaryUsd: 80_000, payType: "salary", payFrequency: "monthly", effectiveDate: "2025-01-01" });
+    const period = engine.processPayPeriod({ startDate: "2025-05-01", endDate: "2025-05-31", frequency: "monthly", employeeIds: ["emp-a", "emp-b"] });
+    assert.equal(period.employeeCount, 2);
+    const stubs = engine.getStubsForPeriod(period.id);
+    assert.equal(stubs.length, 2);
+  });
+
+  it("net pay is less than gross pay", () => {
+    const bus = new EventBus();
+    const engine = new PayrollEngine(bus);
+    engine.setCompensation({ employeeId: "emp-c", annualSalaryUsd: 144_000, payType: "salary", payFrequency: "monthly", effectiveDate: "2025-01-01" });
+    const period = engine.processPayPeriod({ startDate: "2025-05-01", endDate: "2025-05-31", frequency: "monthly", employeeIds: ["emp-c"] });
+    const stubs = engine.getStubsForPeriod(period.id);
+    assert.equal(stubs.length, 1);
+    const stub = stubs[0]!;
+    assert.ok(stub.netPayUsd < stub.grossPayUsd);
+  });
+
+  it("processPayPeriod emits payroll.period_processed", () => {
+    const bus = new EventBus();
+    const engine = new PayrollEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("payroll.period_processed", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    engine.setCompensation({ employeeId: "emp-d", annualSalaryUsd: 96_000, payType: "salary", payFrequency: "biweekly", effectiveDate: "2025-01-01" });
+    engine.processPayPeriod({ startDate: "2025-05-01", endDate: "2025-05-14", frequency: "biweekly", employeeIds: ["emp-d"] });
+    assert.equal(events.length, 1);
+    const ev = events[0] as { periodId: string; employeeCount: number };
+    assert.ok(ev.periodId);
+    assert.equal(ev.employeeCount, 1);
+  });
+
+  it("summary computes monthlyPayrollUsd correctly", () => {
+    const bus = new EventBus();
+    const engine = new PayrollEngine(bus);
+    engine.setCompensation({ employeeId: "emp-e", annualSalaryUsd: 120_000, payType: "salary", payFrequency: "monthly", effectiveDate: "2025-01-01" });
+    engine.setCompensation({ employeeId: "emp-f", annualSalaryUsd: 60_000, payType: "salary", payFrequency: "monthly", effectiveDate: "2025-01-01" });
+    const s = engine.summary();
+    assert.equal(s.monthlyPayrollUsd, (120_000 + 60_000) / 12);
+    assert.equal(s.annualPayrollUsd, 180_000);
+    assert.equal(s.totalEmployees, 2);
+  });
+});

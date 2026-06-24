@@ -56,6 +56,7 @@ export function seedCompany(olympus: Olympus): void {
   seedRecruitment(olympus);
   seedKnowledgeBase(olympus);
   seedContractMgmt(olympus);
+  seedPayroll(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1764,4 +1765,31 @@ export function seedContractMgmt(olympus: Olympus): void {
     terminatedAt: isoDate(daysAgo(30)),
     terminationReason: "Office moved to remote-first",
   });
+}
+
+function seedPayroll(olympus: Olympus): void {
+  const payroll = olympus.payroll;
+
+  // Set compensation for 6 employees
+  payroll.setCompensation({ employeeId: "emp-priya", annualSalaryUsd: 185_000, payType: "salary", payFrequency: "semimonthly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-james", annualSalaryUsd: 145_000, payType: "salary", payFrequency: "biweekly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-alice", annualSalaryUsd: 165_000, payType: "salary", payFrequency: "semimonthly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-bob", annualSalaryUsd: 135_000, payType: "salary", payFrequency: "biweekly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-carol", annualSalaryUsd: 120_000, payType: "salary", payFrequency: "monthly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-dev1", annualSalaryUsd: 155_000, payType: "salary", payFrequency: "semimonthly", effectiveDate: isoDate(daysAgo(180)) });
+
+  const allEmployees = ["emp-priya", "emp-james", "emp-alice", "emp-bob", "emp-carol", "emp-dev1"];
+
+  // Last month's two semi-monthly periods (1st–15th and 16th–end)
+  const now = new Date();
+  const lastMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+  const lastMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+
+  const period1Start = isoDate(new Date(lastMonthYear, lastMonth, 1));
+  const period1End = isoDate(new Date(lastMonthYear, lastMonth, 15));
+  const period2Start = isoDate(new Date(lastMonthYear, lastMonth, 16));
+  const period2End = isoDate(new Date(lastMonthYear, lastMonth + 1, 0));
+
+  payroll.processPayPeriod({ startDate: period1Start, endDate: period1End, frequency: "semimonthly", employeeIds: allEmployees });
+  payroll.processPayPeriod({ startDate: period2Start, endDate: period2End, frequency: "semimonthly", employeeIds: allEmployees });
 }
