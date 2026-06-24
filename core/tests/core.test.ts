@@ -3904,3 +3904,116 @@ describe("SupportTicketManager", () => {
     assert.equal(m.byStatus.open, 1);
   });
 });
+
+import { CommunicationHub } from "../communication/communication-hub.js";
+
+describe("CommunicationHub", () => {
+  it("createSequence stores and returns sequence", () => {
+    const bus = new EventBus();
+    const hub = new CommunicationHub(bus);
+    const seq = hub.createSequence({
+      name: "Test Sequence",
+      description: "A test sequence",
+      status: "active",
+      steps: [
+        { stepNumber: 1, channel: "email", delayDays: 0, subject: "Hello", bodyTemplate: "Hi {{firstName}}" },
+      ],
+    });
+    assert.equal(seq.name, "Test Sequence");
+    assert.equal(hub.getSequence(seq.id)?.id, seq.id);
+    assert.equal(hub.listSequences().length, 1);
+  });
+
+  it("enrollContact creates one message per step", () => {
+    const bus = new EventBus();
+    const hub = new CommunicationHub(bus);
+    const seq = hub.createSequence({
+      name: "Multi-step",
+      description: "desc",
+      status: "active",
+      steps: [
+        { stepNumber: 1, channel: "email", delayDays: 0, bodyTemplate: "Step 1" },
+        { stepNumber: 2, channel: "email", delayDays: 3, bodyTemplate: "Step 2" },
+        { stepNumber: 3, channel: "linkedin", delayDays: 7, bodyTemplate: "Step 3" },
+      ],
+    });
+    const msgs = hub.enrollContact(seq.id, "contact-a");
+    assert.equal(msgs.length, 3);
+    assert.equal(msgs[0]!.stepNumber, 1);
+    assert.equal(msgs[1]!.stepNumber, 2);
+    assert.equal(msgs[2]!.stepNumber, 3);
+    assert.equal(msgs[2]!.channel, "linkedin");
+  });
+
+  it("sendMessage emits comms.message_sent", () => {
+    const bus = new EventBus();
+    const hub = new CommunicationHub(bus);
+    const events: unknown[] = [];
+    bus.subscribe("comms.message_sent", (e) => { events.push(e.payload); });
+    const seq = hub.createSequence({
+      name: "Seq",
+      description: "d",
+      status: "active",
+      steps: [{ stepNumber: 1, channel: "email", delayDays: 0, bodyTemplate: "Hi" }],
+    });
+    const [msg] = hub.enrollContact(seq.id, "contact-b");
+    hub.sendMessage(msg!.id);
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { contactId: string }).contactId, "contact-b");
+    assert.equal(hub.getMessage(msg!.id)?.status, "sent");
+  });
+
+  it("recordEngagement emits comms.engagement and appends event", () => {
+    const bus = new EventBus();
+    const hub = new CommunicationHub(bus);
+    const events: unknown[] = [];
+    bus.subscribe("comms.engagement", (e) => { events.push(e.payload); });
+    const seq = hub.createSequence({
+      name: "Seq",
+      description: "d",
+      status: "active",
+      steps: [{ stepNumber: 1, channel: "email", delayDays: 0, bodyTemplate: "Hi" }],
+    });
+    const [msg] = hub.enrollContact(seq.id, "contact-c");
+    hub.sendMessage(msg!.id);
+    hub.recordEngagement(msg!.id, "open");
+    assert.equal(events.length, 1);
+    assert.equal((events[0] as { type: string }).type, "open");
+    assert.equal(hub.getMessage(msg!.id)?.engagements.length, 1);
+  });
+
+  it("getSequenceAnalytics computes open rate correctly", () => {
+    const bus = new EventBus();
+    const hub = new CommunicationHub(bus);
+    const seq = hub.createSequence({
+      name: "Analytics Seq",
+      description: "d",
+      status: "active",
+      steps: [{ stepNumber: 1, channel: "email", delayDays: 0, bodyTemplate: "Hi" }],
+    });
+    // Enroll 4 contacts, send all, record opens for 2
+    for (const c of ["c1", "c2", "c3", "c4"]) {
+      const [msg] = hub.enrollContact(seq.id, c);
+      hub.sendMessage(msg!.id);
+    }
+    const msgs = hub.listMessages(seq.id);
+    hub.recordEngagement(msgs[0]!.id, "open");
+    hub.recordEngagement(msgs[1]!.id, "open");
+    const analytics = hub.getSequenceAnalytics(seq.id);
+    assert.ok(analytics !== undefined);
+    assert.equal(analytics.sentCount, 4);
+    assert.equal(analytics.openCount, 2);
+    assert.equal(analytics.openRate, 50);
+  });
+
+  it("summary returns active sequence count", () => {
+    const bus = new EventBus();
+    const hub = new CommunicationHub(bus);
+    hub.createSequence({ name: "A", description: "d", status: "active", steps: [] });
+    hub.createSequence({ name: "B", description: "d", status: "active", steps: [] });
+    hub.createSequence({ name: "C", description: "d", status: "completed", steps: [] });
+    const s = hub.summary();
+    assert.equal(s.totalSequences, 3);
+    assert.equal(s.activeSequences, 2);
+  });
+});

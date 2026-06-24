@@ -49,6 +49,7 @@ export function seedCompany(olympus: Olympus): void {
   seedForecasting(olympus);
   seedDataPipeline(olympus);
   seedSupport(olympus);
+  seedCommunication(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1121,4 +1122,74 @@ export function seedSupport(olympus: Olympus): void {
   support.recordFirstReply(t6.id, new Date(now - 7.5 * h).toISOString()); // ~30 min FRT, within 1h
   support.resolveTicket(t6.id, new Date(now - 2 * h).toISOString()); // 6h resolution, breaches 4h SLA
   support.submitCsat(t6.id, 2);
+}
+
+export function seedCommunication(olympus: Olympus): void {
+  const comms = olympus.comms;
+
+  // Sequence 1: Enterprise Outbound Q3 (active)
+  const seq1 = comms.createSequence({
+    id: "seq-enterprise-q3",
+    name: "Enterprise Outbound Q3",
+    description: "Q3 enterprise outreach targeting mid-market accounts",
+    status: "active",
+    targetSegment: "mid-market",
+    steps: [
+      { stepNumber: 1, channel: "email", delayDays: 0, subject: "Intro from Helios Robotics", bodyTemplate: "Hi {{firstName}}, I wanted to reach out about how Helios could help {{company}}..." },
+      { stepNumber: 2, channel: "email", delayDays: 3, subject: "Following up", bodyTemplate: "Hi {{firstName}}, just following up on my previous note..." },
+      { stepNumber: 3, channel: "linkedin", delayDays: 7, subject: undefined, bodyTemplate: "Hi {{firstName}}, connecting to continue our conversation..." },
+    ],
+    tags: ["enterprise", "q3", "outbound"],
+  });
+
+  // Sequence 2: Product Launch (completed)
+  const seq2 = comms.createSequence({
+    id: "seq-product-launch",
+    name: "Product Launch",
+    description: "Product launch announcement sequence",
+    status: "active",
+    targetSegment: "all-customers",
+    steps: [
+      { stepNumber: 1, channel: "email", delayDays: 0, subject: "Introducing Helios 2.0", bodyTemplate: "We're thrilled to announce Helios 2.0, packed with new features..." },
+      { stepNumber: 2, channel: "email", delayDays: 2, subject: "Have you tried Helios 2.0 yet?", bodyTemplate: "Hoping you had a chance to check out the new features..." },
+    ],
+    tags: ["product", "launch"],
+  });
+
+  const base = new Date().toISOString();
+
+  // Enroll contacts 001-004 in sequence 1
+  const contacts1 = ["contact-001", "contact-002", "contact-003", "contact-004"];
+  for (const contactId of contacts1) {
+    const msgs = comms.enrollContact(seq1.id, contactId, base);
+    // Send step-1 messages for all 4
+    comms.sendMessage(msgs[0]!.id);
+  }
+
+  // Record opens for 2 of them
+  const msgs001 = comms.listMessages(seq1.id).filter((m) => m.contactId === "contact-001" && m.stepNumber === 1);
+  const msgs002 = comms.listMessages(seq1.id).filter((m) => m.contactId === "contact-002" && m.stepNumber === 1);
+  if (msgs001[0]) comms.recordEngagement(msgs001[0].id, "open");
+  if (msgs002[0]) comms.recordEngagement(msgs002[0].id, "open");
+
+  // Record reply for 1 of them
+  if (msgs001[0]) comms.recordEngagement(msgs001[0].id, "reply");
+
+  // Enroll 5 contacts in sequence 2; send all messages; high open rates
+  const contacts2 = ["contact-101", "contact-102", "contact-103", "contact-104", "contact-105"];
+  for (const contactId of contacts2) {
+    const msgs = comms.enrollContact(seq2.id, contactId, base);
+    for (const msg of msgs) {
+      comms.sendMessage(msg.id);
+    }
+  }
+
+  // Record opens for 4 of 5 contacts across step-1 messages
+  const seq2Step1Msgs = comms.listMessages(seq2.id).filter((m) => m.stepNumber === 1);
+  for (let i = 0; i < 4; i++) {
+    if (seq2Step1Msgs[i]) comms.recordEngagement(seq2Step1Msgs[i]!.id, "open");
+  }
+
+  // Complete sequence 2
+  comms.completeSequence(seq2.id);
 }
