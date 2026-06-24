@@ -55,6 +55,7 @@ import { AssetManager } from "./assets/asset-manager.js";
 import { ExpenseManager } from "./expenses/expense-manager.js";
 import { ApplicantTracker } from "./recruitment/ats.js";
 import { KnowledgeBase } from "./knowledge-base/knowledge-base.js";
+import { ContractManager } from "./contracts-mgmt/contract-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -146,6 +147,8 @@ export class Olympus {
   readonly recruitment: ApplicantTracker;
   /** Knowledge base — internal wiki, runbooks, playbooks, and documentation management. */
   readonly kb: KnowledgeBase;
+  /** Contract lifecycle management — MSAs, SOWs, NDAs, and general contract tracking. */
+  readonly contractMgmt: ContractManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -193,6 +196,7 @@ export class Olympus {
     this.expenses = new ExpenseManager(this.bus);
     this.recruitment = new ApplicantTracker(this.bus);
     this.kb = new KnowledgeBase(this.bus);
+    this.contractMgmt = new ContractManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -247,3 +251,4 @@ export { AssetManager, type AssetType, type AssetStatus, type DepreciationMethod
 export { ExpenseManager, type ExpenseCategory, type ExpenseStatus, type Expense, type ExpensePolicy, type ExpenseSummary } from "./expenses/index.js";
 export { ApplicantTracker, type CandidateStage, type JobStatus, type InterviewType, type JobRequisition, type Candidate as JobCandidate, type Scorecard, type RecruitmentMetrics } from "./recruitment/index.js";
 export { KnowledgeBase, type ArticleStatus, type ArticleType, type Article as KBArticle, type Collection as KBCollection, type KBSummary } from "./knowledge-base/index.js";
+export { ContractManager, type ContractType, type ContractStatus as ContractMgmtStatus, type ContractParty, type Contract as ManagedContract, type ContractSummary as ContractMgmtSummary } from "./contracts-mgmt/index.js";

@@ -4704,3 +4704,142 @@ describe("KnowledgeBase", () => {
     assert.equal(s.topArticles[0]!.viewCount, 10);
   });
 });
+
+import { ContractManager } from "../contracts-mgmt/contract-manager.js";
+
+describe("ContractManager", () => {
+  it("createContract stores contract", () => {
+    const bus = new EventBus();
+    const cm = new ContractManager(bus);
+    const c = cm.createContract({
+      title: "Test MSA",
+      type: "msa",
+      status: "draft",
+      counterpartyName: "Acme",
+      counterpartyType: "customer",
+      ownerId: "emp-1",
+      autoRenews: false,
+      renewalNoticeDays: 30,
+    });
+    assert.ok(c.id);
+    assert.equal(cm.get(c.id)!.title, "Test MSA");
+    assert.equal(cm.list().length, 1);
+  });
+
+  it("advanceStatus to active emits contract.executed", () => {
+    const bus = new EventBus();
+    const cm = new ContractManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("contract.executed", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    const c = cm.createContract({
+      title: "NDA Test",
+      type: "nda",
+      status: "pending_signature",
+      counterpartyName: "PartnerCo",
+      counterpartyType: "partner",
+      ownerId: "emp-1",
+      autoRenews: false,
+      renewalNoticeDays: 30,
+    });
+    cm.advanceStatus(c.id, "active");
+    assert.equal(events.length, 1);
+    const ev = events[0] as { contractId: string; title: string };
+    assert.equal(ev.contractId, c.id);
+    assert.equal(ev.title, "NDA Test");
+    assert.ok(cm.get(c.id)!.executedAt);
+  });
+
+  it("terminate emits contract.terminated", () => {
+    const bus = new EventBus();
+    const cm = new ContractManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("contract.terminated", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    const c = cm.createContract({
+      title: "Lease",
+      type: "lease",
+      status: "active",
+      counterpartyName: "Landlord LLC",
+      counterpartyType: "landlord",
+      ownerId: "ops-1",
+      autoRenews: false,
+      renewalNoticeDays: 90,
+    });
+    cm.terminate(c.id, "Moved to remote-first");
+    assert.equal(events.length, 1);
+    const ev = events[0] as { contractId: string; reason: string };
+    assert.equal(ev.contractId, c.id);
+    assert.equal(ev.reason, "Moved to remote-first");
+    assert.equal(cm.get(c.id)!.status, "terminated");
+  });
+
+  it("checkExpirations finds contracts expiring within threshold", () => {
+    const bus = new EventBus();
+    const cm = new ContractManager(bus);
+    const expiryEvents: unknown[] = [];
+    bus.subscribe("contract.expiring_soon", (ev) => { expiryEvents.push((ev as { payload: unknown }).payload); });
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 30);
+    const far = new Date();
+    far.setDate(far.getDate() + 200);
+    cm.createContract({
+      title: "Expiring Contract",
+      type: "sow",
+      status: "active",
+      counterpartyName: "Agency",
+      counterpartyType: "vendor",
+      ownerId: "ops-1",
+      autoRenews: false,
+      renewalNoticeDays: 30,
+      endDate: soon.toISOString().split("T")[0],
+    });
+    cm.createContract({
+      title: "Far Contract",
+      type: "msa",
+      status: "active",
+      counterpartyName: "BigCo",
+      counterpartyType: "customer",
+      ownerId: "ops-1",
+      autoRenews: false,
+      renewalNoticeDays: 30,
+      endDate: far.toISOString().split("T")[0],
+    });
+    const expiring = cm.checkExpirations(90);
+    assert.equal(expiring.length, 1);
+    assert.equal(expiring[0]!.title, "Expiring Contract");
+    assert.equal(expiryEvents.length, 1);
+  });
+
+  it("renew updates endDate and status", () => {
+    const bus = new EventBus();
+    const cm = new ContractManager(bus);
+    const c = cm.createContract({
+      title: "Renewable MSA",
+      type: "msa",
+      status: "active",
+      counterpartyName: "Acme",
+      counterpartyType: "customer",
+      ownerId: "emp-1",
+      autoRenews: true,
+      renewalNoticeDays: 60,
+    });
+    const newEnd = "2027-12-31";
+    const renewed = cm.renew(c.id, newEnd, 300_000);
+    assert.ok(renewed);
+    assert.equal(renewed!.status, "renewed");
+    assert.equal(renewed!.endDate, newEnd);
+    assert.equal(renewed!.valueUsd, 300_000);
+  });
+
+  it("summary counts activeContracts correctly", () => {
+    const bus = new EventBus();
+    const cm = new ContractManager(bus);
+    cm.createContract({ title: "A", type: "msa", status: "active", counterpartyName: "X", counterpartyType: "customer", ownerId: "e1", autoRenews: false, renewalNoticeDays: 30 });
+    cm.createContract({ title: "B", type: "nda", status: "active", counterpartyName: "Y", counterpartyType: "vendor", ownerId: "e1", autoRenews: false, renewalNoticeDays: 30 });
+    cm.createContract({ title: "C", type: "sow", status: "terminated", counterpartyName: "Z", counterpartyType: "vendor", ownerId: "e1", autoRenews: false, renewalNoticeDays: 30 });
+    const s = cm.summary();
+    assert.equal(s.totalContracts, 3);
+    assert.equal(s.activeContracts, 2);
+    assert.equal(s.byStatus["active"], 2);
+    assert.equal(s.byStatus["terminated"], 1);
+  });
+});

@@ -55,6 +55,7 @@ export function seedCompany(olympus: Olympus): void {
   seedExpenses(olympus);
   seedRecruitment(olympus);
   seedKnowledgeBase(olympus);
+  seedContractMgmt(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1672,4 +1673,95 @@ function seedKnowledgeBase(olympus: Olympus): void {
   // Record views on popular articles
   for (let i = 0; i < 12; i++) kb.recordView(runbook.id, `user-${i}`);
   for (let i = 0; i < 8; i++) kb.recordView(playbook.id, `user-${i}`);
+}
+
+export function seedContractMgmt(olympus: Olympus): void {
+  const cm = olympus.contractMgmt;
+  const now = new Date();
+
+  // MSA with Acme Corp — active, $240k/yr, ends in 200 days
+  const acmeEnd = new Date(now);
+  acmeEnd.setDate(acmeEnd.getDate() + 200);
+  cm.createContract({
+    id: "contract-msa-acme",
+    title: "MSA with Acme Corp",
+    type: "msa",
+    status: "active",
+    counterpartyName: "Acme Corp",
+    counterpartyType: "customer",
+    ownerId: "legal-1",
+    annualValueUsd: 240_000,
+    endDate: isoDate(acmeEnd),
+    autoRenews: true,
+    renewalNoticeDays: 60,
+    executedAt: isoDate(daysAgo(180)),
+  });
+
+  // NDA with ProspectCo — active, no value, ends in 400 days
+  const prospectEnd = new Date(now);
+  prospectEnd.setDate(prospectEnd.getDate() + 400);
+  cm.createContract({
+    id: "contract-nda-prospectco",
+    title: "NDA with ProspectCo",
+    type: "nda",
+    status: "active",
+    counterpartyName: "ProspectCo",
+    counterpartyType: "partner",
+    ownerId: "legal-1",
+    endDate: isoDate(prospectEnd),
+    autoRenews: false,
+    renewalNoticeDays: 30,
+    executedAt: isoDate(daysAgo(10)),
+  });
+
+  // SaaS subscription Salesforce — active, $48k/yr, ends in 45 days (expiring soon)
+  const sfEnd = new Date(now);
+  sfEnd.setDate(sfEnd.getDate() + 45);
+  cm.createContract({
+    id: "contract-saas-salesforce",
+    title: "Salesforce SaaS Subscription",
+    type: "saas_subscription",
+    status: "active",
+    counterpartyName: "Salesforce",
+    counterpartyType: "vendor",
+    ownerId: "ops-1",
+    annualValueUsd: 48_000,
+    endDate: isoDate(sfEnd),
+    autoRenews: true,
+    renewalNoticeDays: 60,
+    executedAt: isoDate(daysAgo(320)),
+  });
+
+  // SOW with Agency X — active, $85k, ends in 20 days (expiring soon)
+  const agencyEnd = new Date(now);
+  agencyEnd.setDate(agencyEnd.getDate() + 20);
+  cm.createContract({
+    id: "contract-sow-agencyx",
+    title: "SOW with Agency X",
+    type: "sow",
+    status: "active",
+    counterpartyName: "Agency X",
+    counterpartyType: "vendor",
+    ownerId: "ops-1",
+    valueUsd: 85_000,
+    endDate: isoDate(agencyEnd),
+    autoRenews: false,
+    renewalNoticeDays: 30,
+    executedAt: isoDate(daysAgo(160)),
+  });
+
+  // Old lease — terminated
+  cm.createContract({
+    id: "contract-lease-old",
+    title: "Old Office Lease",
+    type: "lease",
+    status: "terminated",
+    counterpartyName: "City Properties LLC",
+    counterpartyType: "landlord",
+    ownerId: "ops-1",
+    autoRenews: false,
+    renewalNoticeDays: 90,
+    terminatedAt: isoDate(daysAgo(30)),
+    terminationReason: "Office moved to remote-first",
+  });
 }
