@@ -117,6 +117,8 @@ import { ContentManager } from "./content-mgr/content-manager.js";
 import { ProjectPortfolio } from "./project-portfolio/project-portfolio.js";
 import { CryptoTreasury } from "./crypto-treasury/crypto-treasury.js";
 import { BoardGovernance } from "./board-governance/board-governance.js";
+import { ServiceLevelManager } from "./service-level/service-level-manager.js";
+import { DigitalAssetManager } from "./digital-assets/digital-asset-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -322,6 +324,8 @@ export class Olympus {
   readonly projectPortfolio: ProjectPortfolio;
   readonly cryptoTreasury: CryptoTreasury;
   readonly boardGovernance: BoardGovernance;
+  readonly serviceLevelMgr: ServiceLevelManager;
+  readonly digitalAssets: DigitalAssetManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -431,6 +435,8 @@ export class Olympus {
     this.projectPortfolio = new ProjectPortfolio(this.bus);
     this.cryptoTreasury = new CryptoTreasury(this.bus);
     this.boardGovernance = new BoardGovernance(this.bus);
+    this.serviceLevelMgr = new ServiceLevelManager(this.bus);
+    this.digitalAssets = new DigitalAssetManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -546,3 +552,5 @@ export { ContentManager, type ContentType, type ContentStatus, type ContentItem,
 export { ProjectPortfolio, type PortfolioProjectStatus, type StrategicPillar as PPStrategicPillar, type PortfolioProject, type PortfolioSummary } from "./project-portfolio/index.js";
 export { CryptoTreasury, type WalletType, type AssetType as CryptoAssetType, type TxDirection, type CryptoWallet, type CryptoTransaction, type StakingPosition, type CryptoTreasurySummary } from "./crypto-treasury/index.js";
 export { BoardGovernance, type MeetingType, type MeetingStatus as BoardMeetingStatus, type DirectorRole, type ResolutionStatus, type BoardDirector, type BoardMeeting, type BoardResolution, type GovernanceSummary } from "./board-governance/index.js";
+export { ServiceLevelManager, type ServiceTierLevel, type ServiceTierDefinition, type CustomerServiceLevel, type ServiceLevelSummary } from "./service-level/index.js";
+export { DigitalAssetManager, type DigitalAssetCategory, type DigitalAssetStatus, type DigitalAsset, type DigitalAssetSummary } from "./digital-assets/index.js";

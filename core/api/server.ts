@@ -222,6 +222,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/project-portfolio", handler: (_req, res) => res.json(200, { summary: this.olympus.projectPortfolio.summary(), projects: this.olympus.projectPortfolio.listProjects() }) },
       { method: "GET", pattern: "/v1/crypto-treasury", handler: (_req, res) => res.json(200, { summary: this.olympus.cryptoTreasury.summary(), wallets: this.olympus.cryptoTreasury.listWallets() }) },
       { method: "GET", pattern: "/v1/board-governance", handler: (_req, res) => res.json(200, { summary: this.olympus.boardGovernance.summary(), directors: this.olympus.boardGovernance.listDirectors(true) }) },
+      { method: "GET", pattern: "/v1/service-levels", handler: (_req, res) => res.json(200, { summary: this.olympus.serviceLevelMgr.summary(), tiers: this.olympus.serviceLevelMgr.listTiers() }) },
+      { method: "GET", pattern: "/v1/digital-assets", handler: (_req, res) => res.json(200, { summary: this.olympus.digitalAssets.summary(), assets: this.olympus.digitalAssets.listAssets() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

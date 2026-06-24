@@ -20,6 +20,8 @@ import { ContentManager } from "../content-mgr/content-manager.js";
 import { ProjectPortfolio } from "../project-portfolio/project-portfolio.js";
 import { CryptoTreasury } from "../crypto-treasury/crypto-treasury.js";
 import { BoardGovernance } from "../board-governance/board-governance.js";
+import { ServiceLevelManager } from "../service-level/service-level-manager.js";
+import { DigitalAssetManager } from "../digital-assets/digital-asset-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -9312,5 +9314,127 @@ describe("BoardGovernance", () => {
     assert.equal(s.totalDirectors, 1);
     assert.equal(s.totalMeetings, 1);
     assert.equal(s.passedResolutions, 1);
+  });
+});
+
+describe("ServiceLevelManager", () => {
+  it("defineTier stores tier", () => {
+    const bus = new EventBus();
+    const slm = new ServiceLevelManager(bus);
+    const t = slm.defineTier({ name: "enterprise", description: "Full enterprise plan", monthlyPriceUsd: 2000, entitlements: { api_calls: 1000000, seats: 500 }, supportPriority: 5, slaUptimePct: 99.9 });
+    assert.ok(t.id);
+    assert.equal(slm.listTiers()[0]?.name, "enterprise");
+  });
+
+  it("assignTier assigns customer and emits renewal_due when expiring soon", () => {
+    const bus = new EventBus();
+    const slm = new ServiceLevelManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("servicelevel.renewal_due", (e) => { events.push(e.payload); });
+    const t = slm.defineTier({ name: "growth", description: "Growth plan", monthlyPriceUsd: 299, entitlements: { api_calls: 100000 }, supportPriority: 3, slaUptimePct: 99.5 });
+    slm.assignTier("cust-1", t.id, "2026-01-01", "2026-07-20");
+    assert.equal(events.length, 1);
+  });
+
+  it("assignTier emits tier_upgraded when tier changes", () => {
+    const bus = new EventBus();
+    const slm = new ServiceLevelManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("servicelevel.tier_upgraded", (e) => { events.push(e.payload); });
+    const t1 = slm.defineTier({ name: "starter", description: "Starter", monthlyPriceUsd: 49, entitlements: { api_calls: 10000 }, supportPriority: 1, slaUptimePct: 99 });
+    const t2 = slm.defineTier({ name: "professional", description: "Pro", monthlyPriceUsd: 499, entitlements: { api_calls: 500000 }, supportPriority: 4, slaUptimePct: 99.9 });
+    slm.assignTier("cust-2", t1.id, "2025-01-01", "2026-12-31");
+    slm.assignTier("cust-2", t2.id, "2026-07-01", "2027-06-30");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordUsage emits entitlement_exceeded when over limit", () => {
+    const bus = new EventBus();
+    const slm = new ServiceLevelManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("servicelevel.entitlement_exceeded", (e) => { events.push(e.payload); });
+    const t = slm.defineTier({ name: "free", description: "Free tier", monthlyPriceUsd: 0, entitlements: { api_calls: 1000 }, supportPriority: 1, slaUptimePct: 95 });
+    slm.assignTier("cust-3", t.id, "2026-01-01", "2027-01-01");
+    slm.recordUsage("cust-3", "api_calls", 1100);
+    assert.equal(events.length, 1);
+  });
+
+  it("listCustomerLevels filters by tier", () => {
+    const bus = new EventBus();
+    const slm = new ServiceLevelManager(bus);
+    const t1 = slm.defineTier({ name: "starter", description: "", monthlyPriceUsd: 49, entitlements: {}, supportPriority: 1, slaUptimePct: 99 });
+    const t2 = slm.defineTier({ name: "enterprise", description: "", monthlyPriceUsd: 2000, entitlements: {}, supportPriority: 5, slaUptimePct: 99.9 });
+    slm.assignTier("c1", t1.id, "2026-01-01", "2027-01-01");
+    slm.assignTier("c2", t2.id, "2026-01-01", "2027-01-01");
+    assert.equal(slm.listCustomerLevels("starter").length, 1);
+    assert.equal(slm.listCustomerLevels().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const slm = new ServiceLevelManager(bus);
+    const t = slm.defineTier({ name: "professional", description: "", monthlyPriceUsd: 499, entitlements: {}, supportPriority: 4, slaUptimePct: 99.5 });
+    slm.assignTier("c1", t.id, "2026-01-01", "2027-01-01");
+    slm.assignTier("c2", t.id, "2026-01-01", "2027-01-01");
+    const s = slm.summary();
+    assert.equal(s.totalCustomers, 2);
+    assert.equal(s.byTier["professional"], 2);
+  });
+});
+
+describe("DigitalAssetManager", () => {
+  it("addAsset stores asset", () => {
+    const bus = new EventBus();
+    const dam = new DigitalAssetManager(bus);
+    const a = dam.addAsset({ name: "olympus.ai", category: "domain", status: "active", annualCostUsd: 50, purchasedAt: "2024-01-01", expiresAt: "2028-01-01", autoRenew: true });
+    assert.ok(a.id);
+    assert.equal(dam.getAsset(a.id)?.name, "olympus.ai");
+  });
+
+  it("addAsset emits domain_expiring when expiring within 30 days", () => {
+    const bus = new EventBus();
+    const dam = new DigitalAssetManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("digitalassets.domain_expiring", (e) => { events.push(e.payload); });
+    dam.addAsset({ name: "old-domain.com", category: "domain", status: "active", annualCostUsd: 12, purchasedAt: "2020-01-01", expiresAt: "2026-07-10", autoRenew: false });
+    assert.equal(events.length, 1);
+  });
+
+  it("addAsset emits certificate_expiring for SSL certs expiring soon", () => {
+    const bus = new EventBus();
+    const dam = new DigitalAssetManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("digitalassets.certificate_expiring", (e) => { events.push(e.payload); });
+    dam.addAsset({ name: "*.olympus.ai SSL", category: "ssl_certificate", status: "active", domain: "olympus.ai", annualCostUsd: 200, purchasedAt: "2026-01-01", expiresAt: "2026-07-15", autoRenew: true });
+    assert.equal(events.length, 1);
+  });
+
+  it("renewAsset updates expiresAt and status", () => {
+    const bus = new EventBus();
+    const dam = new DigitalAssetManager(bus);
+    const a = dam.addAsset({ name: "app.olympus.ai", category: "domain", status: "expired", annualCostUsd: 15, purchasedAt: "2023-01-01", expiresAt: "2026-01-01", autoRenew: false });
+    dam.renewAsset(a.id, "2028-01-01");
+    assert.equal(dam.getAsset(a.id)!.status, "active");
+    assert.equal(dam.getAsset(a.id)!.expiresAt, "2028-01-01");
+  });
+
+  it("listAssets filters by category and status", () => {
+    const bus = new EventBus();
+    const dam = new DigitalAssetManager(bus);
+    dam.addAsset({ name: "D1", category: "domain", status: "active", annualCostUsd: 50, purchasedAt: "2024-01-01", expiresAt: "2030-01-01", autoRenew: true });
+    dam.addAsset({ name: "L1", category: "software_license", status: "active", vendor: "GitHub", annualCostUsd: 4000, purchasedAt: "2025-01-01", expiresAt: "2027-01-01", autoRenew: true });
+    assert.equal(dam.listAssets("domain").length, 1);
+    assert.equal(dam.listAssets(undefined, "active").length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const dam = new DigitalAssetManager(bus);
+    dam.addAsset({ name: "olympus.com", category: "domain", status: "active", annualCostUsd: 100, purchasedAt: "2023-01-01", expiresAt: "2030-01-01", autoRenew: true });
+    dam.addAsset({ name: "TM", category: "trademark", status: "active", annualCostUsd: 500, purchasedAt: "2022-01-01", expiresAt: "2032-01-01", autoRenew: true });
+    const s = dam.summary();
+    assert.equal(s.totalAssets, 2);
+    assert.equal(s.active, 2);
+    assert.equal(s.totalAnnualCostUsd, 600);
   });
 });
