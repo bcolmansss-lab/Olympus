@@ -4017,3 +4017,151 @@ describe("CommunicationHub", () => {
     assert.equal(s.activeSequences, 2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PricingEngine
+// ---------------------------------------------------------------------------
+
+import { PricingEngine } from "../pricing/pricing-engine.js";
+
+describe("PricingEngine", () => {
+  it("addProduct stores and returns product", () => {
+    const bus = new EventBus();
+    const engine = new PricingEngine(bus);
+    const product = engine.addProduct({
+      name: "Test Product",
+      description: "A test product",
+      billingModel: "flat_fee",
+      basePriceUsd: 100,
+      annualDiscountPct: 10,
+      currency: "USD",
+    });
+    assert.ok(product.id);
+    assert.equal(product.name, "Test Product");
+    assert.equal(product.basePriceUsd, 100);
+    assert.equal(engine.getProduct(product.id)?.name, "Test Product");
+    assert.equal(engine.listProducts().length, 1);
+  });
+
+  it("generateQuote applies tiered pricing correctly", () => {
+    const bus = new EventBus();
+    const engine = new PricingEngine(bus);
+    const product = engine.addProduct({
+      name: "Seat Product",
+      description: "Per seat",
+      billingModel: "per_seat",
+      basePriceUsd: 300,
+      tiers: [
+        { minUnits: 1, maxUnits: 10, pricePerUnit: 300 },
+        { minUnits: 11, maxUnits: 50, pricePerUnit: 250 },
+        { minUnits: 51, pricePerUnit: 200 },
+      ],
+      annualDiscountPct: 0,
+      currency: "USD",
+    });
+    const quote = engine.generateQuote({
+      customerId: "cust-1",
+      lineItems: [{ productId: product.id, quantity: 20 }],
+    });
+    // 20 seats should hit the 11-50 tier at $250
+    assert.equal(quote.lineItems[0]!.unitPriceUsd, 250);
+    assert.equal(quote.subtotalUsd, 5000);
+  });
+
+  it("generateQuote applies percentage discount", () => {
+    const bus = new EventBus();
+    const engine = new PricingEngine(bus);
+    const product = engine.addProduct({
+      name: "Flat Product",
+      description: "Flat fee",
+      billingModel: "flat_fee",
+      basePriceUsd: 1000,
+      annualDiscountPct: 0,
+      currency: "USD",
+    });
+    engine.addDiscount({
+      code: "SAVE10",
+      description: "10% off",
+      type: "percentage",
+      value: 10,
+    });
+    const quote = engine.generateQuote({
+      customerId: "cust-2",
+      lineItems: [{ productId: product.id, quantity: 1 }],
+      discountCodes: ["SAVE10"],
+    });
+    assert.equal(quote.subtotalUsd, 1000);
+    assert.equal(quote.discountUsd, 100);
+    assert.equal(quote.totalUsd, 900);
+  });
+
+  it("generateQuote emits pricing.quote_generated", () => {
+    const bus = new EventBus();
+    const engine = new PricingEngine(bus);
+    const product = engine.addProduct({
+      name: "P",
+      description: "d",
+      billingModel: "flat_fee",
+      basePriceUsd: 500,
+      annualDiscountPct: 0,
+      currency: "USD",
+    });
+    const events: unknown[] = [];
+    bus.subscribe("pricing.quote_generated", (event) => { events.push((event as { payload: unknown }).payload); });
+    const quote = engine.generateQuote({
+      customerId: "cust-3",
+      lineItems: [{ productId: product.id, quantity: 1 }],
+    });
+    assert.equal(events.length, 1);
+    const ev = events[0] as { quoteId: string; customerId: string; totalUsd: number };
+    assert.equal(ev.quoteId, quote.id);
+    assert.equal(ev.customerId, "cust-3");
+    assert.equal(ev.totalUsd, 500);
+  });
+
+  it("updatePrice emits pricing.price_updated", () => {
+    const bus = new EventBus();
+    const engine = new PricingEngine(bus);
+    const product = engine.addProduct({
+      name: "Updatable",
+      description: "d",
+      billingModel: "flat_fee",
+      basePriceUsd: 200,
+      annualDiscountPct: 0,
+      currency: "USD",
+    });
+    const events: unknown[] = [];
+    bus.subscribe("pricing.price_updated", (event) => { events.push((event as { payload: unknown }).payload); });
+    const updated = engine.updatePrice(product.id, 250);
+    assert.ok(updated);
+    assert.equal(updated.basePriceUsd, 250);
+    assert.equal(events.length, 1);
+    const ev = events[0] as { productId: string; oldPriceUsd: number; newPriceUsd: number };
+    assert.equal(ev.productId, product.id);
+    assert.equal(ev.oldPriceUsd, 200);
+    assert.equal(ev.newPriceUsd, 250);
+  });
+
+  it("summary computes win rate correctly", () => {
+    const bus = new EventBus();
+    const engine = new PricingEngine(bus);
+    const product = engine.addProduct({
+      name: "S",
+      description: "d",
+      billingModel: "flat_fee",
+      basePriceUsd: 100,
+      annualDiscountPct: 0,
+      currency: "USD",
+    });
+    const q1 = engine.generateQuote({ customerId: "c1", lineItems: [{ productId: product.id, quantity: 1 }] });
+    const q2 = engine.generateQuote({ customerId: "c2", lineItems: [{ productId: product.id, quantity: 1 }] });
+    const q3 = engine.generateQuote({ customerId: "c3", lineItems: [{ productId: product.id, quantity: 1 }] });
+    engine.updateQuoteStatus(q1.id, "accepted");
+    engine.updateQuoteStatus(q2.id, "accepted");
+    engine.updateQuoteStatus(q3.id, "rejected");
+    const s = engine.summary();
+    assert.equal(s.acceptedQuotes, 2);
+    // win rate = 2 / (2 + 1) * 100 = 66.666...
+    assert.ok(Math.abs(s.winRate - 66.6667) < 0.001 || Math.abs(s.winRate - (2/3*100)) < 0.001);
+  });
+});

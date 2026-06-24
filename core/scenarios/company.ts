@@ -50,6 +50,7 @@ export function seedCompany(olympus: Olympus): void {
   seedDataPipeline(olympus);
   seedSupport(olympus);
   seedCommunication(olympus);
+  seedPricing(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1192,4 +1193,102 @@ export function seedCommunication(olympus: Olympus): void {
 
   // Complete sequence 2
   comms.completeSequence(seq2.id);
+}
+
+export function seedPricing(olympus: Olympus): void {
+  const pricing = olympus.pricing;
+
+  // Products
+  const helios = pricing.addProduct({
+    id: "prod-helios-platform",
+    name: "Helios Platform",
+    description: "Core SaaS platform with per-seat billing",
+    billingModel: "per_seat",
+    basePriceUsd: 299,
+    tiers: [
+      { minUnits: 1, maxUnits: 10, pricePerUnit: 299, label: "Startup" },
+      { minUnits: 11, maxUnits: 50, pricePerUnit: 249, label: "Growth" },
+      { minUnits: 51, pricePerUnit: 199, label: "Enterprise" },
+    ],
+    annualDiscountPct: 20,
+    currency: "USD",
+    tags: ["core", "saas"],
+  });
+
+  const analytics = pricing.addProduct({
+    id: "prod-analytics",
+    name: "Analytics Add-on",
+    description: "Advanced analytics dashboard",
+    billingModel: "flat_fee",
+    basePriceUsd: 499,
+    annualDiscountPct: 0,
+    currency: "USD",
+    tags: ["addon"],
+  });
+
+  const support = pricing.addProduct({
+    id: "prod-enterprise-support",
+    name: "Enterprise Support",
+    description: "24/7 enterprise support tier",
+    billingModel: "flat_fee",
+    basePriceUsd: 999,
+    annualDiscountPct: 0,
+    currency: "USD",
+    tags: ["support"],
+  });
+
+  // Discounts
+  pricing.addDiscount({
+    id: "disc-launch20",
+    code: "LAUNCH20",
+    description: "Launch promotion — 20% off",
+    type: "percentage",
+    value: 20,
+    maxUsages: 100,
+  });
+
+  pricing.addDiscount({
+    id: "disc-partner50",
+    code: "PARTNER50",
+    description: "Partner discount — 50% off Helios Platform",
+    type: "percentage",
+    value: 50,
+    applicableProductIds: [helios.id],
+  });
+
+  // Quote 1: accepted — 10 seats annual + analytics, LAUNCH20 applied
+  const q1 = pricing.generateQuote({
+    id: "quote-001",
+    customerId: "cust-acme",
+    lineItems: [
+      { productId: helios.id, quantity: 10, annual: true },
+      { productId: analytics.id, quantity: 1, annual: false },
+    ],
+    discountCodes: ["LAUNCH20"],
+    notes: "Acme Corp onboarding deal",
+  });
+  pricing.updateQuoteStatus(q1.id, "accepted");
+
+  // Quote 2: sent — 25 seats monthly
+  const q2 = pricing.generateQuote({
+    id: "quote-002",
+    customerId: "cust-beta",
+    lineItems: [
+      { productId: helios.id, quantity: 25, annual: false },
+    ],
+    notes: "Beta Industries expansion",
+  });
+  pricing.updateQuoteStatus(q2.id, "sent");
+
+  // Quote 3: draft — enterprise 60 seats + all add-ons
+  pricing.generateQuote({
+    id: "quote-003",
+    customerId: "cust-gamma",
+    lineItems: [
+      { productId: helios.id, quantity: 60, annual: false },
+      { productId: analytics.id, quantity: 1, annual: false },
+      { productId: support.id, quantity: 1, annual: false },
+    ],
+    notes: "Gamma Corp enterprise evaluation",
+  });
 }

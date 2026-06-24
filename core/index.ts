@@ -50,6 +50,7 @@ import { ForecastEngine } from "./forecasting/forecast-engine.js";
 import { DataPipelineManager } from "./pipeline/data-pipeline.js";
 import { SupportTicketManager } from "./support/ticket-manager.js";
 import { CommunicationHub } from "./communication/communication-hub.js";
+import { PricingEngine } from "./pricing/pricing-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -131,6 +132,8 @@ export class Olympus {
   readonly support: SupportTicketManager;
   /** Communication hub — outbound sequences, engagement tracking, reply rate analytics. */
   readonly comms: CommunicationHub;
+  /** Pricing engine — product catalog, tiered pricing, discounts, and quote generation. */
+  readonly pricing: PricingEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -173,6 +176,7 @@ export class Olympus {
     this.dataPipeline = new DataPipelineManager(this.bus);
     this.support = new SupportTicketManager(this.bus);
     this.comms = new CommunicationHub(this.bus);
+    this.pricing = new PricingEngine(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -222,3 +226,4 @@ export { ForecastEngine, type ForecastScenario, type ForecastDriver, type Foreca
 export { DataPipelineManager, type SourceType, type PipelineStatus, type RunStatus, type QualityDimension, type DataSource, type Transform, type DataPipeline, type PipelineRun, type DataQualityScore, type LineageNode, type DataPipelineSummary } from "./pipeline/index.js";
 export { SupportTicketManager, type TicketPriority, type TicketStatus, type TicketCategory, type Ticket as SupportTicket, type SLAConfig as SupportSLAConfig, type TicketMetrics as SupportTicketMetrics } from "./support/index.js";
 export { CommunicationHub, type CommChannel, type EngagementType, type SequenceStatus, type MessageStatus, type SequenceStep, type CommSequence, type CommMessage, type EngagementEvent, type SequenceAnalytics, type CommSummary } from "./communication/index.js";
+export { PricingEngine, type BillingModel, type DiscountType, type QuoteStatus, type PricingTier, type Product as PricingProduct, type Discount as PricingDiscount, type QuoteLineItem, type Quote as PricingQuote, type PricingSummary } from "./pricing/index.js";
