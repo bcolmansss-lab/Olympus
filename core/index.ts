@@ -77,6 +77,8 @@ import { HeadcountPlanner } from "./headcount-plan/headcount-planner.js";
 import { ScenarioSimulator } from "./scenario-sim/scenario-simulator.js";
 import { SupplyChainManager } from "./supply-chain/supply-chain-manager.js";
 import { DocumentManager } from "./document-mgmt/document-manager.js";
+import { RoadmapManager } from "./roadmap/roadmap-manager.js";
+import { CustomerJourneyAnalytics } from "./journey/customer-journey.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -212,6 +214,10 @@ export class Olympus {
   readonly supplyChain: SupplyChainManager;
   /** Document manager — document lifecycle, versioning, approvals, and expiration tracking. */
   readonly docMgmt: DocumentManager;
+  /** Roadmap manager — feature prioritization, release planning, quarter-by-quarter tracking. */
+  readonly roadmap: RoadmapManager;
+  /** Customer journey analytics — touchpoint tracking, funnel analysis, conversion metrics. */
+  readonly journey: CustomerJourneyAnalytics;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -281,6 +287,8 @@ export class Olympus {
     this.scenarioSim = new ScenarioSimulator(this.bus);
     this.supplyChain = new SupplyChainManager(this.bus);
     this.docMgmt = new DocumentManager(this.bus);
+    this.roadmap = new RoadmapManager(this.bus);
+    this.journey = new CustomerJourneyAnalytics(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -357,3 +365,5 @@ export { HeadcountPlanner, type HireStatus, type PlanningHorizon, type PlannedRo
 export { ScenarioSimulator, type ScenarioType, type OutcomeMetric, type ScenarioVariable, type ScenarioOutcome, type Scenario, type ScenarioSummary } from "./scenario-sim/index.js";
 export { SupplyChainManager, type OrderStatus, type SupplierStatus, type SupplyRiskLevel, type Supplier, type PurchaseOrderLine, type PurchaseOrder, type SupplyChainSummary } from "./supply-chain/index.js";
 export { DocumentManager, type DocStatus, type DocCategory, type DocumentVersion, type ManagedDocument, type DocSummary } from "./document-mgmt/index.js";
+export { RoadmapManager, type RoadmapItemStatus, type RoadmapItemType, type RoadmapQuarter, type RoadmapItem, type RoadmapRelease, type RoadmapSummary } from "./roadmap/index.js";
+export { CustomerJourneyAnalytics, type JourneyStage, type TouchpointChannel, type Touchpoint, type CustomerJourney, type FunnelAnalysis, type JourneySummary } from "./journey/index.js";

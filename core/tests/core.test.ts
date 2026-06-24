@@ -6605,3 +6605,140 @@ describe("DocumentManager", () => {
     assert.equal(s.drafts, 1);
   });
 });
+
+// ── RoadmapManager ────────────────────────────────────────────────────────────
+import { RoadmapManager } from "../roadmap/roadmap-manager.js";
+
+describe("RoadmapManager", () => {
+  it("addItem and listItems with priority sort", () => {
+    const bus = new EventBus();
+    const rm = new RoadmapManager(bus);
+    rm.addItem({ title: "Dark Mode", type: "feature", status: "planned", quarter: "Q3", year: 2026, priority: 2, effortPoints: 8, valueScore: 80, ownerId: "pm1", tags: ["ui"], description: "" });
+    rm.addItem({ title: "SSO", type: "feature", status: "planned", quarter: "Q3", year: 2026, priority: 1, effortPoints: 13, valueScore: 95, ownerId: "pm1", tags: ["security"], description: "" });
+    const items = rm.listItems("Q3");
+    assert.equal(items[0]!.title, "SSO");
+  });
+
+  it("createRelease and addItemToRelease", () => {
+    const bus = new EventBus();
+    const rm = new RoadmapManager(bus);
+    const item = rm.addItem({ title: "Webhooks", type: "feature", status: "planned", quarter: "Q4", year: 2026, priority: 1, effortPoints: 5, valueScore: 85, ownerId: "pm2", tags: [], description: "" });
+    const rel = rm.createRelease({ name: "v2.5", quarter: "Q4", year: 2026, status: "planned", targetDate: "2026-12-15" });
+    rm.addItemToRelease(rel.id, item.id);
+    assert.equal(rm.getRelease(rel.id)!.items.length, 1);
+    assert.equal(rm.getItem(item.id)!.releaseId, rel.id);
+  });
+
+  it("shipRelease emits events and marks items shipped", () => {
+    const bus = new EventBus();
+    const rm = new RoadmapManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("roadmap.release_published", (e) => { events.push(e.payload); });
+    const item = rm.addItem({ title: "API v2", type: "feature", status: "in_progress", quarter: "Q2", year: 2026, priority: 1, effortPoints: 20, valueScore: 90, ownerId: "eng1", tags: [], description: "" });
+    const rel = rm.createRelease({ name: "v2.0", quarter: "Q2", year: 2026, status: "in_progress", targetDate: "2026-06-30" });
+    rm.addItemToRelease(rel.id, item.id);
+    rm.shipRelease(rel.id);
+    assert.equal(events.length, 1);
+    assert.equal(rm.getItem(item.id)!.status, "shipped");
+  });
+
+  it("updateItemStatus emits item_shipped when linked to release", () => {
+    const bus = new EventBus();
+    const rm = new RoadmapManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("roadmap.item_shipped", (e) => { events.push(e.payload); });
+    const item = rm.addItem({ title: "Export CSV", type: "improvement", status: "in_progress", quarter: "Q1", year: 2026, priority: 3, effortPoints: 3, valueScore: 60, ownerId: "eng2", tags: [], description: "" });
+    const rel = rm.createRelease({ name: "v1.9", quarter: "Q1", year: 2026, status: "in_progress", targetDate: "2026-03-31" });
+    rm.addItemToRelease(rel.id, item.id);
+    rm.updateItemStatus(item.id, "shipped");
+    assert.equal(events.length, 1);
+  });
+
+  it("listItems filters by status", () => {
+    const bus = new EventBus();
+    const rm = new RoadmapManager(bus);
+    rm.addItem({ title: "Feature A", type: "feature", status: "shipped", quarter: "Q1", year: 2026, priority: 1, effortPoints: 5, valueScore: 70, ownerId: "pm3", tags: [], description: "" });
+    rm.addItem({ title: "Feature B", type: "feature", status: "planned", quarter: "Q2", year: 2026, priority: 2, effortPoints: 5, valueScore: 65, ownerId: "pm3", tags: [], description: "" });
+    assert.equal(rm.listItems(undefined, "shipped").length, 1);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const rm = new RoadmapManager(bus);
+    rm.addItem({ title: "X", type: "tech_debt", status: "shipped", quarter: "Q3", year: 2026, priority: 1, effortPoints: 2, valueScore: 50, ownerId: "eng3", tags: [], description: "" });
+    rm.addItem({ title: "Y", type: "bug_fix", status: "in_progress", quarter: "Q3", year: 2026, priority: 2, effortPoints: 1, valueScore: 40, ownerId: "eng3", tags: [], description: "" });
+    const s = rm.summary();
+    assert.equal(s.totalItems, 2);
+    assert.equal(s.shipped, 1);
+    assert.equal(s.inProgress, 1);
+  });
+});
+
+// ── CustomerJourneyAnalytics ──────────────────────────────────────────────────
+import { CustomerJourneyAnalytics } from "../journey/customer-journey.js";
+
+describe("CustomerJourneyAnalytics", () => {
+  it("startJourney creates journey in awareness stage", () => {
+    const bus = new EventBus();
+    const cj = new CustomerJourneyAnalytics(bus);
+    const j = cj.startJourney("cust-1");
+    assert.equal(j.currentStage, "awareness");
+    assert.equal(j.isConverted, false);
+  });
+
+  it("advanceStage emits stage_advanced event", () => {
+    const bus = new EventBus();
+    const cj = new CustomerJourneyAnalytics(bus);
+    const events: unknown[] = [];
+    bus.subscribe("journey.stage_advanced", (e) => { events.push(e.payload); });
+    cj.startJourney("cust-2");
+    cj.advanceStage("cust-2", "consideration");
+    assert.equal(events.length, 1);
+    assert.equal(cj.getJourney("cust-2")!.currentStage, "consideration");
+  });
+
+  it("advanceStage to active marks converted and emits converted event", () => {
+    const bus = new EventBus();
+    const cj = new CustomerJourneyAnalytics(bus);
+    const events: unknown[] = [];
+    bus.subscribe("journey.converted", (e) => { events.push(e.payload); });
+    cj.startJourney("cust-3");
+    cj.advanceStage("cust-3", "trial");
+    cj.advanceStage("cust-3", "active");
+    assert.equal(events.length, 1);
+    assert.equal(cj.getJourney("cust-3")!.isConverted, true);
+  });
+
+  it("markDropped emits dropped event", () => {
+    const bus = new EventBus();
+    const cj = new CustomerJourneyAnalytics(bus);
+    const events: unknown[] = [];
+    bus.subscribe("journey.dropped", (e) => { events.push(e.payload); });
+    cj.startJourney("cust-4");
+    cj.advanceStage("cust-4", "trial");
+    cj.markDropped("cust-4");
+    assert.equal(events.length, 1);
+    assert.equal(cj.getJourney("cust-4")!.isDropped, true);
+  });
+
+  it("recordTouchpoint links to journey", () => {
+    const bus = new EventBus();
+    const cj = new CustomerJourneyAnalytics(bus);
+    cj.startJourney("cust-5");
+    cj.recordTouchpoint({ customerId: "cust-5", channel: "email", stage: "awareness", description: "Welcome email", occurredAt: new Date().toISOString() });
+    assert.equal(cj.getJourney("cust-5")!.touchpoints.length, 1);
+  });
+
+  it("summary returns correct stats", () => {
+    const bus = new EventBus();
+    const cj = new CustomerJourneyAnalytics(bus);
+    cj.startJourney("c1"); cj.advanceStage("c1", "active"); // converted
+    cj.startJourney("c2"); cj.markDropped("c2"); // dropped
+    cj.startJourney("c3"); // active, not converted
+    const s = cj.summary();
+    assert.equal(s.totalJourneys, 3);
+    assert.equal(s.converted, 1);
+    assert.equal(s.dropped, 1);
+    assert.equal(s.active, 1);
+  });
+});
