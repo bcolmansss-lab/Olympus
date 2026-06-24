@@ -75,6 +75,8 @@ import { OnboardingTracker } from "./onboarding/onboarding-tracker.js";
 import { EngagementTracker } from "./engagement/engagement-tracker.js";
 import { HeadcountPlanner } from "./headcount-plan/headcount-planner.js";
 import { ScenarioSimulator } from "./scenario-sim/scenario-simulator.js";
+import { SupplyChainManager } from "./supply-chain/supply-chain-manager.js";
+import { DocumentManager } from "./document-mgmt/document-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -206,6 +208,10 @@ export class Olympus {
   readonly headcountPlan: HeadcountPlanner;
   /** Scenario simulator — what-if analysis, decision trees, and impact modeling for business decisions. */
   readonly scenarioSim: ScenarioSimulator;
+  /** Supply chain manager — suppliers, purchase orders, lead times, delivery performance. */
+  readonly supplyChain: SupplyChainManager;
+  /** Document manager — document lifecycle, versioning, approvals, and expiration tracking. */
+  readonly docMgmt: DocumentManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -273,6 +279,8 @@ export class Olympus {
     this.engagement = new EngagementTracker(this.bus);
     this.headcountPlan = new HeadcountPlanner(this.bus);
     this.scenarioSim = new ScenarioSimulator(this.bus);
+    this.supplyChain = new SupplyChainManager(this.bus);
+    this.docMgmt = new DocumentManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -347,3 +355,5 @@ export { OnboardingTracker, type OnboardingStatus, type MilestoneCategory, type 
 export { EngagementTracker, type ENpsCategory, type FlightRiskLevel, type EngagementDriver, type PulseSurvey, type PulseResponse, type FlightRiskAssessment, type TeamEngagementScore, type EngagementSummary } from "./engagement/index.js";
 export { HeadcountPlanner, type HireStatus, type PlanningHorizon, type PlannedRole, type HeadcountPlan, type HeadcountSummary } from "./headcount-plan/index.js";
 export { ScenarioSimulator, type ScenarioType, type OutcomeMetric, type ScenarioVariable, type ScenarioOutcome, type Scenario, type ScenarioSummary } from "./scenario-sim/index.js";
+export { SupplyChainManager, type OrderStatus, type SupplierStatus, type SupplyRiskLevel, type Supplier, type PurchaseOrderLine, type PurchaseOrder, type SupplyChainSummary } from "./supply-chain/index.js";
+export { DocumentManager, type DocStatus, type DocCategory, type DocumentVersion, type ManagedDocument, type DocSummary } from "./document-mgmt/index.js";

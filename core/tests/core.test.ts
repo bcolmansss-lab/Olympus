@@ -6469,3 +6469,139 @@ describe("ScenarioSimulator", () => {
     assert.ok(s.byType["product_launch"] === 1);
   });
 });
+
+// ── SupplyChainManager ────────────────────────────────────────────────────────
+import { SupplyChainManager } from "../supply-chain/supply-chain-manager.js";
+
+describe("SupplyChainManager", () => {
+  it("addSupplier and listSuppliers", () => {
+    const bus = new EventBus();
+    const sc = new SupplyChainManager(bus);
+    sc.addSupplier({ name: "Acme Parts", country: "US", category: "components", status: "active", leadTimeDays: 14, onTimeDeliveryPct: 92, qualityScore: 88, riskLevel: "low", contactEmail: "acme@supplier.com" });
+    assert.equal(sc.listSuppliers().length, 1);
+    assert.equal(sc.listSuppliers("active").length, 1);
+  });
+
+  it("placeOrder emits event and calculates total", () => {
+    const bus = new EventBus();
+    const sc = new SupplyChainManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("supply.order_placed", (e) => { events.push(e.payload); });
+    const s = sc.addSupplier({ name: "FastShip", country: "DE", category: "logistics", status: "active", leadTimeDays: 7, onTimeDeliveryPct: 97, qualityScore: 95, riskLevel: "low", contactEmail: "fast@ship.de" });
+    const order = sc.placeOrder({ supplierId: s.id, lines: [{ skuId: "sku-1", description: "Widget", quantity: 100, unitCostUsd: 5 }], expectedDelivery: "2026-08-01" });
+    assert.ok(order !== undefined);
+    assert.equal(order!.totalUsd, 500);
+    assert.equal(events.length, 1);
+  });
+
+  it("receiveOrder marks on time and emits event", () => {
+    const bus = new EventBus();
+    const sc = new SupplyChainManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("supply.order_received", (e) => { events.push(e.payload); });
+    const s = sc.addSupplier({ name: "OnTime Co", country: "JP", category: "raw", status: "active", leadTimeDays: 5, onTimeDeliveryPct: 99, qualityScore: 98, riskLevel: "low", contactEmail: "ot@jp.com" });
+    const order = sc.placeOrder({ supplierId: s.id, lines: [{ skuId: "sku-2", description: "Bolt", quantity: 200, unitCostUsd: 1 }], expectedDelivery: "2026-08-10" })!;
+    sc.receiveOrder(order.id, "2026-08-10");
+    assert.equal(events.length, 1);
+    assert.equal(sc.getOrder(order.id)!.daysVariance, 0);
+  });
+
+  it("flagSupplier updates risk level and emits event", () => {
+    const bus = new EventBus();
+    const sc = new SupplyChainManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("supply.supplier_flagged", (e) => { events.push(e.payload); });
+    const s = sc.addSupplier({ name: "Risky Biz", country: "XX", category: "misc", status: "active", leadTimeDays: 30, onTimeDeliveryPct: 60, qualityScore: 50, riskLevel: "medium", contactEmail: "risky@biz.com" });
+    sc.flagSupplier(s.id, "repeated delays", "critical");
+    assert.equal(events.length, 1);
+    assert.equal(sc.getSupplier(s.id)!.status, "on_hold");
+  });
+
+  it("listOrders filters by supplierId", () => {
+    const bus = new EventBus();
+    const sc = new SupplyChainManager(bus);
+    const s1 = sc.addSupplier({ name: "S1", country: "US", category: "c", status: "active", leadTimeDays: 10, onTimeDeliveryPct: 90, qualityScore: 85, riskLevel: "low", contactEmail: "s1@test.com" });
+    const s2 = sc.addSupplier({ name: "S2", country: "US", category: "c", status: "active", leadTimeDays: 10, onTimeDeliveryPct: 90, qualityScore: 85, riskLevel: "low", contactEmail: "s2@test.com" });
+    sc.placeOrder({ supplierId: s1.id, lines: [{ skuId: "x", description: "X", quantity: 1, unitCostUsd: 10 }], expectedDelivery: "2026-09-01" });
+    sc.placeOrder({ supplierId: s2.id, lines: [{ skuId: "y", description: "Y", quantity: 1, unitCostUsd: 10 }], expectedDelivery: "2026-09-01" });
+    assert.equal(sc.listOrders(s1.id).length, 1);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const sc = new SupplyChainManager(bus);
+    sc.addSupplier({ name: "A", country: "US", category: "c", status: "active", leadTimeDays: 7, onTimeDeliveryPct: 95, qualityScore: 90, riskLevel: "low", contactEmail: "a@x.com" });
+    sc.addSupplier({ name: "B", country: "CN", category: "c", status: "active", leadTimeDays: 20, onTimeDeliveryPct: 75, qualityScore: 70, riskLevel: "high", contactEmail: "b@x.com" });
+    const s = sc.summary();
+    assert.equal(s.totalSuppliers, 2);
+    assert.equal(s.highRiskSuppliers, 1);
+    assert.equal(s.avgOnTimeDeliveryPct, 85);
+  });
+});
+
+// ── DocumentManager ───────────────────────────────────────────────────────────
+import { DocumentManager } from "../document-mgmt/document-manager.js";
+
+describe("DocumentManager", () => {
+  it("createDocument creates draft", () => {
+    const bus = new EventBus();
+    const dm = new DocumentManager(bus);
+    const doc = dm.createDocument({ title: "Security Policy", category: "policy", ownerId: "u1", content: "All passwords must be 12+ chars." });
+    assert.equal(doc.status, "draft");
+    assert.equal(doc.currentVersion, "1.0");
+  });
+
+  it("approveDocument emits event", () => {
+    const bus = new EventBus();
+    const dm = new DocumentManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("document.approved", (e) => { events.push(e.payload); });
+    const doc = dm.createDocument({ title: "Expense Policy", category: "policy", ownerId: "u2", content: "Submit expenses within 30 days." });
+    dm.approveDocument(doc.id, "cfo-1");
+    assert.equal(events.length, 1);
+    assert.equal(dm.getDocument(doc.id)!.status, "approved");
+  });
+
+  it("publishDocument emits event after approval", () => {
+    const bus = new EventBus();
+    const dm = new DocumentManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("document.published", (e) => { events.push(e.payload); });
+    const doc = dm.createDocument({ title: "PTO Policy", category: "policy", ownerId: "u3", content: "15 days PTO per year." });
+    dm.approveDocument(doc.id, "hr-1");
+    dm.publishDocument(doc.id);
+    assert.equal(events.length, 1);
+    assert.equal(dm.getDocument(doc.id)!.status, "published");
+  });
+
+  it("addVersion increments version number", () => {
+    const bus = new EventBus();
+    const dm = new DocumentManager(bus);
+    const doc = dm.createDocument({ title: "Onboarding Guide", category: "procedure", ownerId: "u4", content: "v1 content" });
+    dm.addVersion(doc.id, "v2 content", "u4", "Updated section 3");
+    assert.equal(dm.getDocument(doc.id)!.currentVersion, "1.1");
+    assert.equal(dm.getDocument(doc.id)!.versions.length, 2);
+  });
+
+  it("searchByTag finds matching documents", () => {
+    const bus = new EventBus();
+    const dm = new DocumentManager(bus);
+    dm.createDocument({ title: "GDPR Policy", category: "legal", ownerId: "u5", content: "...", tags: ["gdpr", "compliance"] });
+    dm.createDocument({ title: "CCPA Policy", category: "legal", ownerId: "u5", content: "...", tags: ["ccpa", "compliance"] });
+    dm.createDocument({ title: "Internal Memo", category: "other", ownerId: "u5", content: "...", tags: ["internal"] });
+    assert.equal(dm.searchByTag("compliance").length, 2);
+  });
+
+  it("summary returns correct stats", () => {
+    const bus = new EventBus();
+    const dm = new DocumentManager(bus);
+    dm.createDocument({ title: "Doc1", category: "technical", ownerId: "u6", content: "a" });
+    const d2 = dm.createDocument({ title: "Doc2", category: "template", ownerId: "u6", content: "b" });
+    dm.approveDocument(d2.id, "mgr");
+    dm.publishDocument(d2.id);
+    const s = dm.summary();
+    assert.equal(s.totalDocs, 2);
+    assert.equal(s.published, 1);
+    assert.equal(s.drafts, 1);
+  });
+});
