@@ -6323,3 +6323,149 @@ describe("EngagementTracker", () => {
     assert.equal(score.eNps, 33);
   });
 });
+
+// ── HeadcountPlanner ──────────────────────────────────────────────────────────
+import { HeadcountPlanner } from "../headcount-plan/headcount-planner.js";
+
+describe("HeadcountPlanner", () => {
+  it("createPlan and listPlans", () => {
+    const bus = new EventBus();
+    const hp = new HeadcountPlanner(bus);
+    const plan = hp.createPlan({ name: "Q3 2026", horizon: "q3", year: 2026, status: "draft" });
+    assert.equal(plan.status, "draft");
+    assert.equal(hp.listPlans().length, 1);
+  });
+
+  it("addRole updates plan cost and emits event", () => {
+    const bus = new EventBus();
+    const hp = new HeadcountPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("headcount.plan_updated", (e) => { events.push(e.payload); });
+    const plan = hp.createPlan({ name: "H1", horizon: "h1", year: 2026, status: "draft" });
+    const role = hp.addRole(plan.id, { title: "SWE", department: "Engineering", level: "L4", status: "planned", targetStartDate: "2026-09-01", annualSalaryUsd: 150000, benefits_multiplier: 1.25, priority: "high", backfill: false });
+    assert.ok(role !== undefined);
+    assert.equal(role!.totalCostUsd, 187500);
+    assert.equal(events.length, 1);
+    assert.equal(hp.getPlan(plan.id)!.totalHeadcount, 1);
+  });
+
+  it("approveRole emits hire_approved event", () => {
+    const bus = new EventBus();
+    const hp = new HeadcountPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("headcount.hire_approved", (e) => { events.push(e.payload); });
+    const plan = hp.createPlan({ name: "H2", horizon: "h2", year: 2026, status: "draft" });
+    const role = hp.addRole(plan.id, { title: "PM", department: "Product", level: "L5", status: "planned", targetStartDate: "2026-10-01", annualSalaryUsd: 180000, benefits_multiplier: 1.2, priority: "critical", backfill: false });
+    hp.approveRole(role!.id);
+    assert.equal(events.length, 1);
+    assert.equal(hp.getRole(role!.id)!.status, "approved");
+  });
+
+  it("updatePlanStatus transitions correctly", () => {
+    const bus = new EventBus();
+    const hp = new HeadcountPlanner(bus);
+    const plan = hp.createPlan({ name: "Annual", horizon: "annual", year: 2026, status: "draft" });
+    const updated = hp.updatePlanStatus(plan.id, "approved", "cfo@helios.ai");
+    assert.equal(updated!.status, "approved");
+    assert.equal(updated!.approvedBy, "cfo@helios.ai");
+  });
+
+  it("listRoles filters by department", () => {
+    const bus = new EventBus();
+    const hp = new HeadcountPlanner(bus);
+    const plan = hp.createPlan({ name: "Test", horizon: "q4", year: 2026, status: "draft" });
+    hp.addRole(plan.id, { title: "SWE", department: "Engineering", level: "L4", status: "planned", targetStartDate: "2026-11-01", annualSalaryUsd: 140000, benefits_multiplier: 1.25, priority: "medium", backfill: false });
+    hp.addRole(plan.id, { title: "AE", department: "Sales", level: "IC3", status: "planned", targetStartDate: "2026-11-01", annualSalaryUsd: 120000, benefits_multiplier: 1.2, priority: "high", backfill: false });
+    const engRoles = hp.listRoles(plan.id, "planned");
+    assert.equal(engRoles.length, 2);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const hp = new HeadcountPlanner(bus);
+    const plan = hp.createPlan({ name: "Sum", horizon: "annual", year: 2026, status: "active" });
+    hp.addRole(plan.id, { title: "DS", department: "Data", level: "L4", status: "approved", targetStartDate: "2026-08-01", annualSalaryUsd: 160000, benefits_multiplier: 1.3, priority: "critical", backfill: false });
+    const s = hp.summary();
+    assert.equal(s.totalPlans, 1);
+    assert.equal(s.activePlans, 1);
+    assert.equal(s.totalPlannedHires, 1);
+    assert.equal(s.approvedHires, 1);
+    assert.equal(s.totalPlannedCostUsd, 208000);
+  });
+});
+
+// ── ScenarioSimulator ─────────────────────────────────────────────────────────
+import { ScenarioSimulator } from "../scenario-sim/scenario-simulator.js";
+
+describe("ScenarioSimulator", () => {
+  it("runScenario creates scenario and emits event", () => {
+    const bus = new EventBus();
+    const sim = new ScenarioSimulator(bus);
+    const events: unknown[] = [];
+    bus.subscribe("scenario.run_completed", (e) => { events.push(e.payload); });
+    const sc = sim.runScenario({
+      name: "Price Increase 10%",
+      type: "pricing_change",
+      description: "Test scenario",
+      variables: [{ name: "price", currentValue: 100, proposedValue: 110, unit: "USD", impactWeight: 0.8 }],
+      baselineOutcomes: [{ metric: "revenue", value: 1000000 }],
+    });
+    assert.ok(sc.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("recommendation proceed when overallScore > 10", () => {
+    const bus = new EventBus();
+    const sim = new ScenarioSimulator(bus);
+    const sc = sim.runScenario({
+      name: "Big Win",
+      type: "market_expansion",
+      description: "expand",
+      variables: [{ name: "customers", currentValue: 100, proposedValue: 200, unit: "count", impactWeight: 1 }],
+      baselineOutcomes: [{ metric: "arr", value: 2000000 }],
+    });
+    assert.equal(sc.recommendation, "proceed");
+    assert.ok(sc.overallScore > 10);
+  });
+
+  it("recommendation reject when no positive delta", () => {
+    const bus = new EventBus();
+    const sim = new ScenarioSimulator(bus);
+    const sc = sim.runScenario({
+      name: "Cost Cut",
+      type: "cost_cut",
+      description: "reduce headcount",
+      variables: [{ name: "headcount", currentValue: 100, proposedValue: 80, unit: "people", impactWeight: 0.9 }],
+      baselineOutcomes: [{ metric: "revenue", value: 500000 }],
+    });
+    assert.equal(sc.recommendation, "reject");
+  });
+
+  it("listScenarios filters by type", () => {
+    const bus = new EventBus();
+    const sim = new ScenarioSimulator(bus);
+    sim.runScenario({ name: "A", type: "headcount", description: "", variables: [{ name: "hc", currentValue: 50, proposedValue: 60, unit: "ppl", impactWeight: 0.5 }], baselineOutcomes: [{ metric: "headcount", value: 50 }] });
+    sim.runScenario({ name: "B", type: "pricing_change", description: "", variables: [{ name: "price", currentValue: 100, proposedValue: 105, unit: "USD", impactWeight: 0.6 }], baselineOutcomes: [{ metric: "revenue", value: 100000 }] });
+    assert.equal(sim.listScenarios("headcount").length, 1);
+    assert.equal(sim.listScenarios().length, 2);
+  });
+
+  it("compareScenarios sorts by score descending", () => {
+    const bus = new EventBus();
+    const sim = new ScenarioSimulator(bus);
+    const sc1 = sim.runScenario({ name: "Low", type: "custom", description: "", variables: [{ name: "x", currentValue: 10, proposedValue: 11, unit: "u", impactWeight: 0.1 }], baselineOutcomes: [{ metric: "profit", value: 1000 }] });
+    const sc2 = sim.runScenario({ name: "High", type: "custom", description: "", variables: [{ name: "x", currentValue: 10, proposedValue: 20, unit: "u", impactWeight: 0.9 }], baselineOutcomes: [{ metric: "profit", value: 1000 }] });
+    const cmp = sim.compareScenarios([sc1.id, sc2.id]);
+    assert.ok(cmp[0] !== undefined);
+    assert.equal(cmp[0]!.name, "High");
+  });
+
+  it("summary returns correct aggregate stats", () => {
+    const bus = new EventBus();
+    const sim = new ScenarioSimulator(bus);
+    sim.runScenario({ name: "S1", type: "product_launch", description: "", variables: [{ name: "y", currentValue: 1, proposedValue: 2, unit: "u", impactWeight: 1 }], baselineOutcomes: [{ metric: "customer_count", value: 200 }] });
+    const s = sim.summary();
+    assert.equal(s.totalScenarios, 1);
+    assert.ok(s.byType["product_launch"] === 1);
+  });
+});

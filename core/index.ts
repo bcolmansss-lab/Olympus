@@ -73,6 +73,8 @@ import { RevenueIntelEngine } from "./revenue-intel/revenue-intel.js";
 import { ChurnPredictor } from "./churn/churn-predictor.js";
 import { OnboardingTracker } from "./onboarding/onboarding-tracker.js";
 import { EngagementTracker } from "./engagement/engagement-tracker.js";
+import { HeadcountPlanner } from "./headcount-plan/headcount-planner.js";
+import { ScenarioSimulator } from "./scenario-sim/scenario-simulator.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -200,6 +202,10 @@ export class Olympus {
   readonly onboarding: OnboardingTracker;
   /** Engagement tracker — eNPS pulse surveys, engagement scoring, manager effectiveness, and flight risk detection. */
   readonly engagement: EngagementTracker;
+  /** Headcount planner — strategic hiring plans, role cost modeling, approval workflows. */
+  readonly headcountPlan: HeadcountPlanner;
+  /** Scenario simulator — what-if analysis, decision trees, and impact modeling for business decisions. */
+  readonly scenarioSim: ScenarioSimulator;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -265,6 +271,8 @@ export class Olympus {
     this.churnPredictor = new ChurnPredictor(this.bus);
     this.onboarding = new OnboardingTracker(this.bus);
     this.engagement = new EngagementTracker(this.bus);
+    this.headcountPlan = new HeadcountPlanner(this.bus);
+    this.scenarioSim = new ScenarioSimulator(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -337,3 +345,5 @@ export { RevenueIntelEngine, type CohortPeriod, type RevenueSegment, type Expans
 export { ChurnPredictor, type ChurnRiskTier, type SignalType as ChurnSignalType, type ChurnSignal, type ChurnScore, type RetentionPlaybook, type ChurnSummary } from "./churn/index.js";
 export { OnboardingTracker, type OnboardingStatus, type MilestoneCategory, type OnboardingPlan, type PlanMilestone, type OnboardingJourney, type OnboardingSummary } from "./onboarding/index.js";
 export { EngagementTracker, type ENpsCategory, type FlightRiskLevel, type EngagementDriver, type PulseSurvey, type PulseResponse, type FlightRiskAssessment, type TeamEngagementScore, type EngagementSummary } from "./engagement/index.js";
+export { HeadcountPlanner, type HireStatus, type PlanningHorizon, type PlannedRole, type HeadcountPlan, type HeadcountSummary } from "./headcount-plan/index.js";
+export { ScenarioSimulator, type ScenarioType, type OutcomeMetric, type ScenarioVariable, type ScenarioOutcome, type Scenario, type ScenarioSummary } from "./scenario-sim/index.js";
