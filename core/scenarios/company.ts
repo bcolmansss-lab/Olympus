@@ -63,6 +63,8 @@ export function seedCompany(olympus: Olympus): void {
   seedAuditLog(olympus);
   seedBilling(olympus);
   seedAnalytics(olympus);
+  seedFeedback(olympus);
+  seedFeatureFlags(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -2225,4 +2227,123 @@ function seedAnalytics(olympus: Olympus): void {
   analytics.record(dau.id, 420, threeMonthsAgo);
   analytics.record(dau.id, 510, twoMonthsAgo);
   analytics.record(dau.id, 680, oneMonthAgo);
+}
+
+function seedFeedback(olympus: Olympus): void {
+  const fb = olympus.feedback;
+
+  // 1 NPS survey (active)
+  const npsSurvey = fb.createSurvey({
+    name: "Q2 NPS Survey",
+    type: "nps",
+    questions: [
+      { id: "q1", text: "How likely are you to recommend Helios to a colleague?", type: "rating" },
+      { id: "q2", text: "What's the main reason for your score?", type: "text" },
+    ],
+    status: "active",
+  });
+
+  // 8 responses with scores: 9,10,8,7,4,9,10,6
+  // Promoters (9-10): 9,10,9,10 = 4; Passives (7-8): 8,7 = 2; Detractors (0-6): 4,6 = 2
+  // NPS = (4/8 - 2/8) * 100 = 25.0
+  const npsScores = [9, 10, 8, 7, 4, 9, 10, 6];
+  for (let i = 0; i < npsScores.length; i++) {
+    fb.submitResponse({
+      surveyId: npsSurvey.id,
+      respondentId: `respondent-${i + 1}`,
+      answers: [{ questionId: "q1", value: npsScores[i]! }],
+      npsScore: npsScores[i],
+    });
+  }
+
+  // 3 feature requests
+  const customDashboard = fb.createFeatureRequest({
+    title: "Custom Dashboard Builder",
+    description: "Allow users to build and customize their own dashboard with drag-and-drop widgets.",
+    requesterId: "user-marketing-1",
+    status: "planned",
+    tags: ["dashboard", "ux"],
+  });
+  for (let i = 0; i < 12; i++) fb.voteForRequest(customDashboard.id);
+
+  const webhooks = fb.createFeatureRequest({
+    title: "API Webhooks v2",
+    description: "Revamped webhook system with retry logic, filtering, and delivery guarantees.",
+    requesterId: "user-eng-1",
+    status: "in_progress",
+    tags: ["api", "integrations"],
+  });
+  for (let i = 0; i < 8; i++) fb.voteForRequest(webhooks.id);
+
+  const sso = fb.createFeatureRequest({
+    title: "SSO via SAML",
+    description: "Enterprise-grade single sign-on via SAML 2.0 for large customers.",
+    requesterId: "user-sales-1",
+    status: "open",
+    tags: ["security", "enterprise"],
+  });
+  for (let i = 0; i < 23; i++) fb.voteForRequest(sso.id);
+}
+
+function seedFeatureFlags(olympus: Olympus): void {
+  const fm = olympus.flags;
+
+  // 1. new-dashboard-v2 — active, percentage 25%
+  fm.createFlag({
+    key: "new-dashboard-v2",
+    name: "New Dashboard V2",
+    description: "Rolls out the redesigned dashboard to a percentage of users.",
+    status: "active",
+    rolloutStrategy: "percentage",
+    rolloutPct: 25,
+    defaultValue: false,
+    tags: ["dashboard", "experiment"],
+  });
+
+  // 2. ai-recommendations — active, allowlist
+  fm.createFlag({
+    key: "ai-recommendations",
+    name: "AI Recommendations",
+    description: "AI-powered action recommendations for specific accounts.",
+    status: "active",
+    rolloutStrategy: "allowlist",
+    rolloutPct: 100,
+    allowlist: ["acct-cascade", "acct-vertex"],
+    defaultValue: false,
+    tags: ["ai", "recommendations"],
+  });
+
+  // 3. legacy-export — active, all, but rolloutPct=0 (kill switch)
+  fm.createFlag({
+    key: "legacy-export",
+    name: "Legacy Export",
+    description: "Legacy CSV/XLS export feature. Kill switch to disable if issues arise.",
+    status: "active",
+    rolloutStrategy: "all",
+    rolloutPct: 0,
+    defaultValue: true,
+    tags: ["export", "legacy"],
+  });
+
+  // 4. multi-currency — inactive, percentage 0%
+  fm.createFlag({
+    key: "multi-currency",
+    name: "Multi-Currency Support",
+    description: "Enables multi-currency pricing and invoicing.",
+    status: "inactive",
+    rolloutStrategy: "percentage",
+    rolloutPct: 0,
+    defaultValue: false,
+    tags: ["billing", "international"],
+  });
+
+  // 1 experiment: concluded, treatment won (8.2% vs 5.1%)
+  const exp = fm.createExperiment({
+    flagKey: "new-dashboard-v2",
+    name: "Dashboard Engagement Experiment",
+    hypothesis: "The redesigned dashboard will increase session engagement by 30%.",
+    startDate: isoDate(daysAgo(45)),
+    status: "running",
+  });
+  fm.concludeExperiment(exp.id, 0.051, 0.082);
 }

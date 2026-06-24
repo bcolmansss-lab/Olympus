@@ -45,6 +45,8 @@ import { DataPipelineManager } from "../pipeline/data-pipeline.js";
 import type { ForecastAssumptions } from "../forecasting/forecast-engine.js";
 import { BillingEngine } from "../billing/billing-engine.js";
 import { AnalyticsEngine } from "../analytics/analytics-engine.js";
+import { FeedbackEngine } from "../feedback/feedback-engine.js";
+import { FlagManager } from "../feature-flags/flag-manager.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -5565,5 +5567,132 @@ describe("AnalyticsEngine", () => {
     assert.equal(s.metricsWithAlerts, 2);
     assert.equal(s.totalMetrics, 3);
     assert.equal(s.totalDataPoints, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FeedbackEngine
+// ---------------------------------------------------------------------------
+
+describe("FeedbackEngine", () => {
+  it("submitResponse emits feedback.nps_submitted for NPS score", () => {
+    const bus = new EventBus();
+    const engine = new FeedbackEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("feedback.nps_submitted", (e) => { events.push(e); });
+    const survey = engine.createSurvey({ name: "NPS Test", type: "nps", questions: [], status: "active" });
+    engine.submitResponse({ surveyId: survey.id, respondentId: "user-1", answers: [], npsScore: 9 });
+    assert.equal(events.length, 1);
+  });
+
+  it("submitResponse categorizes promoter correctly (score 9)", () => {
+    const bus = new EventBus();
+    const engine = new FeedbackEngine(bus);
+    let emitted: Record<string, unknown> | undefined;
+    bus.subscribe("feedback.nps_submitted", (e) => { emitted = e.payload as Record<string, unknown>; });
+    const survey = engine.createSurvey({ name: "NPS Test", type: "nps", questions: [], status: "active" });
+    engine.submitResponse({ surveyId: survey.id, respondentId: "user-1", answers: [], npsScore: 9 });
+    assert.equal(emitted?.["category"], "promoter");
+  });
+
+  it("submitResponse categorizes detractor correctly (score 5)", () => {
+    const bus = new EventBus();
+    const engine = new FeedbackEngine(bus);
+    let emitted: Record<string, unknown> | undefined;
+    bus.subscribe("feedback.nps_submitted", (e) => { emitted = e.payload as Record<string, unknown>; });
+    const survey = engine.createSurvey({ name: "NPS Test", type: "nps", questions: [], status: "active" });
+    engine.submitResponse({ surveyId: survey.id, respondentId: "user-1", answers: [], npsScore: 5 });
+    assert.equal(emitted?.["category"], "detractor");
+  });
+
+  it("voteForRequest increments vote count", () => {
+    const bus = new EventBus();
+    const engine = new FeedbackEngine(bus);
+    const req = engine.createFeatureRequest({ title: "Dark Mode", description: "Add dark mode", requesterId: "user-1", status: "open" });
+    engine.voteForRequest(req.id);
+    engine.voteForRequest(req.id);
+    const updated = engine.listFeatureRequests()[0];
+    assert.equal(updated?.votes, 2);
+  });
+
+  it("summary computes NPS score correctly", () => {
+    const bus = new EventBus();
+    const engine = new FeedbackEngine(bus);
+    const survey = engine.createSurvey({ name: "NPS", type: "nps", questions: [], status: "active" });
+    // 4 promoters, 2 passives, 2 detractors => (4/8 - 2/8)*100 = 25.0
+    for (const score of [9, 10, 8, 7, 4, 9, 10, 6]) {
+      engine.submitResponse({ surveyId: survey.id, respondentId: `r-${score}`, answers: [], npsScore: score });
+    }
+    const s = engine.summary();
+    assert.equal(s.promoters, 4);
+    assert.equal(s.detractors, 2);
+    assert.equal(s.npsScore, 25.0);
+  });
+
+  it("createFeatureRequest emits event", () => {
+    const bus = new EventBus();
+    const engine = new FeedbackEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("feedback.feature_request", (e) => { events.push(e); });
+    engine.createFeatureRequest({ title: "Webhooks", description: "Add webhooks", requesterId: "user-1", status: "open" });
+    assert.equal(events.length, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FlagManager
+// ---------------------------------------------------------------------------
+
+describe("FlagManager", () => {
+  it("createFlag stores flag by key", () => {
+    const bus = new EventBus();
+    const fm = new FlagManager(bus);
+    fm.createFlag({ key: "my-flag", name: "My Flag", description: "Test", status: "active", rolloutStrategy: "all", rolloutPct: 100, defaultValue: false });
+    const flag = fm.getFlag("my-flag");
+    assert.ok(flag !== undefined);
+    assert.equal(flag?.key, "my-flag");
+  });
+
+  it("evaluate returns true for allowlisted user", () => {
+    const bus = new EventBus();
+    const fm = new FlagManager(bus);
+    fm.createFlag({ key: "allowlist-flag", name: "Allowlist Flag", description: "Test", status: "active", rolloutStrategy: "allowlist", rolloutPct: 0, allowlist: ["user-123"], defaultValue: false });
+    assert.equal(fm.evaluate("allowlist-flag", "user-123"), true);
+  });
+
+  it("evaluate returns false for inactive flag", () => {
+    const bus = new EventBus();
+    const fm = new FlagManager(bus);
+    fm.createFlag({ key: "inactive-flag", name: "Inactive Flag", description: "Test", status: "inactive", rolloutStrategy: "all", rolloutPct: 100, defaultValue: false });
+    assert.equal(fm.evaluate("inactive-flag", "any-user"), false);
+  });
+
+  it("evaluate percentage rollout is deterministic", () => {
+    const bus = new EventBus();
+    const fm = new FlagManager(bus);
+    fm.createFlag({ key: "pct-flag", name: "Pct Flag", description: "Test", status: "active", rolloutStrategy: "percentage", rolloutPct: 50, defaultValue: false });
+    const result1 = fm.evaluate("pct-flag", "user-abc");
+    const result2 = fm.evaluate("pct-flag", "user-abc");
+    assert.equal(result1, result2);
+  });
+
+  it("concludeExperiment sets winner correctly", () => {
+    const bus = new EventBus();
+    const fm = new FlagManager(bus);
+    const exp = fm.createExperiment({ flagKey: "my-flag", name: "Exp", hypothesis: "H", startDate: new Date().toISOString(), status: "running" });
+    const concluded = fm.concludeExperiment(exp.id, 0.05, 0.08);
+    assert.equal(concluded?.winner, "treatment");
+    assert.equal(concluded?.status, "concluded");
+  });
+
+  it("summary counts activeFlags", () => {
+    const bus = new EventBus();
+    const fm = new FlagManager(bus);
+    fm.createFlag({ key: "flag-a", name: "A", description: "A", status: "active", rolloutStrategy: "all", rolloutPct: 100, defaultValue: false });
+    fm.createFlag({ key: "flag-b", name: "B", description: "B", status: "inactive", rolloutStrategy: "all", rolloutPct: 0, defaultValue: false });
+    fm.createFlag({ key: "flag-c", name: "C", description: "C", status: "active", rolloutStrategy: "all", rolloutPct: 100, defaultValue: false });
+    const s = fm.summary();
+    assert.equal(s.totalFlags, 3);
+    assert.equal(s.activeFlags, 2);
   });
 });

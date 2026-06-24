@@ -63,6 +63,8 @@ import { EventManager } from "./events-mgmt/event-manager.js";
 import { AuditLog } from "./audit/audit-log.js";
 import { BillingEngine } from "./billing/billing-engine.js";
 import { AnalyticsEngine } from "./analytics/analytics-engine.js";
+import { FeedbackEngine } from "./feedback/feedback-engine.js";
+import { FlagManager } from "./feature-flags/flag-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -170,6 +172,10 @@ export class Olympus {
   readonly billing: BillingEngine;
   /** Analytics engine — cross-module KPI tracking, custom metrics, dashboards, and trend analysis. */
   readonly analytics: AnalyticsEngine;
+  /** Feedback engine — NPS surveys, CSAT collection, feature requests, and sentiment analysis. */
+  readonly feedback: FeedbackEngine;
+  /** Flag manager — feature flags, gradual rollouts, A/B experiments, and kill switches. */
+  readonly flags: FlagManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -225,6 +231,8 @@ export class Olympus {
     this.auditLog = new AuditLog();
     this.billing = new BillingEngine(this.bus);
     this.analytics = new AnalyticsEngine(this.bus);
+    this.feedback = new FeedbackEngine(this.bus);
+    this.flags = new FlagManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -287,3 +295,5 @@ export { EventManager, type EventType, type EventStatus, type AttendeeType, type
 export { AuditLog, type AuditAction, type AuditSeverity, type AuditEntry, type AuditQuery, type AuditSummary } from "./audit/index.js";
 export { BillingEngine, type InvoiceStatus, type MrrMovement, type PaymentMethod, type Subscription as BillingSubscription, type Invoice, type MrrRecord, type BillingSummary } from "./billing/index.js";
 export { AnalyticsEngine, type MetricType, type AggregationMethod, type TrendDirection, type MetricDefinition, type MetricDataPoint, type MetricSeries, type AnalyticsSummary } from "./analytics/index.js";
+export { FeedbackEngine, type NpsCategory, type SurveyType, type FeedbackSentiment, type RequestStatus, type Survey, type SurveyResponse, type FeatureRequest, type FeedbackSummary } from "./feedback/index.js";
+export { FlagManager, type FlagStatus, type RolloutStrategy, type TargetingRule, type FeatureFlag, type Experiment as FlagExperiment, type FlagSummary } from "./feature-flags/index.js";
