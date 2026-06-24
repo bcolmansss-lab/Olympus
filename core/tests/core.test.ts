@@ -6742,3 +6742,136 @@ describe("CustomerJourneyAnalytics", () => {
     assert.equal(s.active, 1);
   });
 });
+
+// ── LegalCaseManager ──────────────────────────────────────────────────────────
+import { LegalCaseManager } from "../legal/legal-case-manager.js";
+
+describe("LegalCaseManager", () => {
+  it("openCase emits event and creates case", () => {
+    const bus = new EventBus();
+    const lm = new LegalCaseManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("legal.case_opened", (e) => { events.push(e.payload); });
+    const c = lm.openCase({ title: "Patent Infringement", type: "ip", status: "open", priority: "high", description: "Competitor using our patent", assignedCounsel: "in-house-1", estimatedCostUsd: 500000, tags: ["patent"] });
+    assert.ok(c.id);
+    assert.equal(events.length, 1);
+    assert.equal(c.actualCostUsd, 0);
+  });
+
+  it("resolveCase emits resolved event", () => {
+    const bus = new EventBus();
+    const lm = new LegalCaseManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("legal.case_resolved", (e) => { events.push(e.payload); });
+    const c = lm.openCase({ title: "Employment Dispute", type: "employment", status: "open", priority: "medium", description: "Wrongful termination claim", assignedCounsel: "hr-counsel", estimatedCostUsd: 100000, tags: [] });
+    lm.resolveCase(c.id, "settled", 75000);
+    assert.equal(events.length, 1);
+    assert.equal(lm.getCase(c.id)!.status, "resolved");
+    assert.equal(lm.getCase(c.id)!.actualCostUsd, 75000);
+  });
+
+  it("addDeadline emits approaching event when within 14 days", () => {
+    const bus = new EventBus();
+    const lm = new LegalCaseManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("legal.deadline_approaching", (e) => { events.push(e.payload); });
+    const c = lm.openCase({ title: "Regulatory Filing", type: "regulatory", status: "open", priority: "critical", description: "SEC filing deadline", assignedCounsel: "gen-counsel", estimatedCostUsd: 50000, tags: [] });
+    const soon = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    lm.addDeadline(c.id, "File response", soon);
+    assert.equal(events.length, 1);
+  });
+
+  it("completeDeadline marks it done", () => {
+    const bus = new EventBus();
+    const lm = new LegalCaseManager(bus);
+    const c = lm.openCase({ title: "Contract Dispute", type: "contract_dispute", status: "open", priority: "low", description: "Vendor breach", assignedCounsel: "counsel-2", estimatedCostUsd: 20000, tags: [] });
+    lm.addDeadline(c.id, "Submit evidence", "2026-12-01");
+    lm.completeDeadline(c.id, "Submit evidence");
+    assert.equal(lm.getCase(c.id)!.deadlines[0]!.completed, true);
+  });
+
+  it("listCases filters by type", () => {
+    const bus = new EventBus();
+    const lm = new LegalCaseManager(bus);
+    lm.openCase({ title: "IP Case", type: "ip", status: "open", priority: "high", description: "", assignedCounsel: "c1", estimatedCostUsd: 0, tags: [] });
+    lm.openCase({ title: "Lit Case", type: "litigation", status: "open", priority: "medium", description: "", assignedCounsel: "c2", estimatedCostUsd: 0, tags: [] });
+    assert.equal(lm.listCases(undefined, "ip").length, 1);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const lm = new LegalCaseManager(bus);
+    lm.openCase({ title: "A", type: "corporate", status: "open", priority: "critical", description: "", assignedCounsel: "c1", estimatedCostUsd: 100000, tags: [] });
+    const b = lm.openCase({ title: "B", type: "privacy", status: "open", priority: "low", description: "", assignedCounsel: "c2", estimatedCostUsd: 50000, tags: [] });
+    lm.resolveCase(b.id, "dismissed", 10000);
+    const s = lm.summary();
+    assert.equal(s.totalCases, 2);
+    assert.equal(s.criticalCases, 1);
+    assert.equal(s.resolvedCases, 1);
+    assert.equal(s.totalActualCostUsd, 10000);
+  });
+});
+
+// ── QualityManager ────────────────────────────────────────────────────────────
+import { QualityManager } from "../quality/quality-manager.js";
+
+describe("QualityManager", () => {
+  it("raiseDefect emits event", () => {
+    const bus = new EventBus();
+    const qm = new QualityManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("quality.defect_raised", (e) => { events.push(e.payload); });
+    qm.raiseDefect({ title: "Crash on login", description: "App crashes", severity: "critical", status: "open", productArea: "auth", reportedBy: "qa-1" });
+    assert.equal(events.length, 1);
+  });
+
+  it("resolveDefect emits resolved event", () => {
+    const bus = new EventBus();
+    const qm = new QualityManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("quality.defect_resolved", (e) => { events.push(e.payload); });
+    const d = qm.raiseDefect({ title: "Memory leak", description: "...", severity: "major", status: "in_progress", productArea: "engine", reportedBy: "qa-2" });
+    qm.resolveDefect(d.id, "unclosed stream", "added try-finally block");
+    assert.equal(events.length, 1);
+    assert.equal(qm.getDefect(d.id)!.status, "resolved");
+  });
+
+  it("scheduleAudit and completeAudit emits event", () => {
+    const bus = new EventBus();
+    const qm = new QualityManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("quality.audit_completed", (e) => { events.push(e.payload); });
+    const a = qm.scheduleAudit({ title: "Q2 Internal Audit", type: "internal", auditor: "audit-team", scheduledDate: "2026-07-01", findings: [], status: "scheduled" });
+    qm.completeAudit(a.id, 92, ["Minor doc gaps"]);
+    assert.equal(events.length, 1);
+    assert.equal(qm.listAudits()[0]!.score, 92);
+  });
+
+  it("listDefects filters by severity", () => {
+    const bus = new EventBus();
+    const qm = new QualityManager(bus);
+    qm.raiseDefect({ title: "D1", description: "", severity: "critical", status: "open", productArea: "ui", reportedBy: "qa" });
+    qm.raiseDefect({ title: "D2", description: "", severity: "minor", status: "open", productArea: "ui", reportedBy: "qa" });
+    assert.equal(qm.listDefects(undefined, "critical").length, 1);
+  });
+
+  it("listDefects filters by status", () => {
+    const bus = new EventBus();
+    const qm = new QualityManager(bus);
+    const d = qm.raiseDefect({ title: "D3", description: "", severity: "major", status: "open", productArea: "api", reportedBy: "qa" });
+    qm.resolveDefect(d.id, "rc", "ca");
+    assert.equal(qm.listDefects("resolved").length, 1);
+    assert.equal(qm.listDefects("open").length, 0);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const qm = new QualityManager(bus);
+    qm.raiseDefect({ title: "X", description: "", severity: "critical", status: "open", productArea: "core", reportedBy: "qa" });
+    qm.raiseDefect({ title: "Y", description: "", severity: "minor", status: "open", productArea: "core", reportedBy: "qa" });
+    const s = qm.summary();
+    assert.equal(s.totalDefects, 2);
+    assert.equal(s.criticalDefects, 1);
+    assert.equal(s.openDefects, 2);
+  });
+});

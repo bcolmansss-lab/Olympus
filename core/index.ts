@@ -79,6 +79,8 @@ import { SupplyChainManager } from "./supply-chain/supply-chain-manager.js";
 import { DocumentManager } from "./document-mgmt/document-manager.js";
 import { RoadmapManager } from "./roadmap/roadmap-manager.js";
 import { CustomerJourneyAnalytics } from "./journey/customer-journey.js";
+import { LegalCaseManager } from "./legal/legal-case-manager.js";
+import { QualityManager } from "./quality/quality-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -218,6 +220,10 @@ export class Olympus {
   readonly roadmap: RoadmapManager;
   /** Customer journey analytics — touchpoint tracking, funnel analysis, conversion metrics. */
   readonly journey: CustomerJourneyAnalytics;
+  /** Legal case manager — litigation, IP, regulatory matters, deadlines, outside counsel. */
+  readonly legal: LegalCaseManager;
+  /** Quality manager — defect tracking, audits, corrective actions, QA metrics. */
+  readonly quality: QualityManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -289,6 +295,8 @@ export class Olympus {
     this.docMgmt = new DocumentManager(this.bus);
     this.roadmap = new RoadmapManager(this.bus);
     this.journey = new CustomerJourneyAnalytics(this.bus);
+    this.legal = new LegalCaseManager(this.bus);
+    this.quality = new QualityManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -367,3 +375,5 @@ export { SupplyChainManager, type OrderStatus, type SupplierStatus, type SupplyR
 export { DocumentManager, type DocStatus, type DocCategory, type DocumentVersion, type ManagedDocument, type DocSummary } from "./document-mgmt/index.js";
 export { RoadmapManager, type RoadmapItemStatus, type RoadmapItemType, type RoadmapQuarter, type RoadmapItem, type RoadmapRelease, type RoadmapSummary } from "./roadmap/index.js";
 export { CustomerJourneyAnalytics, type JourneyStage, type TouchpointChannel, type Touchpoint, type CustomerJourney, type FunnelAnalysis, type JourneySummary } from "./journey/index.js";
+export { LegalCaseManager, type LegalCaseType, type LegalCaseStatus, type CasePriority, type LegalDeadline, type LegalCase, type LegalSummary } from "./legal/index.js";
+export { QualityManager, type DefectSeverity, type DefectStatus, type AuditType, type Defect, type QualityAudit, type QualitySummary } from "./quality/index.js";
