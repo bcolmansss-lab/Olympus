@@ -4165,3 +4165,117 @@ describe("PricingEngine", () => {
     assert.ok(Math.abs(s.winRate - 66.6667) < 0.001 || Math.abs(s.winRate - (2/3*100)) < 0.001);
   });
 });
+
+import { AssetManager } from "../assets/asset-manager.js";
+
+describe("AssetManager", () => {
+  it("registerAsset emits asset.registered", () => {
+    const bus = new EventBus();
+    const manager = new AssetManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("asset.registered", (event) => { events.push((event as { payload: unknown }).payload); });
+    const asset = manager.registerAsset({
+      name: "Test Laptop",
+      type: "hardware",
+      status: "active",
+      purchaseDate: "2024-01-01",
+      purchasePriceUsd: 2000,
+      depreciationMethod: "straight_line",
+      usefulLifeYears: 4,
+    });
+    assert.equal(events.length, 1);
+    const ev = events[0] as { assetId: string; name: string; type: string; valueUsd: number };
+    assert.equal(ev.assetId, asset.id);
+    assert.equal(ev.name, "Test Laptop");
+    assert.equal(ev.type, "hardware");
+    assert.equal(ev.valueUsd, 2000);
+  });
+
+  it("updateStatus emits asset.status_changed", () => {
+    const bus = new EventBus();
+    const manager = new AssetManager(bus);
+    const asset = manager.registerAsset({
+      name: "Server",
+      type: "hardware",
+      status: "active",
+      purchaseDate: "2023-01-01",
+      purchasePriceUsd: 10000,
+      depreciationMethod: "none",
+      usefulLifeYears: 5,
+    });
+    const events: unknown[] = [];
+    bus.subscribe("asset.status_changed", (event) => { events.push((event as { payload: unknown }).payload); });
+    manager.updateStatus(asset.id, "maintenance");
+    assert.equal(events.length, 1);
+    const ev = events[0] as { assetId: string; from: string; to: string };
+    assert.equal(ev.assetId, asset.id);
+    assert.equal(ev.from, "active");
+    assert.equal(ev.to, "maintenance");
+  });
+
+  it("applyDepreciation straight_line reduces value correctly", () => {
+    const bus = new EventBus();
+    const manager = new AssetManager(bus);
+    const asset = manager.registerAsset({
+      name: "MacBook",
+      type: "hardware",
+      status: "active",
+      purchaseDate: "2024-01-01",
+      purchasePriceUsd: 12000,
+      depreciationMethod: "straight_line",
+      usefulLifeYears: 4,
+    });
+    const record = manager.applyDepreciation(asset.id, "2024-02");
+    assert.ok(record);
+    // annual = 12000/4 = 3000; monthly = 250
+    assert.ok(Math.abs(record.depreciationUsd - 250) < 0.01);
+    assert.ok(Math.abs(record.bookValueUsd - 11750) < 0.01);
+    assert.ok(Math.abs(manager.get(asset.id)!.currentValueUsd - 11750) < 0.01);
+  });
+
+  it("applyDepreciation declining_balance reduces value", () => {
+    const bus = new EventBus();
+    const manager = new AssetManager(bus);
+    const asset = manager.registerAsset({
+      name: "Server Rack",
+      type: "hardware",
+      status: "active",
+      purchaseDate: "2023-01-01",
+      purchasePriceUsd: 10000,
+      depreciationMethod: "declining_balance",
+      usefulLifeYears: 5,
+    });
+    const record = manager.applyDepreciation(asset.id, "2024-01");
+    assert.ok(record);
+    // rate = 2/5 = 0.4; monthly = 10000 * 0.4/12 ≈ 333.33
+    assert.ok(record.depreciationUsd > 0);
+    assert.ok(record.bookValueUsd < 10000);
+    assert.ok(Math.abs(record.depreciationUsd - 10000 * 0.4 / 12) < 0.01);
+  });
+
+  it("summary counts activeAssets correctly", () => {
+    const bus = new EventBus();
+    const manager = new AssetManager(bus);
+    manager.registerAsset({ name: "A1", type: "hardware", status: "active", purchaseDate: "2024-01-01", purchasePriceUsd: 1000, depreciationMethod: "none", usefulLifeYears: 3 });
+    manager.registerAsset({ name: "A2", type: "hardware", status: "active", purchaseDate: "2024-01-01", purchasePriceUsd: 2000, depreciationMethod: "none", usefulLifeYears: 3 });
+    manager.registerAsset({ name: "A3", type: "software_license", status: "decommissioned", purchaseDate: "2024-01-01", purchasePriceUsd: 500, depreciationMethod: "none", usefulLifeYears: 1 });
+    const s = manager.summary();
+    assert.equal(s.totalAssets, 3);
+    assert.equal(s.activeAssets, 2);
+    assert.equal(s.totalPurchasePriceUsd, 3500);
+    assert.equal(s.byType.hardware, 2);
+    assert.equal(s.byType.software_license, 1);
+  });
+
+  it("warrantyExpiringSoon detects near-expiry", () => {
+    const bus = new EventBus();
+    const manager = new AssetManager(bus);
+    const soon = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]!;
+    const far = new Date(Date.now() + 200 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]!;
+    manager.registerAsset({ name: "NearExpiry", type: "hardware", status: "active", purchaseDate: "2023-01-01", purchasePriceUsd: 1000, depreciationMethod: "none", usefulLifeYears: 3, warrantyExpiresAt: soon });
+    manager.registerAsset({ name: "FarExpiry", type: "hardware", status: "active", purchaseDate: "2023-01-01", purchasePriceUsd: 1000, depreciationMethod: "none", usefulLifeYears: 3, warrantyExpiresAt: far });
+    manager.registerAsset({ name: "NoWarranty", type: "furniture", status: "active", purchaseDate: "2023-01-01", purchasePriceUsd: 500, depreciationMethod: "none", usefulLifeYears: 5 });
+    const s = manager.summary();
+    assert.equal(s.warrantyExpiringSoon, 1);
+  });
+});

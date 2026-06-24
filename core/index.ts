@@ -51,6 +51,7 @@ import { DataPipelineManager } from "./pipeline/data-pipeline.js";
 import { SupportTicketManager } from "./support/ticket-manager.js";
 import { CommunicationHub } from "./communication/communication-hub.js";
 import { PricingEngine } from "./pricing/pricing-engine.js";
+import { AssetManager } from "./assets/asset-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -134,6 +135,8 @@ export class Olympus {
   readonly comms: CommunicationHub;
   /** Pricing engine — product catalog, tiered pricing, discounts, and quote generation. */
   readonly pricing: PricingEngine;
+  /** Asset manager — hardware, software, and infrastructure asset lifecycle tracking. */
+  readonly assets: AssetManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -177,6 +180,7 @@ export class Olympus {
     this.support = new SupportTicketManager(this.bus);
     this.comms = new CommunicationHub(this.bus);
     this.pricing = new PricingEngine(this.bus);
+    this.assets = new AssetManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -227,3 +231,4 @@ export { DataPipelineManager, type SourceType, type PipelineStatus, type RunStat
 export { SupportTicketManager, type TicketPriority, type TicketStatus, type TicketCategory, type Ticket as SupportTicket, type SLAConfig as SupportSLAConfig, type TicketMetrics as SupportTicketMetrics } from "./support/index.js";
 export { CommunicationHub, type CommChannel, type EngagementType, type SequenceStatus, type MessageStatus, type SequenceStep, type CommSequence, type CommMessage, type EngagementEvent, type SequenceAnalytics, type CommSummary } from "./communication/index.js";
 export { PricingEngine, type BillingModel, type DiscountType, type QuoteStatus, type PricingTier, type Product as PricingProduct, type Discount as PricingDiscount, type QuoteLineItem, type Quote as PricingQuote, type PricingSummary } from "./pricing/index.js";
+export { AssetManager, type AssetType, type AssetStatus, type DepreciationMethod, type Asset, type DepreciationRecord, type AssetSummary } from "./assets/index.js";

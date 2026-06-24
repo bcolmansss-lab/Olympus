@@ -51,6 +51,7 @@ export function seedCompany(olympus: Olympus): void {
   seedSupport(olympus);
   seedCommunication(olympus);
   seedPricing(olympus);
+  seedAssets(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1291,4 +1292,94 @@ export function seedPricing(olympus: Olympus): void {
     ],
     notes: "Gamma Corp enterprise evaluation",
   });
+}
+
+function seedAssets(olympus: Olympus): void {
+  const assets = olympus.assets;
+
+  // MacBook Pro fleet — 15 units modeled as one asset
+  const macbook = assets.registerAsset({
+    name: "MacBook Pro Fleet (15 units)",
+    type: "hardware",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(365)),
+    purchasePriceUsd: 45_000,
+    depreciationMethod: "straight_line",
+    usefulLifeYears: 4,
+    vendor: "Apple",
+    location: "Helios HQ",
+    tags: ["laptops", "engineering"],
+  });
+
+  // AWS infrastructure — modeled as IP (cloud subscription, $0 capital purchase)
+  assets.registerAsset({
+    name: "AWS Infrastructure",
+    type: "infrastructure",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(730)),
+    purchasePriceUsd: 0,
+    depreciationMethod: "none",
+    usefulLifeYears: 5,
+    vendor: "Amazon Web Services",
+    notes: "$8k/mo cloud spend",
+    tags: ["cloud", "infrastructure"],
+  });
+
+  // GitHub Enterprise license
+  assets.registerAsset({
+    name: "GitHub Enterprise License",
+    type: "software_license",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(180)),
+    purchasePriceUsd: 12_000,
+    depreciationMethod: "straight_line",
+    usefulLifeYears: 1,
+    vendor: "GitHub",
+    warrantyExpiresAt: isoDate(new Date(Date.now() + 185 * 24 * 60 * 60 * 1000)),
+    tags: ["developer-tools"],
+  });
+
+  // Office furniture
+  assets.registerAsset({
+    name: "Office Furniture",
+    type: "furniture",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(500)),
+    purchasePriceUsd: 18_000,
+    depreciationMethod: "straight_line",
+    usefulLifeYears: 7,
+    location: "Helios HQ",
+    tags: ["office"],
+  });
+
+  // Company server rack — in maintenance, warranty expiring in ~60 days
+  const serverRack = assets.registerAsset({
+    name: "Company Server Rack",
+    type: "hardware",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(400)),
+    purchasePriceUsd: 35_000,
+    depreciationMethod: "declining_balance",
+    usefulLifeYears: 5,
+    vendor: "Dell",
+    location: "Data Center",
+    warrantyExpiresAt: isoDate(new Date(Date.now() + 60 * 24 * 60 * 60 * 1000)),
+    maintenanceSchedule: "quarterly",
+    tags: ["servers", "infrastructure"],
+  });
+  assets.updateStatus(serverRack.id, "maintenance");
+
+  // Apply 2 months of depreciation to MacBook fleet and server rack
+  const twoMonthsAgo = new Date();
+  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+  const period1 = `${twoMonthsAgo.getFullYear()}-${String(twoMonthsAgo.getMonth() + 1).padStart(2, "0")}`;
+  const period2 = `${oneMonthAgo.getFullYear()}-${String(oneMonthAgo.getMonth() + 1).padStart(2, "0")}`;
+
+  assets.applyDepreciation(macbook.id, period1);
+  assets.applyDepreciation(macbook.id, period2);
+  assets.applyDepreciation(serverRack.id, period1);
+  assets.applyDepreciation(serverRack.id, period2);
 }
