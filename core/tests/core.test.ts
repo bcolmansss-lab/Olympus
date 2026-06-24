@@ -12,6 +12,8 @@ import { SubscriptionManager } from "../subscription-mgr/subscription-manager.js
 import { RealEstateManager } from "../real-estate/real-estate-manager.js";
 import { PermitManager } from "../permits/permit-manager.js";
 import { TaxManager } from "../tax-mgr/tax-manager.js";
+import { WarehouseManager } from "../warehouse/warehouse-manager.js";
+import { CustomerFeedbackEngine } from "../customer-feedback/customer-feedback.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -8799,5 +8801,129 @@ describe("TaxManager", () => {
     assert.equal(s.totalObligations, 2);
     assert.equal(s.overdue, 1);
     assert.equal(s.totalEstimatedLiabilityUsd, 158000);
+  });
+});
+
+describe("WarehouseManager", () => {
+  it("addWarehouse stores warehouse", () => {
+    const bus = new EventBus();
+    const wm = new WarehouseManager(bus);
+    const w = wm.addWarehouse({ name: "Miami DC", address: "100 Logistics Blvd", country: "US", status: "operational", totalSqft: 200000, usedSqft: 120000, maxCapacityUnits: 50000, currentUnits: 25000 });
+    assert.ok(w.id);
+    assert.equal(wm.getWarehouse(w.id)?.name, "Miami DC");
+  });
+
+  it("receiveShipment updates currentUnits and emits event", () => {
+    const bus = new EventBus();
+    const wm = new WarehouseManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("warehouse.shipment_received", (e) => { events.push(e.payload); });
+    const w = wm.addWarehouse({ name: "Austin WH", address: "1 Warehouse Way", country: "US", status: "operational", totalSqft: 100000, usedSqft: 50000, maxCapacityUnits: 20000, currentUnits: 5000 });
+    wm.receiveShipment({ warehouseId: w.id, direction: "inbound", status: "pending", carrier: "FedEx", skuCount: 10, totalUnits: 500 });
+    assert.equal(wm.getWarehouse(w.id)!.currentUnits, 5500);
+    assert.equal(events.length, 1);
+  });
+
+  it("receiveShipment emits capacity_alert when >= 90%", () => {
+    const bus = new EventBus();
+    const wm = new WarehouseManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("warehouse.capacity_alert", (e) => { events.push(e.payload); });
+    const w = wm.addWarehouse({ name: "Full WH", address: "2 Capacity St", country: "US", status: "operational", totalSqft: 50000, usedSqft: 45000, maxCapacityUnits: 1000, currentUnits: 890 });
+    wm.receiveShipment({ warehouseId: w.id, direction: "inbound", status: "pending", carrier: "UPS", skuCount: 2, totalUnits: 110 });
+    assert.equal(events.length, 1);
+  });
+
+  it("dispatchShipment decrements currentUnits and emits event", () => {
+    const bus = new EventBus();
+    const wm = new WarehouseManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("warehouse.shipment_dispatched", (e) => { events.push(e.payload); });
+    const w = wm.addWarehouse({ name: "TX WH", address: "3 Ship Ln", country: "US", status: "operational", totalSqft: 80000, usedSqft: 40000, maxCapacityUnits: 15000, currentUnits: 8000 });
+    const s = wm.receiveShipment({ warehouseId: w.id, direction: "outbound", status: "pending", carrier: "DHL", skuCount: 5, totalUnits: 200 });
+    wm.dispatchShipment(s!.id, "order-123");
+    assert.equal(wm.getWarehouse(w.id)!.currentUnits, 8000); // receive adds, dispatch removes
+    assert.equal(events.length, 1);
+  });
+
+  it("listShipments filters by direction", () => {
+    const bus = new EventBus();
+    const wm = new WarehouseManager(bus);
+    const w = wm.addWarehouse({ name: "NY WH", address: "4 Dock Ave", country: "US", status: "operational", totalSqft: 60000, usedSqft: 30000, maxCapacityUnits: 10000, currentUnits: 3000 });
+    wm.receiveShipment({ warehouseId: w.id, direction: "inbound", status: "pending", carrier: "FedEx", skuCount: 3, totalUnits: 100 });
+    wm.receiveShipment({ warehouseId: w.id, direction: "outbound", status: "pending", carrier: "UPS", skuCount: 2, totalUnits: 50 });
+    assert.equal(wm.listShipments(w.id, "inbound").length, 1);
+    assert.equal(wm.listShipments(w.id).length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const wm = new WarehouseManager(bus);
+    wm.addWarehouse({ name: "W1", address: "A", country: "US", status: "operational", totalSqft: 100000, usedSqft: 60000, maxCapacityUnits: 20000, currentUnits: 10000 });
+    const s = wm.summary();
+    assert.equal(s.totalWarehouses, 1);
+    assert.equal(s.operational, 1);
+    assert.equal(s.utilizationPct, 50);
+  });
+});
+
+describe("CustomerFeedbackEngine", () => {
+  it("submitNPS categorizes promoter and emits event", () => {
+    const bus = new EventBus();
+    const cfe = new CustomerFeedbackEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("feedback.nps_submitted", (e) => { events.push(e.payload); });
+    const r = cfe.submitNPS("cust-1", 9, "Love the product!");
+    assert.equal(r.category, "promoter");
+    assert.equal(r.sentiment, "positive");
+    assert.equal(events.length, 1);
+  });
+
+  it("submitNPS categorizes detractor", () => {
+    const bus = new EventBus();
+    const cfe = new CustomerFeedbackEngine(bus);
+    const r = cfe.submitNPS("cust-2", 4, "Too expensive");
+    assert.equal(r.category, "detractor");
+    assert.equal(r.sentiment, "negative");
+  });
+
+  it("submitCSAT emits event", () => {
+    const bus = new EventBus();
+    const cfe = new CustomerFeedbackEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("feedback.csat_submitted", (e) => { events.push(e.payload); });
+    cfe.submitCSAT("cust-3", 5, "ticket-42", "Resolved quickly");
+    assert.equal(events.length, 1);
+  });
+
+  it("escalate emits event", () => {
+    const bus = new EventBus();
+    const cfe = new CustomerFeedbackEngine(bus);
+    const events: unknown[] = [];
+    bus.subscribe("feedback.issue_escalated", (e) => { events.push(e.payload); });
+    const r = cfe.submitNPS("cust-4", 2, "Terrible experience");
+    cfe.escalate(r.id, "Low NPS score");
+    assert.equal(events.length, 1);
+  });
+
+  it("resolve marks feedback resolved", () => {
+    const bus = new EventBus();
+    const cfe = new CustomerFeedbackEngine(bus);
+    const r = cfe.submitCSAT("cust-5", 2, "ticket-99", "Unhappy");
+    cfe.resolve(r.id);
+    assert.equal(cfe.listResponses(undefined, true).length, 1);
+  });
+
+  it("summary computes NPS score correctly", () => {
+    const bus = new EventBus();
+    const cfe = new CustomerFeedbackEngine(bus);
+    cfe.submitNPS("c1", 9);  // promoter
+    cfe.submitNPS("c2", 9);  // promoter
+    cfe.submitNPS("c3", 7);  // passive
+    cfe.submitNPS("c4", 3);  // detractor
+    const s = cfe.summary();
+    assert.equal(s.promoters, 2);
+    assert.equal(s.detractors, 1);
+    assert.equal(s.npsScore, 25); // (2-1)/4 * 100 = 25
   });
 });

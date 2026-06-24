@@ -109,6 +109,8 @@ import { SubscriptionManager } from "./subscription-mgr/subscription-manager.js"
 import { RealEstateManager } from "./real-estate/real-estate-manager.js";
 import { PermitManager } from "./permits/permit-manager.js";
 import { TaxManager } from "./tax-mgr/tax-manager.js";
+import { WarehouseManager } from "./warehouse/warehouse-manager.js";
+import { CustomerFeedbackEngine } from "./customer-feedback/customer-feedback.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -306,6 +308,8 @@ export class Olympus {
   readonly realEstate: RealEstateManager;
   readonly permits: PermitManager;
   readonly taxMgr: TaxManager;
+  readonly warehouseMgr: WarehouseManager;
+  readonly customerFeedback: CustomerFeedbackEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -407,6 +411,8 @@ export class Olympus {
     this.realEstate = new RealEstateManager(this.bus);
     this.permits = new PermitManager(this.bus);
     this.taxMgr = new TaxManager(this.bus);
+    this.warehouseMgr = new WarehouseManager(this.bus);
+    this.customerFeedback = new CustomerFeedbackEngine(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -514,3 +520,5 @@ export { SubscriptionManager, type SubscriptionStatus, type BillingInterval, typ
 export { RealEstateManager, type PropertyType, type PropertyStatus, type RELeaseStatus, type Property, type RELease, type RealEstateSummary } from "./real-estate/index.js";
 export { PermitManager, type PermitStatus, type PermitCategory, type BusinessPermit, type PermitInspection, type PermitSummary } from "./permits/index.js";
 export { TaxManager, type TaxType, type TaxFilingStatus, type TaxFrequency, type TaxObligation, type TaxPayment, type TaxSummary } from "./tax-mgr/index.js";
+export { WarehouseManager, type WarehouseStatus, type ShipmentDirection, type ShipmentStatus, type Warehouse, type WHShipment, type WarehouseSummary } from "./warehouse/index.js";
+export { CustomerFeedbackEngine, type FeedbackType, type FeedbackSentiment as CFESentiment, type NPSCategory as CFENPSCategory, type FeedbackResponse, type FeedbackSurvey, type FeedbackSummary as CFEFeedbackSummary } from "./customer-feedback/index.js";
