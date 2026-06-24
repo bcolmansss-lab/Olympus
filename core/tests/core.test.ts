@@ -6999,3 +6999,127 @@ describe("PRManager", () => {
     assert.equal(s.totalReach, 1200000);
   });
 });
+
+// ── SalesIntelligence ─────────────────────────────────────────────────────────
+import { SalesIntelligence } from "../sales-intel/sales-intel.js";
+
+describe("SalesIntelligence", () => {
+  it("recordSignal emits buying_signal for high score", () => {
+    const bus = new EventBus();
+    const si = new SalesIntelligence(bus);
+    const events: unknown[] = [];
+    bus.subscribe("sales.buying_signal", (e) => { events.push(e.payload); });
+    si.recordSignal({ accountId: "acc-1", type: "funding_round", score: 85, description: "Series B announced", detectedAt: new Date().toISOString(), source: "crunchbase" });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordSignal does not emit for low score", () => {
+    const bus = new EventBus();
+    const si = new SalesIntelligence(bus);
+    const events: unknown[] = [];
+    bus.subscribe("sales.buying_signal", (e) => { events.push(e.payload); });
+    si.recordSignal({ accountId: "acc-2", type: "social_mention", score: 40, description: "Mentioned us", detectedAt: new Date().toISOString(), source: "twitter" });
+    assert.equal(events.length, 0);
+  });
+
+  it("setQuota and recordAttainment emit quota_achieved", () => {
+    const bus = new EventBus();
+    const si = new SalesIntelligence(bus);
+    const events: unknown[] = [];
+    bus.subscribe("sales.quota_achieved", (e) => { events.push(e.payload); });
+    si.setQuota("rep-1", "2026-Q3", 500000);
+    si.recordAttainment("rep-1", "2026-Q3", 550000);
+    assert.equal(events.length, 1);
+    assert.equal(si.listQuotas("rep-1")[0]!.achievedPct, 110);
+  });
+
+  it("logActivity stores and lists by rep", () => {
+    const bus = new EventBus();
+    const si = new SalesIntelligence(bus);
+    si.logActivity({ accountId: "acc-1", repId: "rep-2", type: "demo", notes: "Product demo", occurredAt: new Date().toISOString() });
+    si.logActivity({ accountId: "acc-2", repId: "rep-3", type: "call", notes: "Cold call", occurredAt: new Date().toISOString() });
+    assert.equal(si.listActivities("rep-2").length, 1);
+    assert.equal(si.listActivities().length, 2);
+  });
+
+  it("assignTerritory emits event", () => {
+    const bus = new EventBus();
+    const si = new SalesIntelligence(bus);
+    const events: unknown[] = [];
+    bus.subscribe("sales.territory_assigned", (e) => { events.push(e.payload); });
+    si.assignTerritory({ name: "West Coast", repId: "rep-4", regions: ["CA", "OR", "WA"], accountIds: ["a1", "a2", "a3"] });
+    assert.equal(events.length, 1);
+  });
+
+  it("summary returns correct counts", () => {
+    const bus = new EventBus();
+    const si = new SalesIntelligence(bus);
+    si.recordSignal({ accountId: "x", type: "intent_data", score: 90, description: "", detectedAt: new Date().toISOString(), source: "g2" });
+    si.recordSignal({ accountId: "y", type: "tech_change", score: 50, description: "", detectedAt: new Date().toISOString(), source: "web" });
+    const s = si.summary();
+    assert.equal(s.totalSignals, 2);
+    assert.equal(s.highScoreSignals, 1);
+  });
+});
+
+// ── ProductUsageTracker ───────────────────────────────────────────────────────
+import { ProductUsageTracker } from "../product-usage/product-usage.js";
+
+describe("ProductUsageTracker", () => {
+  it("trackEvent emits feature_adopted on first use", () => {
+    const bus = new EventBus();
+    const pu = new ProductUsageTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("usage.feature_adopted", (e) => { events.push(e.payload); });
+    pu.trackEvent({ accountId: "acc-1", userId: "u1", feature: "export_csv", action: "click", occurredAt: new Date().toISOString() });
+    assert.equal(events.length, 1);
+  });
+
+  it("trackEvent increments eventCount on repeat use", () => {
+    const bus = new EventBus();
+    const pu = new ProductUsageTracker(bus);
+    pu.trackEvent({ accountId: "acc-1", userId: "u1", feature: "dashboard", action: "view", occurredAt: new Date().toISOString() });
+    pu.trackEvent({ accountId: "acc-1", userId: "u2", feature: "dashboard", action: "view", occurredAt: new Date().toISOString() });
+    const adoption = pu.getAdoption("acc-1", "dashboard");
+    assert.equal(adoption!.eventCount, 2);
+    assert.equal(adoption!.uniqueUsers, 2);
+  });
+
+  it("startSession and endSession compute duration", () => {
+    const bus = new EventBus();
+    const pu = new ProductUsageTracker(bus);
+    const session = pu.startSession({ accountId: "acc-2", userId: "u3", startedAt: new Date(Date.now() - 120000).toISOString(), pagesViewed: 0, featuresUsed: [] });
+    pu.endSession(session.id, 5, ["dashboard", "reports"]);
+    assert.ok(pu.summary().totalSessions === 1);
+  });
+
+  it("checkExpansionSignal emits when threshold met", () => {
+    const bus = new EventBus();
+    const pu = new ProductUsageTracker(bus);
+    const events: unknown[] = [];
+    bus.subscribe("usage.expansion_signal", (e) => { events.push(e.payload); });
+    const now = new Date().toISOString();
+    for (let i = 0; i < 8; i++) pu.trackEvent({ accountId: "acc-3", userId: "u1", feature: "api_access", action: "call", occurredAt: now });
+    for (let i = 0; i < 2; i++) pu.trackEvent({ accountId: "acc-3", userId: "u1", feature: "other_feat", action: "click", occurredAt: now });
+    const triggered = pu.checkExpansionSignal("acc-3", "api_access", 75);
+    assert.equal(triggered, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("listAdoptions filters by account", () => {
+    const bus = new EventBus();
+    const pu = new ProductUsageTracker(bus);
+    pu.trackEvent({ accountId: "acc-4", userId: "u1", feature: "feat-a", action: "x", occurredAt: new Date().toISOString() });
+    pu.trackEvent({ accountId: "acc-5", userId: "u2", feature: "feat-b", action: "x", occurredAt: new Date().toISOString() });
+    assert.equal(pu.listAdoptions("acc-4").length, 1);
+  });
+
+  it("summary returns top features", () => {
+    const bus = new EventBus();
+    const pu = new ProductUsageTracker(bus);
+    for (let i = 0; i < 5; i++) pu.trackEvent({ accountId: "acc-6", userId: `u${i}`, feature: "reports", action: "view", occurredAt: new Date().toISOString() });
+    pu.trackEvent({ accountId: "acc-6", userId: "u1", feature: "settings", action: "click", occurredAt: new Date().toISOString() });
+    const s = pu.summary();
+    assert.equal(s.topFeatures[0]!.feature, "reports");
+  });
+});

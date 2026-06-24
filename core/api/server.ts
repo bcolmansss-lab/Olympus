@@ -189,6 +189,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/quality", handler: (_req, res) => res.json(200, { summary: this.olympus.quality.summary(), defects: this.olympus.quality.listDefects(), audits: this.olympus.quality.listAudits() }) },
       { method: "GET", pattern: "/v1/market-research", handler: (_req, res) => res.json(200, { summary: this.olympus.marketResearch.summary(), studies: this.olympus.marketResearch.listStudies(), competitors: this.olympus.marketResearch.listCompetitors() }) },
       { method: "GET", pattern: "/v1/pr", handler: (_req, res) => res.json(200, { summary: this.olympus.prComms.summary(), releases: this.olympus.prComms.listReleases(), crises: this.olympus.prComms.listCrises() }) },
+      { method: "GET", pattern: "/v1/sales-intel", handler: (_req, res) => res.json(200, { summary: this.olympus.salesIntel.summary(), signals: this.olympus.salesIntel.listSignals() }) },
+      { method: "GET", pattern: "/v1/product-usage", handler: (_req, res) => res.json(200, { summary: this.olympus.productUsage.summary(), adoptions: this.olympus.productUsage.listAdoptions() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
