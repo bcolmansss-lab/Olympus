@@ -7857,6 +7857,8 @@ import { PricingOptimizer } from "../pricing-optimizer/pricing-optimizer.js";
 import { TalentIntelligence } from "../talent-intel/talent-intelligence.js";
 import { ProductCatalog } from "../product-catalog/product-catalog.js";
 import { FacilitiesManager } from "../facilities/facilities-manager.js";
+import { BudgetPlanner } from "../budget-planner/budget-planner.js";
+import { CampaignManager } from "../campaign-mgr/campaign-manager.js";
 import { ContractManager as NewContractManager } from "../contracts/contract-manager.js";
 
 describe("PricingOptimizer", () => {
@@ -8171,5 +8173,255 @@ describe("ContractManager (new)", () => {
     assert.equal(s.totalContracts, 1);
     assert.equal(s.activeContracts, 1);
     assert.equal(s.totalValueUsd, 100000);
+  });
+});
+
+describe("BudgetPlanner", () => {
+  it("createBudget stores budget", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const b = bp.createBudget({ name: "Q3 2026", period: "quarterly", fiscalYear: 2026, status: "draft", departmentId: "eng", totalPlannedUsd: 500000 });
+    assert.ok(b.id);
+    assert.equal(bp.getBudget(b.id)?.name, "Q3 2026");
+  });
+
+  it("approveBudget sets status and emits event", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("budget.approved", (e) => { events.push(e.payload); });
+    const b = bp.createBudget({ name: "FY2026", period: "annual", fiscalYear: 2026, status: "pending_approval", departmentId: "finance", totalPlannedUsd: 2000000 });
+    bp.approveBudget(b.id, "cfo-1");
+    assert.equal(bp.getBudget(b.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("addLineItem fires variance_alert when >10%", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("budget.variance_alert", (e) => { events.push(e.payload); });
+    const b = bp.createBudget({ name: "Q1", period: "quarterly", fiscalYear: 2026, status: "active", departmentId: "mktg", totalPlannedUsd: 0 });
+    bp.addLineItem({ budgetId: b.id, category: "ads", description: "Paid Ads", plannedUsd: 100000, actualUsd: 115000 });
+    assert.equal(events.length, 1);
+  });
+
+  it("submitReforecast updates totalPlannedUsd and emits event", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("budget.reforecast_submitted", (e) => { events.push(e.payload); });
+    const b = bp.createBudget({ name: "Q2", period: "quarterly", fiscalYear: 2026, status: "active", departmentId: "sales", totalPlannedUsd: 300000 });
+    bp.submitReforecast(b.id, "vp-sales", 350000);
+    assert.equal(bp.getBudget(b.id)!.totalPlannedUsd, 350000);
+    assert.equal(events.length, 1);
+  });
+
+  it("listBudgets filters by status", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    bp.createBudget({ name: "A", period: "monthly", fiscalYear: 2026, status: "approved", departmentId: "d1", totalPlannedUsd: 50000 });
+    bp.createBudget({ name: "B", period: "monthly", fiscalYear: 2026, status: "draft", departmentId: "d2", totalPlannedUsd: 30000 });
+    assert.equal(bp.listBudgets("approved").length, 1);
+    assert.equal(bp.listBudgets().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const b = bp.createBudget({ name: "FY", period: "annual", fiscalYear: 2026, status: "approved", departmentId: "all", totalPlannedUsd: 1000000 });
+    bp.addLineItem({ budgetId: b.id, category: "payroll", description: "Payroll", plannedUsd: 800000, actualUsd: 810000 });
+    const s = bp.summary();
+    assert.equal(s.totalBudgets, 1);
+    assert.equal(s.approvedBudgets, 1);
+  });
+});
+
+describe("CampaignManager", () => {
+  it("createCampaign stores campaign", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const c = cm.createCampaign({ name: "Summer Sale", channel: "email", status: "draft", audienceSegment: "all-users", budgetUsd: 50000, startDate: "2026-07-01", endDate: "2026-07-31" });
+    assert.ok(c.id);
+    assert.equal(cm.getCampaign(c.id)?.name, "Summer Sale");
+  });
+
+  it("launchCampaign sets status active and emits event", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("campaign.launched", (e) => { events.push(e.payload); });
+    const c = cm.createCampaign({ name: "Q3 Promo", channel: "social", status: "scheduled", audienceSegment: "prospects", budgetUsd: 20000, startDate: "2026-07-15", endDate: "2026-08-15" });
+    cm.launchCampaign(c.id);
+    assert.equal(cm.getCampaign(c.id)!.status, "active");
+    assert.equal(events.length, 1);
+  });
+
+  it("completeCampaign emits event with roi", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("campaign.completed", (e) => { events.push(e.payload); });
+    const c = cm.createCampaign({ name: "PPC Fall", channel: "paid_search", status: "active", audienceSegment: "smb", budgetUsd: 10000, startDate: "2026-09-01", endDate: "2026-09-30" });
+    cm.recordResults(c.id, 200, 35000, 10000);
+    cm.completeCampaign(c.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("addVariant computes ctr and conversionRate", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const c = cm.createCampaign({ name: "AB Test", channel: "email", status: "active", audienceSegment: "enterprise", budgetUsd: 5000, startDate: "2026-10-01", endDate: "2026-10-15" });
+    const v = cm.addVariant({ campaignId: c.id, name: "Control", isControl: true, impressions: 10000, clicks: 500, conversions: 50 });
+    assert.ok(v!.id);
+    assert.equal(v!.ctr, 5);
+    assert.equal(v!.conversionRate, 10);
+  });
+
+  it("selectWinner sets winningVariantId and emits event", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("campaign.ab_winner_selected", (e) => { events.push(e.payload); });
+    const c = cm.createCampaign({ name: "Banner AB", channel: "display", status: "active", audienceSegment: "retargeting", budgetUsd: 8000, startDate: "2026-08-01", endDate: "2026-08-31" });
+    cm.selectWinner(c.id, "variant-b", "Higher CTR");
+    assert.equal(cm.getCampaign(c.id)!.winningVariantId, "variant-b");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    cm.createCampaign({ name: "C1", channel: "email", status: "active", audienceSegment: "all", budgetUsd: 10000, startDate: "2026-01-01", endDate: "2026-12-31" });
+    cm.createCampaign({ name: "C2", channel: "social", status: "draft", audienceSegment: "all", budgetUsd: 5000, startDate: "2026-06-01", endDate: "2026-06-30" });
+    const s = cm.summary();
+    assert.equal(s.totalCampaigns, 2);
+    assert.equal(s.activeCampaigns, 1);
+    assert.equal(s.totalBudgetUsd, 15000);
+  });
+});
+
+describe("BudgetPlanner", () => {
+  it("createBudget stores budget", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const b = bp.createBudget({ name: "Q3 2026", period: "quarterly", fiscalYear: 2026, status: "draft", departmentId: "eng", totalPlannedUsd: 500000 });
+    assert.ok(b.id);
+    assert.equal(bp.getBudget(b.id)?.name, "Q3 2026");
+  });
+
+  it("approveBudget sets status and emits event", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("budget.approved", (e) => { events.push(e.payload); });
+    const b = bp.createBudget({ name: "FY2026", period: "annual", fiscalYear: 2026, status: "pending_approval", departmentId: "finance", totalPlannedUsd: 2000000 });
+    bp.approveBudget(b.id, "cfo-1");
+    assert.equal(bp.getBudget(b.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("addLineItem fires variance_alert when >10%", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("budget.variance_alert", (e) => { events.push(e.payload); });
+    const b = bp.createBudget({ name: "Q1", period: "quarterly", fiscalYear: 2026, status: "active", departmentId: "mktg", totalPlannedUsd: 0 });
+    bp.addLineItem({ budgetId: b.id, category: "ads", description: "Paid Ads", plannedUsd: 100000, actualUsd: 115000 });
+    assert.equal(events.length, 1);
+  });
+
+  it("submitReforecast updates totalPlannedUsd and emits event", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const events: unknown[] = [];
+    bus.subscribe("budget.reforecast_submitted", (e) => { events.push(e.payload); });
+    const b = bp.createBudget({ name: "Q2", period: "quarterly", fiscalYear: 2026, status: "active", departmentId: "sales", totalPlannedUsd: 300000 });
+    bp.submitReforecast(b.id, "vp-sales", 350000);
+    assert.equal(bp.getBudget(b.id)!.totalPlannedUsd, 350000);
+    assert.equal(events.length, 1);
+  });
+
+  it("listBudgets filters by status", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    bp.createBudget({ name: "A", period: "monthly", fiscalYear: 2026, status: "approved", departmentId: "d1", totalPlannedUsd: 50000 });
+    bp.createBudget({ name: "B", period: "monthly", fiscalYear: 2026, status: "draft", departmentId: "d2", totalPlannedUsd: 30000 });
+    assert.equal(bp.listBudgets("approved").length, 1);
+    assert.equal(bp.listBudgets().length, 2);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const bp = new BudgetPlanner(bus);
+    const b = bp.createBudget({ name: "FY", period: "annual", fiscalYear: 2026, status: "approved", departmentId: "all", totalPlannedUsd: 1000000 });
+    bp.addLineItem({ budgetId: b.id, category: "payroll", description: "Payroll", plannedUsd: 800000, actualUsd: 810000 });
+    const s = bp.summary();
+    assert.equal(s.totalBudgets, 1);
+    assert.equal(s.approvedBudgets, 1);
+  });
+});
+
+describe("CampaignManager", () => {
+  it("createCampaign stores campaign", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const c = cm.createCampaign({ name: "Summer Sale", channel: "email", status: "draft", audienceSegment: "all-users", budgetUsd: 50000, startDate: "2026-07-01", endDate: "2026-07-31" });
+    assert.ok(c.id);
+    assert.equal(cm.getCampaign(c.id)?.name, "Summer Sale");
+  });
+
+  it("launchCampaign sets status active and emits event", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("campaign.launched", (e) => { events.push(e.payload); });
+    const c = cm.createCampaign({ name: "Q3 Promo", channel: "social", status: "scheduled", audienceSegment: "prospects", budgetUsd: 20000, startDate: "2026-07-15", endDate: "2026-08-15" });
+    cm.launchCampaign(c.id);
+    assert.equal(cm.getCampaign(c.id)!.status, "active");
+    assert.equal(events.length, 1);
+  });
+
+  it("completeCampaign emits event with roi", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("campaign.completed", (e) => { events.push(e.payload); });
+    const c = cm.createCampaign({ name: "PPC Fall", channel: "paid_search", status: "active", audienceSegment: "smb", budgetUsd: 10000, startDate: "2026-09-01", endDate: "2026-09-30" });
+    cm.recordResults(c.id, 200, 35000, 10000);
+    cm.completeCampaign(c.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("addVariant computes ctr and conversionRate", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const c = cm.createCampaign({ name: "AB Test", channel: "email", status: "active", audienceSegment: "enterprise", budgetUsd: 5000, startDate: "2026-10-01", endDate: "2026-10-15" });
+    const v = cm.addVariant({ campaignId: c.id, name: "Control", isControl: true, impressions: 10000, clicks: 500, conversions: 50 });
+    assert.ok(v!.id);
+    assert.equal(v!.ctr, 5);
+    assert.equal(v!.conversionRate, 10);
+  });
+
+  it("selectWinner sets winningVariantId and emits event", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("campaign.ab_winner_selected", (e) => { events.push(e.payload); });
+    const c = cm.createCampaign({ name: "Banner AB", channel: "display", status: "active", audienceSegment: "retargeting", budgetUsd: 8000, startDate: "2026-08-01", endDate: "2026-08-31" });
+    cm.selectWinner(c.id, "variant-b", "Higher CTR");
+    assert.equal(cm.getCampaign(c.id)!.winningVariantId, "variant-b");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary returns correct aggregates", () => {
+    const bus = new EventBus();
+    const cm = new CampaignManager(bus);
+    cm.createCampaign({ name: "C1", channel: "email", status: "active", audienceSegment: "all", budgetUsd: 10000, startDate: "2026-01-01", endDate: "2026-12-31" });
+    cm.createCampaign({ name: "C2", channel: "social", status: "draft", audienceSegment: "all", budgetUsd: 5000, startDate: "2026-06-01", endDate: "2026-06-30" });
+    const s = cm.summary();
+    assert.equal(s.totalCampaigns, 2);
+    assert.equal(s.activeCampaigns, 1);
+    assert.equal(s.totalBudgetUsd, 15000);
   });
 });

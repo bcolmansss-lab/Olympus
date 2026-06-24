@@ -101,6 +101,8 @@ import { TalentIntelligence } from "./talent-intel/talent-intelligence.js";
 import { ProductCatalog } from "./product-catalog/product-catalog.js";
 import { FacilitiesManager } from "./facilities/facilities-manager.js";
 import { ContractManager as NewContractManager } from "./contracts/contract-manager.js";
+import { BudgetPlanner } from "./budget-planner/budget-planner.js";
+import { CampaignManager } from "./campaign-mgr/campaign-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -284,6 +286,10 @@ export class Olympus {
   readonly facilities: FacilitiesManager;
   /** Contract manager — contract lifecycle, obligations, renewal alerts, spend analytics. */
   readonly contracts: NewContractManager;
+  /** Budget planner — annual/quarterly budget creation, variance tracking, reforecast workflows. */
+  readonly budgetPlanner: BudgetPlanner;
+  /** Campaign manager — marketing campaign lifecycle, A/B testing, spend management, ROI analytics. */
+  readonly campaignMgr: CampaignManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -377,6 +383,8 @@ export class Olympus {
     this.productCatalog = new ProductCatalog(this.bus);
     this.facilities = new FacilitiesManager(this.bus);
     this.contracts = new NewContractManager(this.bus);
+    this.budgetPlanner = new BudgetPlanner(this.bus);
+    this.campaignMgr = new CampaignManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -476,3 +484,5 @@ export { PricingOptimizer, type PricingStrategy, type DiscountType as PODiscount
 export { TalentIntelligence, type SkillLevel, type ReadinessLevel, type SkillProfile, type SuccessionPlan, type LearningRecord, type TalentSummary } from "./talent-intel/index.js";
 export { ProductCatalog, type ProductStatus, type ProductType, type ProductVariant, type CatalogProduct, type ProductCategory, type CatalogSummary } from "./product-catalog/index.js";
 export { FacilitiesManager, type LeaseStatus, type MaintenanceStatus, type MaintenancePriority, type FacilityLocation, type MaintenanceRequest, type RoomBooking, type FacilitiesSummary } from "./facilities/index.js";
+export { BudgetPlanner, type BudgetStatus, type BudgetPeriod, type BudgetLineItem, type Budget, type BudgetSummary } from "./budget-planner/index.js";
+export { CampaignManager, type CampaignStatus, type CampaignChannel, type CampaignVariant, type Campaign as MgrCampaign, type CampaignSummary } from "./campaign-mgr/index.js";
