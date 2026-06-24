@@ -58,6 +58,7 @@ export function seedCompany(olympus: Olympus): void {
   seedContractMgmt(olympus);
   seedPayroll(olympus);
   seedInventory(olympus);
+  seedPartners(olympus);
 }
 
 function seedFinance(olympus: Olympus): void {
@@ -1793,6 +1794,87 @@ function seedPayroll(olympus: Olympus): void {
 
   payroll.processPayPeriod({ startDate: period1Start, endDate: period1End, frequency: "semimonthly", employeeIds: allEmployees });
   payroll.processPayPeriod({ startDate: period2Start, endDate: period2End, frequency: "semimonthly", employeeIds: allEmployees });
+}
+
+export function seedPartners(olympus: Olympus): void {
+  const pm = olympus.partners;
+
+  // 3 partners
+  const techBridge = pm.registerPartner({
+    name: "TechBridge Solutions",
+    type: "reseller",
+    tier: "gold",
+    region: "North America",
+    contactName: "Sarah Mitchell",
+    contactEmail: "sarah@techbridgesolutions.com",
+    certifiedProducts: ["helios-platform"],
+    commissionRate: 15,
+    tags: ["enterprise", "reseller"],
+  });
+  // Set ytdRevenue directly by closing a deal
+  const tbDeal = pm.registerDeal({
+    partnerId: techBridge.id,
+    dealName: "TechBridge Q1 Resell",
+    customerName: "Midwest Manufacturing Co",
+    type: "resell",
+    valueUsd: 85_000,
+    status: "registered",
+  });
+  pm.closeDeal(tbDeal.id, true);
+
+  const cloudNova = pm.registerPartner({
+    name: "CloudNova Partners",
+    type: "referral",
+    tier: "silver",
+    region: "EMEA",
+    contactName: "James Osei",
+    contactEmail: "james@cloudnovapartners.com",
+    certifiedProducts: [],
+    commissionRate: 10,
+    tags: ["referral", "cloud"],
+  });
+  // Set ytdRevenue by closing a deal
+  const cnDeal = pm.registerDeal({
+    partnerId: cloudNova.id,
+    dealName: "CloudNova Referral Q2",
+    customerName: "Berlin Tech GmbH",
+    type: "referral",
+    valueUsd: 32_000,
+    status: "registered",
+  });
+  pm.closeDeal(cnDeal.id, true);
+
+  const apex = pm.registerPartner({
+    name: "Apex Implementations",
+    type: "implementation",
+    tier: "platinum",
+    region: "North America",
+    contactName: "Priya Mehta",
+    contactEmail: "priya@apenimplementations.com",
+    certifiedProducts: ["helios-platform", "helios-analytics"],
+    commissionRate: 12,
+    tags: ["implementation", "enterprise"],
+  });
+  // Set ytdRevenue by closing a deal
+  const apexDeal = pm.registerDeal({
+    partnerId: apex.id,
+    dealName: "Apex Enterprise Impl Q1",
+    customerName: "Pacific Coast Logistics",
+    type: "co_sell",
+    valueUsd: 240_000,
+    status: "registered",
+  });
+  pm.closeDeal(apexDeal.id, true);
+
+  // 1 approved deal
+  pm.registerDeal({
+    partnerId: techBridge.id,
+    dealName: "TechBridge Q3 Pipeline",
+    customerName: "Great Lakes Auto",
+    type: "resell",
+    valueUsd: 60_000,
+    status: "approved",
+  });
 }
 
 function seedInventory(olympus: Olympus): void {

@@ -4994,3 +4994,182 @@ describe("InventoryManager", () => {
     assert.equal(s.totalSKUs, 2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PartnerManager
+// ---------------------------------------------------------------------------
+
+import { PartnerManager } from "../partners/partner-manager.js";
+
+describe("PartnerManager", () => {
+  it("registerPartner emits partner.registered", () => {
+    const bus = new EventBus();
+    const pm = new PartnerManager(bus);
+    const events: unknown[] = [];
+    bus.subscribe("partner.registered", (ev) => { events.push((ev as { payload: unknown }).payload); });
+    const p = pm.registerPartner({
+      name: "Acme Partners",
+      type: "reseller",
+      tier: "silver",
+      region: "North America",
+      contactName: "Jane Doe",
+      contactEmail: "jane@acmepartners.com",
+      certifiedProducts: [],
+      commissionRate: 10,
+    });
+    assert.equal(events.length, 1);
+    const ev = events[0] as { partnerId: string; name: string; tier: string };
+    assert.equal(ev.partnerId, p.id);
+    assert.equal(ev.name, "Acme Partners");
+    assert.equal(ev.tier, "silver");
+  });
+
+  it("registerDeal increments partner deal count", () => {
+    const bus = new EventBus();
+    const pm = new PartnerManager(bus);
+    const p = pm.registerPartner({
+      name: "Beta Partners",
+      type: "referral",
+      tier: "silver",
+      region: "EMEA",
+      contactName: "Bob Smith",
+      contactEmail: "bob@beta.com",
+      certifiedProducts: [],
+      commissionRate: 8,
+    });
+    assert.equal(p.totalDealsRegistered, 0);
+    pm.registerDeal({
+      partnerId: p.id,
+      dealName: "Deal One",
+      customerName: "Customer A",
+      type: "referral",
+      valueUsd: 20_000,
+      status: "registered",
+    });
+    assert.equal(pm.get(p.id)!.totalDealsRegistered, 1);
+  });
+
+  it("closeDeal won updates ytdRevenue", () => {
+    const bus = new EventBus();
+    const pm = new PartnerManager(bus);
+    const p = pm.registerPartner({
+      name: "Gamma Partners",
+      type: "reseller",
+      tier: "silver",
+      region: "APAC",
+      contactName: "Carol Lee",
+      contactEmail: "carol@gamma.com",
+      certifiedProducts: [],
+      commissionRate: 15,
+    });
+    const deal = pm.registerDeal({
+      partnerId: p.id,
+      dealName: "Gamma Deal",
+      customerName: "Customer B",
+      type: "resell",
+      valueUsd: 30_000,
+      status: "registered",
+    });
+    const closed = pm.closeDeal(deal.id, true);
+    assert.equal(closed!.status, "closed_won");
+    assert.equal(closed!.commissionUsd, 30_000 * 0.15);
+    assert.equal(pm.get(p.id)!.ytdRevenueUsd, 30_000);
+  });
+
+  it("closeDeal triggers tier upgrade when threshold crossed", () => {
+    const bus = new EventBus();
+    const pm = new PartnerManager(bus);
+    const upgradeEvents: unknown[] = [];
+    bus.subscribe("partner.tier_upgraded", (ev) => { upgradeEvents.push((ev as { payload: unknown }).payload); });
+    const p = pm.registerPartner({
+      name: "Delta Partners",
+      type: "reseller",
+      tier: "silver",
+      region: "North America",
+      contactName: "Dave Chen",
+      contactEmail: "dave@delta.com",
+      certifiedProducts: [],
+      commissionRate: 12,
+    });
+    const deal = pm.registerDeal({
+      partnerId: p.id,
+      dealName: "Threshold Deal",
+      customerName: "Customer C",
+      type: "resell",
+      valueUsd: 55_000,
+      status: "registered",
+    });
+    pm.closeDeal(deal.id, true);
+    assert.equal(upgradeEvents.length, 1);
+    const ev = upgradeEvents[0] as { partnerId: string; from: string; to: string };
+    assert.equal(ev.partnerId, p.id);
+    assert.equal(ev.from, "silver");
+    assert.equal(ev.to, "gold");
+    assert.equal(pm.get(p.id)!.tier, "gold");
+  });
+
+  it("closeDeal lost does not update revenue", () => {
+    const bus = new EventBus();
+    const pm = new PartnerManager(bus);
+    const p = pm.registerPartner({
+      name: "Epsilon Partners",
+      type: "affiliate",
+      tier: "silver",
+      region: "LATAM",
+      contactName: "Elena Rivera",
+      contactEmail: "elena@epsilon.com",
+      certifiedProducts: [],
+      commissionRate: 5,
+    });
+    const deal = pm.registerDeal({
+      partnerId: p.id,
+      dealName: "Lost Deal",
+      customerName: "Customer D",
+      type: "referral",
+      valueUsd: 40_000,
+      status: "registered",
+    });
+    const closed = pm.closeDeal(deal.id, false);
+    assert.equal(closed!.status, "closed_lost");
+    assert.equal(pm.get(p.id)!.ytdRevenueUsd, 0);
+    assert.equal(closed!.commissionUsd, undefined);
+  });
+
+  it("summary returns topPartner correctly", () => {
+    const bus = new EventBus();
+    const pm = new PartnerManager(bus);
+    pm.registerPartner({
+      name: "Low Revenue Partner",
+      type: "affiliate",
+      tier: "silver",
+      region: "North America",
+      contactName: "Alice",
+      contactEmail: "alice@low.com",
+      certifiedProducts: [],
+      commissionRate: 5,
+    });
+    const highP = pm.registerPartner({
+      name: "High Revenue Partner",
+      type: "reseller",
+      tier: "gold",
+      region: "North America",
+      contactName: "Bob",
+      contactEmail: "bob@high.com",
+      certifiedProducts: [],
+      commissionRate: 15,
+    });
+    const deal = pm.registerDeal({
+      partnerId: highP.id,
+      dealName: "Big Deal",
+      customerName: "Customer E",
+      type: "resell",
+      valueUsd: 100_000,
+      status: "registered",
+    });
+    pm.closeDeal(deal.id, true);
+    const s = pm.summary();
+    assert.equal(s.topPartner, "High Revenue Partner");
+    assert.equal(s.totalPartners, 2);
+    assert.equal(s.totalPartnerRevenueUsd, 100_000);
+  });
+});
