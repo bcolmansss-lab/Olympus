@@ -165,6 +165,8 @@ import { SupplierScorecardManager } from "./supplier-scorecard/supplier-scorecar
 import { NonconformanceManager } from "./nonconformance/nonconformance-manager.js";
 import { GrievanceManager } from "./grievance/grievance-manager.js";
 import { AssetCheckoutManager } from "./asset-checkout/asset-checkout-manager.js";
+import { SponsorshipManager } from "./sponsorship/sponsorship-manager.js";
+import { MembershipManager } from "./membership/membership-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -418,6 +420,8 @@ export class Olympus {
   readonly nonconformance: NonconformanceManager;
   readonly grievance: GrievanceManager;
   readonly assetCheckout: AssetCheckoutManager;
+  readonly sponsorship: SponsorshipManager;
+  readonly membership: MembershipManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -575,6 +579,8 @@ export class Olympus {
     this.nonconformance = new NonconformanceManager(this.bus);
     this.grievance = new GrievanceManager(this.bus);
     this.assetCheckout = new AssetCheckoutManager(this.bus);
+    this.sponsorship = new SponsorshipManager(this.bus);
+    this.membership = new MembershipManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -738,3 +744,5 @@ export { SupplierScorecardManager, type SupplierTier, type ScoreDimension, type 
 export { NonconformanceManager, type NCRSeverity, type NCRSource, type NCRStatus, type Disposition, type CAPAType, type CAPA, type NCR, type NonconformanceSummary } from "./nonconformance/index.js";
 export { GrievanceManager, type GrievanceCategory, type GrievanceStage, type GrievanceOutcome, type Grievance, type GrievanceSummary } from "./grievance/index.js";
 export { AssetCheckoutManager, type ItemAvailability, type LoanStatus, type CheckoutItem, type Loan, type CheckoutSummary } from "./asset-checkout/index.js";
+export { SponsorshipManager, type SponsorTier, type SponsorshipStatus, type Deliverable, type Sponsorship, type SponsorshipSummary } from "./sponsorship/index.js";
+export { MembershipManager, type MembershipTier, type MembershipStatus, type Membership, type MembershipSummary } from "./membership/index.js";

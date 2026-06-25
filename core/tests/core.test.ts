@@ -68,6 +68,8 @@ import { SupplierScorecardManager } from "../supplier-scorecard/supplier-scoreca
 import { NonconformanceManager } from "../nonconformance/nonconformance-manager.js";
 import { GrievanceManager } from "../grievance/grievance-manager.js";
 import { AssetCheckoutManager } from "../asset-checkout/asset-checkout-manager.js";
+import { SponsorshipManager } from "../sponsorship/sponsorship-manager.js";
+import { MembershipManager } from "../membership/membership-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12582,5 +12584,132 @@ describe("AssetCheckoutManager", () => {
     assert.equal(s.available, 1);
     assert.equal(s.activeLoans, 1);
     assert.equal(s.byCategory.tool, 1);
+  });
+});
+
+describe("SponsorshipManager", () => {
+  it("sign publishes signed and seeds deliverables", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sponsorship.signed", (e) => { events.push(e.payload); });
+    const sm = new SponsorshipManager(bus);
+    const s = sm.sign({ sponsorName: "Acme", tier: "gold", amountUsd: 50000, startDate: "2026-01-01", endDate: "2026-12-31", deliverables: ["logo on site", "booth"] });
+    assert.equal(s.deliverables.length, 2);
+    assert.equal(events.length, 1);
+  });
+
+  it("fulfill marks deliverable and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sponsorship.deliverable_fulfilled", (e) => { events.push(e.payload); });
+    const sm = new SponsorshipManager(bus);
+    const s = sm.sign({ sponsorName: "Acme", tier: "gold", amountUsd: 50000, startDate: "2026-01-01", endDate: "2026-12-31", deliverables: ["logo"] });
+    sm.fulfill(s.id, s.deliverables[0]!.id, "2026-02-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("completing all deliverables completes the sponsorship", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sponsorship.completed", (e) => { events.push(e.payload); });
+    const sm = new SponsorshipManager(bus);
+    const s = sm.sign({ sponsorName: "Acme", tier: "gold", amountUsd: 50000, startDate: "2026-01-01", endDate: "2026-12-31", deliverables: ["a", "b"] });
+    sm.fulfill(s.id, s.deliverables[0]!.id, "2026-02-01");
+    sm.fulfill(s.id, s.deliverables[1]!.id, "2026-03-01");
+    assert.equal(sm.getSponsorship(s.id)!.status, "completed");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].fulfillmentPct, 100);
+  });
+
+  it("fulfillmentPct reflects partial completion", () => {
+    const bus = new EventBus();
+    const sm = new SponsorshipManager(bus);
+    const s = sm.sign({ sponsorName: "Acme", tier: "silver", amountUsd: 10000, startDate: "2026-01-01", endDate: "2026-12-31", deliverables: ["a", "b", "c", "d"] });
+    sm.fulfill(s.id, s.deliverables[0]!.id, "2026-02-01");
+    assert.equal(sm.fulfillmentPct(s.id), 25);
+  });
+
+  it("cancel blocks completed sponsorships", () => {
+    const bus = new EventBus();
+    const sm = new SponsorshipManager(bus);
+    const s = sm.sign({ sponsorName: "Acme", tier: "bronze", amountUsd: 5000, startDate: "2026-01-01", endDate: "2026-12-31", deliverables: ["a"] });
+    sm.fulfill(s.id, s.deliverables[0]!.id, "2026-02-01");
+    assert.equal(sm.cancel(s.id), undefined);
+  });
+
+  it("summary aggregates revenue and tiers", () => {
+    const bus = new EventBus();
+    const sm = new SponsorshipManager(bus);
+    sm.sign({ sponsorName: "A", tier: "title", amountUsd: 100000, startDate: "2026-01-01", endDate: "2026-12-31", deliverables: ["x"] });
+    sm.sign({ sponsorName: "B", tier: "gold", amountUsd: 50000, startDate: "2026-01-01", endDate: "2026-12-31", deliverables: ["y"] });
+    const s = sm.summary();
+    assert.equal(s.totalSponsorships, 2);
+    assert.equal(s.totalRevenueUsd, 150000);
+    assert.equal(s.byTier.title, 1);
+  });
+});
+
+describe("MembershipManager", () => {
+  it("enroll publishes enrolled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("membership.enrolled", (e) => { events.push(e.payload); });
+    const mm = new MembershipManager(bus);
+    mm.enroll({ memberId: "m1", memberName: "Jane", tier: "premium", annualDuesUsd: 200, joinedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("renew extends expiry and increments renewals", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("membership.renewed", (e) => { events.push(e.payload); });
+    const mm = new MembershipManager(bus);
+    const m = mm.enroll({ memberId: "m1", memberName: "Jane", tier: "basic", annualDuesUsd: 50, joinedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    mm.renew(m.id, "2028-01-01");
+    assert.equal(mm.getMembership(m.id)!.renewalCount, 1);
+    assert.equal(mm.getMembership(m.id)!.expiresAt, "2028-01-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("checkLapsed flags expired non-lifetime memberships", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("membership.lapsed", (e) => { events.push(e.payload); });
+    const mm = new MembershipManager(bus);
+    mm.enroll({ memberId: "m1", memberName: "Jane", tier: "basic", annualDuesUsd: 50, joinedAt: "2025-01-01", expiresAt: "2026-01-01" });
+    const lapsed = mm.checkLapsed("2026-06-25");
+    assert.equal(lapsed.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("lifetime memberships never lapse", () => {
+    const bus = new EventBus();
+    const mm = new MembershipManager(bus);
+    mm.enroll({ memberId: "m1", memberName: "Jane", tier: "lifetime", annualDuesUsd: 0, joinedAt: "2020-01-01", expiresAt: "2021-01-01" });
+    const lapsed = mm.checkLapsed("2026-06-25");
+    assert.equal(lapsed.length, 0);
+  });
+
+  it("renew reactivates a lapsed membership", () => {
+    const bus = new EventBus();
+    const mm = new MembershipManager(bus);
+    const m = mm.enroll({ memberId: "m1", memberName: "Jane", tier: "basic", annualDuesUsd: 50, joinedAt: "2025-01-01", expiresAt: "2026-01-01" });
+    mm.checkLapsed("2026-06-25");
+    mm.renew(m.id, "2027-06-25");
+    assert.equal(mm.getMembership(m.id)!.status, "active");
+  });
+
+  it("summary aggregates tiers, dues and retention", () => {
+    const bus = new EventBus();
+    const mm = new MembershipManager(bus);
+    const a = mm.enroll({ memberId: "m1", memberName: "A", tier: "premium", annualDuesUsd: 200, joinedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    mm.renew(a.id, "2028-01-01");
+    mm.enroll({ memberId: "m2", memberName: "B", tier: "basic", annualDuesUsd: 50, joinedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    const s = mm.summary();
+    assert.equal(s.totalMembers, 2);
+    assert.equal(s.active, 2);
+    assert.equal(s.totalAnnualDuesUsd, 250);
+    assert.equal(s.byTier.premium, 1);
+    assert.equal(s.retentionRatePct, 50);
   });
 });
