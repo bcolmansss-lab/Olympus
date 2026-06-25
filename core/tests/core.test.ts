@@ -76,6 +76,8 @@ import { BackgroundCheckManager } from "../background-check/background-check-man
 import { InsuranceCertificateManager } from "../insurance-cert/insurance-certificate-manager.js";
 import { PurchaseRequisitionManager } from "../requisition/purchase-requisition-manager.js";
 import { GoodsReceiptManager } from "../goods-receipt/goods-receipt-manager.js";
+import { PhysicalAccessManager } from "../physical-access/physical-access-manager.js";
+import { AssetAuditManager } from "../asset-audit/asset-audit-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -13100,5 +13102,134 @@ describe("GoodsReceiptManager", () => {
     assert.equal(s.totalPOs, 2);
     assert.equal(s.completePOs, 1);
     assert.equal(s.totalReceipts, 1);
+  });
+});
+
+describe("PhysicalAccessManager", () => {
+  it("issueBadge publishes badge_issued", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("physaccess.badge_issued", (e) => { events.push(e.payload); });
+    const pm = new PhysicalAccessManager(bus);
+    pm.issueBadge("u1", "Jane", ["lobby", "lab"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("attemptEntry grants for authorized zone", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("physaccess.access_granted", (e) => { events.push(e.payload); });
+    const pm = new PhysicalAccessManager(bus);
+    const b = pm.issueBadge("u1", "Jane", ["lobby"]);
+    const ev = pm.attemptEntry(b.id, "lobby", "2026-06-01T09:00:00.000Z");
+    assert.equal(ev.granted, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("attemptEntry denies unauthorized zone", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("physaccess.access_denied", (e) => { events.push(e.payload); });
+    const pm = new PhysicalAccessManager(bus);
+    const b = pm.issueBadge("u1", "Jane", ["lobby"]);
+    const ev = pm.attemptEntry(b.id, "vault", "2026-06-01T09:00:00.000Z");
+    assert.equal(ev.granted, false);
+    assert.equal(ev.reason, "zone_not_authorized");
+    assert.equal(events.length, 1);
+  });
+
+  it("anti-passback blocks double entry without exit", () => {
+    const bus = new EventBus();
+    const pm = new PhysicalAccessManager(bus);
+    const b = pm.issueBadge("u1", "Jane", ["lobby"]);
+    pm.attemptEntry(b.id, "lobby", "2026-06-01T09:00:00.000Z");
+    const ev = pm.attemptEntry(b.id, "lobby", "2026-06-01T09:01:00.000Z");
+    assert.equal(ev.reason, "anti_passback");
+    pm.recordExit(b.id, "lobby", "2026-06-01T17:00:00.000Z");
+    assert.equal(pm.isInside(b.id), false);
+  });
+
+  it("suspended badge is denied", () => {
+    const bus = new EventBus();
+    const pm = new PhysicalAccessManager(bus);
+    const b = pm.issueBadge("u1", "Jane", ["lobby"]);
+    pm.setStatus(b.id, "suspended");
+    const ev = pm.attemptEntry(b.id, "lobby", "2026-06-01T09:00:00.000Z");
+    assert.equal(ev.granted, false);
+  });
+
+  it("summary aggregates events and occupancy", () => {
+    const bus = new EventBus();
+    const pm = new PhysicalAccessManager(bus);
+    const b = pm.issueBadge("u1", "Jane", ["lobby"]);
+    pm.attemptEntry(b.id, "lobby", "2026-06-01T09:00:00.000Z");
+    pm.attemptEntry(b.id, "vault", "2026-06-01T09:05:00.000Z"); // denied
+    const s = pm.summary();
+    assert.equal(s.totalBadges, 1);
+    assert.equal(s.grantedEvents, 1);
+    assert.equal(s.deniedEvents, 1);
+    assert.equal(s.currentlyInside, 1);
+  });
+});
+
+describe("AssetAuditManager", () => {
+  it("start publishes started with expected count", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assetaudit.started", (e) => { events.push(e.payload); });
+    const am = new AssetAuditManager(bus);
+    am.start("Warehouse-1", ["A-1", "A-2", "A-3"]);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].expectedCount, 3);
+  });
+
+  it("scan verifies asset in expected location", () => {
+    const bus = new EventBus();
+    const am = new AssetAuditManager(bus);
+    const a = am.start("Warehouse-1", ["A-1"]);
+    assert.equal(am.scan(a.id, "A-1", "Warehouse-1"), "verified");
+  });
+
+  it("scan flags misplaced and unexpected assets", () => {
+    const bus = new EventBus();
+    const am = new AssetAuditManager(bus);
+    const a = am.start("Warehouse-1", ["A-1"]);
+    assert.equal(am.scan(a.id, "A-1", "Warehouse-2"), "misplaced");
+    assert.equal(am.scan(a.id, "X-9", "Warehouse-1"), "unexpected");
+  });
+
+  it("missingAssets lists unscanned items", () => {
+    const bus = new EventBus();
+    const am = new AssetAuditManager(bus);
+    const a = am.start("Warehouse-1", ["A-1", "A-2"]);
+    am.scan(a.id, "A-1", "Warehouse-1");
+    assert.deepEqual(am.missingAssets(a.id), ["A-2"]);
+  });
+
+  it("complete publishes completed with accuracy", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assetaudit.completed", (e) => { events.push(e.payload); });
+    const am = new AssetAuditManager(bus);
+    const a = am.start("Warehouse-1", ["A-1", "A-2"]);
+    am.scan(a.id, "A-1", "Warehouse-1");
+    am.complete(a.id, "2026-06-25");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].missing, 1);
+    assert.equal(events[0].accuracyPct, 50);
+  });
+
+  it("summary aggregates audits and missing", () => {
+    const bus = new EventBus();
+    const am = new AssetAuditManager(bus);
+    const a = am.start("Warehouse-1", ["A-1", "A-2"]);
+    am.scan(a.id, "A-1", "Warehouse-1");
+    am.complete(a.id, "2026-06-25");
+    const s = am.summary();
+    assert.equal(s.totalAudits, 1);
+    assert.equal(s.completed, 1);
+    assert.equal(s.totalAssetsAudited, 2);
+    assert.equal(s.totalMissing, 1);
+    assert.equal(s.avgAccuracyPct, 50);
   });
 });

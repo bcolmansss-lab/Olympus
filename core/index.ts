@@ -173,6 +173,8 @@ import { BackgroundCheckManager } from "./background-check/background-check-mana
 import { InsuranceCertificateManager } from "./insurance-cert/insurance-certificate-manager.js";
 import { PurchaseRequisitionManager } from "./requisition/purchase-requisition-manager.js";
 import { GoodsReceiptManager } from "./goods-receipt/goods-receipt-manager.js";
+import { PhysicalAccessManager } from "./physical-access/physical-access-manager.js";
+import { AssetAuditManager } from "./asset-audit/asset-audit-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -434,6 +436,8 @@ export class Olympus {
   readonly insuranceCert: InsuranceCertificateManager;
   readonly requisition: PurchaseRequisitionManager;
   readonly goodsReceipt: GoodsReceiptManager;
+  readonly physicalAccess: PhysicalAccessManager;
+  readonly assetAudit: AssetAuditManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -599,6 +603,8 @@ export class Olympus {
     this.insuranceCert = new InsuranceCertificateManager(this.bus);
     this.requisition = new PurchaseRequisitionManager(this.bus);
     this.goodsReceipt = new GoodsReceiptManager(this.bus);
+    this.physicalAccess = new PhysicalAccessManager(this.bus);
+    this.assetAudit = new AssetAuditManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -770,3 +776,5 @@ export { BackgroundCheckManager, type ScreenType, type CheckStatus, type CheckRe
 export { InsuranceCertificateManager, type CoverageType, type CertStatus, type InsuranceCert, type InsuranceCertSummary } from "./insurance-cert/index.js";
 export { PurchaseRequisitionManager, type ReqStatus, type ReqLineItem, type PurchaseRequisition, type RequisitionSummary } from "./requisition/index.js";
 export { GoodsReceiptManager, type POReceiptStatus, type POLine, type ReceivablePO, type GoodsReceipt, type GoodsReceiptSummary } from "./goods-receipt/index.js";
+export { PhysicalAccessManager, type BadgeStatus, type Badge, type AccessEvent, type PhysicalAccessSummary } from "./physical-access/index.js";
+export { AssetAuditManager, type AuditStatus, type ScanOutcome, type AuditAssetLine, type AssetAudit, type AssetAuditSummary } from "./asset-audit/index.js";
