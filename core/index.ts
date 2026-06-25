@@ -135,6 +135,8 @@ import { DataRetentionManager } from "./data-retention/data-retention-manager.js
 import { AccessReviewManager } from "./access-review/access-review-manager.js";
 import { ChangeManagementManager } from "./change-mgmt/change-management-manager.js";
 import { OnCallScheduleManager } from "./on-call/on-call-manager.js";
+import { InvestorRelationsManager } from "./investor-relations/investor-relations-manager.js";
+import { GiftCardManager } from "./gift-card/gift-card-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -358,6 +360,8 @@ export class Olympus {
   readonly accessReview: AccessReviewManager;
   readonly changeMgmt: ChangeManagementManager;
   readonly onCall: OnCallScheduleManager;
+  readonly investorRelations: InvestorRelationsManager;
+  readonly giftCard: GiftCardManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -485,6 +489,8 @@ export class Olympus {
     this.accessReview = new AccessReviewManager(this.bus);
     this.changeMgmt = new ChangeManagementManager(this.bus);
     this.onCall = new OnCallScheduleManager(this.bus);
+    this.investorRelations = new InvestorRelationsManager(this.bus);
+    this.giftCard = new GiftCardManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -618,3 +624,5 @@ export { DataRetentionManager, type DataClass, type RecordLifecycleStatus, type 
 export { AccessReviewManager, type AccessReviewCampaignStatus, type ReviewDecision, type AccessItem, type AccessReviewCampaign, type AccessReviewSummary } from "./access-review/index.js";
 export { ChangeManagementManager, type ChangeRisk, type ChangeStatus, type ChangeOutcome, type ChangeRequest, type ChangeSummary } from "./change-mgmt/index.js";
 export { OnCallScheduleManager, type PageSeverity, type OnCallShift, type OnCallRotation, type PageRecord, type OnCallSummary } from "./on-call/index.js";
+export { InvestorRelationsManager, type RoundStage, type RoundStatus, type InvestorType, type Investor, type Commitment, type FundingRound, type InvestorUpdate, type IRSummary } from "./investor-relations/index.js";
+export { GiftCardManager, type GiftCardStatus, type GiftCard, type GiftCardTransaction, type GiftCardSummary } from "./gift-card/index.js";

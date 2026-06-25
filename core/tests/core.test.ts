@@ -38,6 +38,8 @@ import { DataRetentionManager } from "../data-retention/data-retention-manager.j
 import { AccessReviewManager } from "../access-review/access-review-manager.js";
 import { ChangeManagementManager } from "../change-mgmt/change-management-manager.js";
 import { OnCallScheduleManager } from "../on-call/on-call-manager.js";
+import { InvestorRelationsManager } from "../investor-relations/investor-relations-manager.js";
+import { GiftCardManager } from "../gift-card/gift-card-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10555,5 +10557,144 @@ describe("OnCallScheduleManager", () => {
     assert.equal(s.totalPages, 1);
     assert.equal(s.acknowledgedPages, 1);
     assert.equal(s.bySeverity.warning, 1);
+  });
+});
+
+describe("InvestorRelationsManager", () => {
+  it("openRound publishes round_opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ir.round_opened", (e) => { events.push(e.payload); });
+    const ir = new InvestorRelationsManager(bus);
+    ir.openRound("seed", 2000000, 8000000);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].stage, "seed");
+  });
+
+  it("recordCommitment requires investor and open round", () => {
+    const bus = new EventBus();
+    const ir = new InvestorRelationsManager(bus);
+    const round = ir.openRound("seed", 1000000, 5000000);
+    assert.equal(ir.recordCommitment(round.id, "nope", 100000), undefined);
+    const inv = ir.addInvestor({ name: "Acme VC", type: "vc" });
+    const c = ir.recordCommitment(round.id, inv.id, 250000);
+    assert.ok(c);
+  });
+
+  it("roundRaised sums commitments", () => {
+    const bus = new EventBus();
+    const ir = new InvestorRelationsManager(bus);
+    const round = ir.openRound("series_a", 5000000, 20000000);
+    const i1 = ir.addInvestor({ name: "A", type: "vc" });
+    const i2 = ir.addInvestor({ name: "B", type: "angel" });
+    ir.recordCommitment(round.id, i1.id, 3000000);
+    ir.recordCommitment(round.id, i2.id, 500000);
+    assert.equal(ir.roundRaised(round.id), 3500000);
+  });
+
+  it("closeRound publishes round_closed with investor count", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ir.round_closed", (e) => { events.push(e.payload); });
+    const ir = new InvestorRelationsManager(bus);
+    const round = ir.openRound("seed", 1000000, 5000000);
+    const inv = ir.addInvestor({ name: "A", type: "vc" });
+    ir.recordCommitment(round.id, inv.id, 600000);
+    ir.closeRound(round.id);
+    assert.equal(ir.getRound(round.id)!.status, "closed");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].raisedUsd, 600000);
+    assert.equal(events[0].investorCount, 1);
+    assert.equal(ir.recordCommitment(round.id, inv.id, 100), undefined); // closed
+  });
+
+  it("sendUpdate records investor update", () => {
+    const bus = new EventBus();
+    const ir = new InvestorRelationsManager(bus);
+    ir.sendUpdate("Q2 Update", "2026-Q2", ["ARR up 40%", "2 key hires"]);
+    assert.equal(ir.listUpdates().length, 1);
+  });
+
+  it("summary aggregates rounds, raised and stages", () => {
+    const bus = new EventBus();
+    const ir = new InvestorRelationsManager(bus);
+    const r = ir.openRound("seed", 1000000, 5000000);
+    const inv = ir.addInvestor({ name: "A", type: "vc" });
+    ir.recordCommitment(r.id, inv.id, 700000);
+    ir.sendUpdate("U", "2026-Q2", ["x"]);
+    const s = ir.summary();
+    assert.equal(s.totalInvestors, 1);
+    assert.equal(s.totalRounds, 1);
+    assert.equal(s.openRounds, 1);
+    assert.equal(s.totalRaisedUsd, 700000);
+    assert.equal(s.byStage.seed, 1);
+    assert.equal(s.updatesSent, 1);
+  });
+});
+
+describe("GiftCardManager", () => {
+  it("issue publishes issued and rejects duplicate code", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("giftcard.issued", (e) => { events.push(e.payload); });
+    const gc = new GiftCardManager(bus);
+    const card = gc.issue("GC-001", 100);
+    assert.ok(card);
+    assert.equal(events.length, 1);
+    assert.equal(gc.issue("GC-001", 50), undefined);
+  });
+
+  it("issue rejects non-positive balance", () => {
+    const bus = new EventBus();
+    const gc = new GiftCardManager(bus);
+    assert.equal(gc.issue("GC-X", 0), undefined);
+  });
+
+  it("redeem decrements balance and publishes redeemed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("giftcard.redeemed", (e) => { events.push(e.payload); });
+    const gc = new GiftCardManager(bus);
+    gc.issue("GC-001", 100);
+    const tx = gc.redeem("GC-001", 30, "2026-06-01")!;
+    assert.equal(tx.balanceAfterUsd, 70);
+    assert.equal(events.length, 1);
+  });
+
+  it("redeem to zero depletes the card", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("giftcard.depleted", (e) => { events.push(e.payload); });
+    const gc = new GiftCardManager(bus);
+    gc.issue("GC-001", 50);
+    gc.redeem("GC-001", 50, "2026-06-01");
+    assert.equal(gc.findByCode("GC-001")!.status, "depleted");
+    assert.equal(events.length, 1);
+    assert.equal(gc.redeem("GC-001", 1, "2026-06-02"), undefined);
+  });
+
+  it("reload reactivates a depleted card", () => {
+    const bus = new EventBus();
+    const gc = new GiftCardManager(bus);
+    gc.issue("GC-001", 20);
+    gc.redeem("GC-001", 20, "2026-06-01");
+    gc.reload("GC-001", 25, "2026-06-02");
+    const card = gc.findByCode("GC-001")!;
+    assert.equal(card.status, "active");
+    assert.equal(card.balanceUsd, 25);
+  });
+
+  it("summary computes liability and redemption rate", () => {
+    const bus = new EventBus();
+    const gc = new GiftCardManager(bus);
+    gc.issue("A", 100);
+    gc.issue("B", 100);
+    gc.redeem("A", 40, "2026-06-01");
+    const s = gc.summary();
+    assert.equal(s.totalCards, 2);
+    assert.equal(s.totalIssuedUsd, 200);
+    assert.equal(s.totalRedeemedUsd, 40);
+    assert.equal(s.outstandingLiabilityUsd, 160);
+    assert.equal(s.redemptionRatePct, 20);
   });
 });
