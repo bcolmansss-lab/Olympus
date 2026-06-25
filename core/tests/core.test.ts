@@ -54,6 +54,8 @@ import { EnergyUsageManager } from "../energy/energy-usage-manager.js";
 import { VisitorManager } from "../visitor/visitor-manager.js";
 import { PurchaseCardManager } from "../purchase-card/purchase-card-manager.js";
 import { CycleCountManager } from "../cycle-count/cycle-count-manager.js";
+import { AssetReservationManager } from "../reservation/asset-reservation-manager.js";
+import { ComplaintManager } from "../complaint/complaint-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -11649,5 +11651,135 @@ describe("CycleCountManager", () => {
     assert.equal(s.completed, 1);
     assert.equal(s.totalVarianceUnits, 5);
     assert.equal(s.avgAccuracyPct, 50);
+  });
+});
+
+describe("AssetReservationManager", () => {
+  it("addResource publishes resource_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("reservation.resource_added", (e) => { events.push(e.payload); });
+    const rm = new AssetReservationManager(bus);
+    rm.addResource({ name: "Conf Room A", category: "room", location: "HQ" });
+    assert.equal(events.length, 1);
+  });
+
+  it("book publishes booked and detects conflicts", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("reservation.booked", (e) => { events.push(e.payload); });
+    const rm = new AssetReservationManager(bus);
+    const r = rm.addResource({ name: "Projector", category: "av", location: "HQ" });
+    assert.ok(rm.book(r.id, "u1", "2026-06-26T10:00:00.000Z", "2026-06-26T11:00:00.000Z"));
+    assert.equal(rm.book(r.id, "u2", "2026-06-26T10:30:00.000Z", "2026-06-26T11:30:00.000Z"), undefined); // overlap
+    assert.equal(events.length, 1);
+  });
+
+  it("book allows non-overlapping windows", () => {
+    const bus = new EventBus();
+    const rm = new AssetReservationManager(bus);
+    const r = rm.addResource({ name: "Projector", category: "av", location: "HQ" });
+    rm.book(r.id, "u1", "2026-06-26T10:00:00.000Z", "2026-06-26T11:00:00.000Z");
+    assert.ok(rm.book(r.id, "u2", "2026-06-26T11:00:00.000Z", "2026-06-26T12:00:00.000Z"));
+  });
+
+  it("book rejects invalid time range", () => {
+    const bus = new EventBus();
+    const rm = new AssetReservationManager(bus);
+    const r = rm.addResource({ name: "X", category: "av", location: "HQ" });
+    assert.equal(rm.book(r.id, "u1", "2026-06-26T11:00:00.000Z", "2026-06-26T10:00:00.000Z"), undefined);
+  });
+
+  it("checkOut then return computes late minutes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("reservation.returned", (e) => { events.push(e.payload); });
+    const rm = new AssetReservationManager(bus);
+    const r = rm.addResource({ name: "Van", category: "vehicle", location: "HQ" });
+    const res = rm.book(r.id, "u1", "2026-06-26T10:00:00.000Z", "2026-06-26T11:00:00.000Z")!;
+    rm.checkOut(res.id, "2026-06-26T10:00:00.000Z");
+    rm.returnResource(res.id, "2026-06-26T11:30:00.000Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].lateMinutes, 30);
+  });
+
+  it("summary aggregates reservations by state", () => {
+    const bus = new EventBus();
+    const rm = new AssetReservationManager(bus);
+    const r = rm.addResource({ name: "Room", category: "room", location: "HQ" });
+    const a = rm.book(r.id, "u1", "2026-06-26T10:00:00.000Z", "2026-06-26T11:00:00.000Z")!;
+    rm.book(r.id, "u2", "2026-06-26T12:00:00.000Z", "2026-06-26T13:00:00.000Z");
+    rm.checkOut(a.id, "2026-06-26T10:00:00.000Z");
+    const s = rm.summary();
+    assert.equal(s.totalResources, 1);
+    assert.equal(s.totalReservations, 2);
+    assert.equal(s.checkedOut, 1);
+    assert.equal(s.byCategory.room, 1);
+  });
+});
+
+describe("ComplaintManager", () => {
+  it("file publishes complaint.filed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("complaint.filed", (e) => { events.push(e.payload); });
+    const cm = new ComplaintManager(bus);
+    cm.file({ customerId: "c1", category: "billing", severity: "medium", channel: "email", description: "double charged", filedAt: "2026-06-01T00:00:00.000Z" });
+    assert.equal(events.length, 1);
+  });
+
+  it("assign moves to investigating", () => {
+    const bus = new EventBus();
+    const cm = new ComplaintManager(bus);
+    const c = cm.file({ customerId: "c1", category: "service", severity: "low", channel: "phone", description: "x", filedAt: "2026-06-01T00:00:00.000Z" });
+    cm.assign(c.id, "agent1");
+    assert.equal(cm.getComplaint(c.id)!.status, "investigating");
+  });
+
+  it("escalate only raises severity and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("complaint.escalated", (e) => { events.push(e.payload); });
+    const cm = new ComplaintManager(bus);
+    const c = cm.file({ customerId: "c1", category: "product_defect", severity: "medium", channel: "web", description: "x", filedAt: "2026-06-01T00:00:00.000Z" });
+    assert.equal(cm.escalate(c.id, "low"), undefined); // can't lower
+    cm.escalate(c.id, "critical");
+    assert.equal(cm.getComplaint(c.id)!.severity, "critical");
+    assert.equal(events.length, 1);
+  });
+
+  it("resolve computes resolution hours and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("complaint.resolved", (e) => { events.push(e.payload); });
+    const cm = new ComplaintManager(bus);
+    const c = cm.file({ customerId: "c1", category: "delivery", severity: "high", channel: "social", description: "late", filedAt: "2026-06-01T00:00:00.000Z" });
+    cm.resolve(c.id, "refunded shipping", true, "2026-06-01T06:00:00.000Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].resolutionHours, 6);
+    assert.equal(events[0].satisfied, true);
+  });
+
+  it("close requires resolved state", () => {
+    const bus = new EventBus();
+    const cm = new ComplaintManager(bus);
+    const c = cm.file({ customerId: "c1", category: "other", severity: "low", channel: "in_person", description: "x", filedAt: "2026-06-01T00:00:00.000Z" });
+    assert.equal(cm.close(c.id), undefined);
+    cm.resolve(c.id, "done", false, "2026-06-01T01:00:00.000Z");
+    assert.ok(cm.close(c.id));
+  });
+
+  it("summary computes satisfaction rate and breakdowns", () => {
+    const bus = new EventBus();
+    const cm = new ComplaintManager(bus);
+    const c1 = cm.file({ customerId: "c1", category: "billing", severity: "medium", channel: "email", description: "x", filedAt: "2026-06-01T00:00:00.000Z" });
+    const c2 = cm.file({ customerId: "c2", category: "service", severity: "high", channel: "phone", description: "y", filedAt: "2026-06-01T00:00:00.000Z" });
+    cm.resolve(c1.id, "fixed", true, "2026-06-01T02:00:00.000Z");
+    cm.resolve(c2.id, "fixed", false, "2026-06-01T02:00:00.000Z");
+    const s = cm.summary();
+    assert.equal(s.totalComplaints, 2);
+    assert.equal(s.resolved, 2);
+    assert.equal(s.satisfactionRatePct, 50);
+    assert.equal(s.byCategory.billing, 1);
   });
 });
