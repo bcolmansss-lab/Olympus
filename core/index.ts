@@ -125,6 +125,8 @@ import { TimeTrackingManager } from "./time-tracking/time-tracking-manager.js";
 import { VendorRiskManager } from "./vendor-risk/vendor-risk-manager.js";
 import { WarrantyManager } from "./warranty/warranty-manager.js";
 import { ReferralProgramManager } from "./referral/referral-manager.js";
+import { CapTableManager } from "./cap-table/cap-table-manager.js";
+import { ApprovalWorkflowManager } from "./approval-workflow/approval-workflow-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -338,6 +340,8 @@ export class Olympus {
   readonly vendorRisk: VendorRiskManager;
   readonly warranty: WarrantyManager;
   readonly referral: ReferralProgramManager;
+  readonly capTable: CapTableManager;
+  readonly approvalWorkflow: ApprovalWorkflowManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -455,6 +459,8 @@ export class Olympus {
     this.vendorRisk = new VendorRiskManager(this.bus);
     this.warranty = new WarrantyManager(this.bus);
     this.referral = new ReferralProgramManager(this.bus);
+    this.capTable = new CapTableManager(this.bus);
+    this.approvalWorkflow = new ApprovalWorkflowManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -578,3 +584,5 @@ export { TimeTrackingManager, type TimesheetStatus, type TimeEntry, type Timeshe
 export { VendorRiskManager, type VendorRiskTier, type RemediationStatus, type VendorRiskDomain, type VendorRiskAssessment, type RemediationItem, type VendorRiskSummary } from "./vendor-risk/index.js";
 export { WarrantyManager, type WarrantyStatus, type RMAStatus, type RMAResolution, type Warranty, type RMA, type WarrantySummary } from "./warranty/index.js";
 export { ReferralProgramManager, type ReferralStatus, type RewardType, type ReferralProgram, type Referral, type ReferralSummary } from "./referral/index.js";
+export { CapTableManager, type ShareClassName, type ShareClass, type EquityGrant, type CapTableSummary } from "./cap-table/index.js";
+export { ApprovalWorkflowManager, type ApprovalRequestStatus, type StepDecision, type ApprovalStepDef, type ApprovalWorkflowDef, type ApprovalStepState, type ApprovalRequest, type ApprovalSummary } from "./approval-workflow/index.js";

@@ -28,6 +28,8 @@ import { TimeTrackingManager } from "../time-tracking/time-tracking-manager.js";
 import { VendorRiskManager } from "../vendor-risk/vendor-risk-manager.js";
 import { WarrantyManager } from "../warranty/warranty-manager.js";
 import { ReferralProgramManager } from "../referral/referral-manager.js";
+import { CapTableManager } from "../cap-table/cap-table-manager.js";
+import { ApprovalWorkflowManager } from "../approval-workflow/approval-workflow-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -9863,5 +9865,147 @@ describe("ReferralProgramManager", () => {
     assert.equal(s.rewarded, 1);
     assert.equal(s.conversionRatePct, 50);
     assert.equal(s.totalRewardsIssuedUsd, 50);
+  });
+});
+
+describe("CapTableManager", () => {
+  it("defineShareClass and issueGrant publishes shares_issued", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("captable.shares_issued", (e) => { events.push(e.payload); });
+    const ct = new CapTableManager(bus);
+    const sc = ct.defineShareClass({ name: "common", authorizedShares: 1000000, parValueUsd: 0.0001, liquidationPreference: 1 });
+    const g = ct.issueGrant({ holderId: "f1", holderName: "Founder", shareClassId: sc.id, shares: 500000, vestingMonths: 0, cliffMonths: 0, pricePerShareUsd: 0.01 });
+    assert.ok(g);
+    assert.equal(g!.vestedShares, 500000); // fully vested when vestingMonths 0
+    assert.equal(events.length, 1);
+  });
+
+  it("issueGrant rejects over-allocation and unknown class", () => {
+    const bus = new EventBus();
+    const ct = new CapTableManager(bus);
+    const sc = ct.defineShareClass({ name: "common", authorizedShares: 100, parValueUsd: 0.01, liquidationPreference: 1 });
+    assert.equal(ct.issueGrant({ holderId: "f1", holderName: "F", shareClassId: sc.id, shares: 200, vestingMonths: 0, cliffMonths: 0, pricePerShareUsd: 1 }), undefined);
+    assert.equal(ct.issueGrant({ holderId: "f1", holderName: "F", shareClassId: "nope", shares: 10, vestingMonths: 0, cliffMonths: 0, pricePerShareUsd: 1 }), undefined);
+  });
+
+  it("vest accumulates up to total shares and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("captable.shares_vested", (e) => { events.push(e.payload); });
+    const ct = new CapTableManager(bus);
+    const sc = ct.defineShareClass({ name: "options", authorizedShares: 100000, parValueUsd: 0.0001, liquidationPreference: 1 });
+    const g = ct.issueGrant({ holderId: "e1", holderName: "Emp", shareClassId: sc.id, shares: 4800, vestingMonths: 48, cliffMonths: 12, pricePerShareUsd: 0.5 })!;
+    assert.equal(g.vestedShares, 0);
+    ct.vest(g.id, 1200);
+    ct.vest(g.id, 5000); // caps at total
+    assert.equal(ct.listGrants("e1")[0]!.vestedShares, 4800);
+    assert.equal(events.length, 2);
+  });
+
+  it("transfer moves shares to a new holder and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("captable.transfer_recorded", (e) => { events.push(e.payload); });
+    const ct = new CapTableManager(bus);
+    const sc = ct.defineShareClass({ name: "common", authorizedShares: 1000000, parValueUsd: 0.0001, liquidationPreference: 1 });
+    const g = ct.issueGrant({ holderId: "f1", holderName: "Founder", shareClassId: sc.id, shares: 100000, vestingMonths: 0, cliffMonths: 0, pricePerShareUsd: 0.01 })!;
+    ct.transfer(g.id, "f2", "CoFounder", 30000);
+    assert.equal(events.length, 1);
+    assert.equal(ct.listGrants("f1")[0]!.shares, 70000);
+    assert.equal(ct.listGrants("f2")[0]!.shares, 30000);
+  });
+
+  it("summary computes ownership percentages", () => {
+    const bus = new EventBus();
+    const ct = new CapTableManager(bus);
+    const sc = ct.defineShareClass({ name: "common", authorizedShares: 1000000, parValueUsd: 0.0001, liquidationPreference: 1 });
+    ct.issueGrant({ holderId: "f1", holderName: "F1", shareClassId: sc.id, shares: 600000, vestingMonths: 0, cliffMonths: 0, pricePerShareUsd: 0.01 });
+    ct.issueGrant({ holderId: "f2", holderName: "F2", shareClassId: sc.id, shares: 400000, vestingMonths: 0, cliffMonths: 0, pricePerShareUsd: 0.01 });
+    const s = ct.summary();
+    assert.equal(s.totalShareholders, 2);
+    assert.equal(s.totalSharesIssued, 1000000);
+    const f1 = s.ownership.find(o => o.holderId === "f1")!;
+    assert.equal(f1.pct, 60);
+  });
+
+  it("summary aggregates by share class and fully-diluted value", () => {
+    const bus = new EventBus();
+    const ct = new CapTableManager(bus);
+    const sc = ct.defineShareClass({ name: "preferred_a", authorizedShares: 500000, parValueUsd: 0.0001, liquidationPreference: 1 });
+    ct.issueGrant({ holderId: "inv1", holderName: "VC", shareClassId: sc.id, shares: 200000, vestingMonths: 0, cliffMonths: 0, pricePerShareUsd: 2 });
+    const s = ct.summary();
+    assert.equal(s.byShareClass.preferred_a, 200000);
+    assert.equal(s.fullyDilutedValueUsd, 400000);
+  });
+});
+
+describe("ApprovalWorkflowManager", () => {
+  it("defineWorkflow and submitRequest publishes requested", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("approval.requested", (e) => { events.push(e.payload); });
+    const aw = new ApprovalWorkflowManager(bus);
+    const wf = aw.defineWorkflow("PO Approval", [{ name: "Manager", approverId: "m1" }, { name: "Finance", approverId: "f1" }]);
+    const req = aw.submitRequest(wf.id, "PO #123");
+    assert.ok(req);
+    assert.equal(req!.status, "pending");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].currentApprover, "m1");
+  });
+
+  it("submitRequest returns undefined for unknown workflow", () => {
+    const bus = new EventBus();
+    const aw = new ApprovalWorkflowManager(bus);
+    assert.equal(aw.submitRequest("nope", "x"), undefined);
+  });
+
+  it("decide advances through steps and completes on final approval", () => {
+    const bus = new EventBus();
+    const completed: any[] = [];
+    bus.subscribe("approval.completed", (e) => { completed.push(e.payload); });
+    const aw = new ApprovalWorkflowManager(bus);
+    const wf = aw.defineWorkflow("WF", [{ name: "S1", approverId: "a1" }, { name: "S2", approverId: "a2" }]);
+    const req = aw.submitRequest(wf.id, "thing")!;
+    aw.decide(req.id, "a1", "approved");
+    assert.equal(aw.getRequest(req.id)!.status, "pending");
+    assert.equal(aw.getRequest(req.id)!.currentStepIndex, 1);
+    aw.decide(req.id, "a2", "approved");
+    assert.equal(aw.getRequest(req.id)!.status, "approved");
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0].finalStatus, "approved");
+  });
+
+  it("decide rejects immediately on any rejection", () => {
+    const bus = new EventBus();
+    const aw = new ApprovalWorkflowManager(bus);
+    const wf = aw.defineWorkflow("WF", [{ name: "S1", approverId: "a1" }, { name: "S2", approverId: "a2" }]);
+    const req = aw.submitRequest(wf.id, "thing")!;
+    aw.decide(req.id, "a1", "rejected", "no budget");
+    assert.equal(aw.getRequest(req.id)!.status, "rejected");
+  });
+
+  it("decide rejects wrong approver acting out of turn", () => {
+    const bus = new EventBus();
+    const aw = new ApprovalWorkflowManager(bus);
+    const wf = aw.defineWorkflow("WF", [{ name: "S1", approverId: "a1" }, { name: "S2", approverId: "a2" }]);
+    const req = aw.submitRequest(wf.id, "thing")!;
+    assert.equal(aw.decide(req.id, "a2", "approved"), undefined); // a2 not current
+    assert.equal(aw.pendingForApprover("a1").length, 1);
+  });
+
+  it("summary computes approval rate", () => {
+    const bus = new EventBus();
+    const aw = new ApprovalWorkflowManager(bus);
+    const wf = aw.defineWorkflow("WF", [{ name: "S1", approverId: "a1" }]);
+    const r1 = aw.submitRequest(wf.id, "a")!;
+    const r2 = aw.submitRequest(wf.id, "b")!;
+    aw.decide(r1.id, "a1", "approved");
+    aw.decide(r2.id, "a1", "rejected");
+    const s = aw.summary();
+    assert.equal(s.totalRequests, 2);
+    assert.equal(s.approved, 1);
+    assert.equal(s.rejected, 1);
+    assert.equal(s.approvalRatePct, 50);
   });
 });
