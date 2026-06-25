@@ -74,6 +74,8 @@ import { ChargebackManager } from "../chargeback/chargeback-manager.js";
 import { TaxExemptionManager } from "../tax-exemption/tax-exemption-manager.js";
 import { BackgroundCheckManager } from "../background-check/background-check-manager.js";
 import { InsuranceCertificateManager } from "../insurance-cert/insurance-certificate-manager.js";
+import { PurchaseRequisitionManager } from "../requisition/purchase-requisition-manager.js";
+import { GoodsReceiptManager } from "../goods-receipt/goods-receipt-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12971,5 +12973,132 @@ describe("InsuranceCertificateManager", () => {
     assert.equal(s.vendorsCovered, 2);
     assert.equal(s.expiringIn30Days, 1);
     assert.equal(s.byCoverageType.general_liability, 1);
+  });
+});
+
+describe("PurchaseRequisitionManager", () => {
+  it("create computes total from line items", () => {
+    const bus = new EventBus();
+    const rm = new PurchaseRequisitionManager(bus);
+    const r = rm.create({ requesterId: "u1", department: "Eng", budgetCode: "ENG-2026", lineItems: [{ description: "laptop", quantity: 2, unitPriceUsd: 1500 }] });
+    assert.equal(r.totalUsd, 3000);
+  });
+
+  it("submit publishes submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("requisition.submitted", (e) => { events.push(e.payload); });
+    const rm = new PurchaseRequisitionManager(bus);
+    const r = rm.create({ requesterId: "u1", department: "Eng", budgetCode: "X", lineItems: [{ description: "x", quantity: 1, unitPriceUsd: 100 }] });
+    rm.submit(r.id, "2026-06-01");
+    assert.equal(rm.getRequisition(r.id)!.status, "submitted");
+    assert.equal(events.length, 1);
+  });
+
+  it("approve publishes approved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("requisition.approved", (e) => { events.push(e.payload); });
+    const rm = new PurchaseRequisitionManager(bus);
+    const r = rm.create({ requesterId: "u1", department: "Eng", budgetCode: "X", lineItems: [{ description: "x", quantity: 1, unitPriceUsd: 100 }] });
+    rm.submit(r.id, "2026-06-01");
+    rm.approve(r.id, "mgr1");
+    assert.equal(rm.getRequisition(r.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("convertToPO requires approval and publishes converted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("requisition.converted", (e) => { events.push(e.payload); });
+    const rm = new PurchaseRequisitionManager(bus);
+    const r = rm.create({ requesterId: "u1", department: "Eng", budgetCode: "X", lineItems: [{ description: "x", quantity: 1, unitPriceUsd: 100 }] });
+    assert.equal(rm.convertToPO(r.id, "PO-1"), undefined);
+    rm.submit(r.id, "2026-06-01"); rm.approve(r.id, "mgr1");
+    rm.convertToPO(r.id, "PO-1");
+    assert.equal(rm.getRequisition(r.id)!.status, "converted");
+    assert.equal(events.length, 1);
+  });
+
+  it("submit requires line items", () => {
+    const bus = new EventBus();
+    const rm = new PurchaseRequisitionManager(bus);
+    const r = rm.create({ requesterId: "u1", department: "Eng", budgetCode: "X", lineItems: [] });
+    assert.equal(rm.submit(r.id, "2026-06-01"), undefined);
+  });
+
+  it("summary aggregates by department and status", () => {
+    const bus = new EventBus();
+    const rm = new PurchaseRequisitionManager(bus);
+    const r1 = rm.create({ requesterId: "u1", department: "Eng", budgetCode: "X", lineItems: [{ description: "x", quantity: 1, unitPriceUsd: 100 }] });
+    rm.submit(r1.id, "2026-06-01");
+    rm.create({ requesterId: "u2", department: "Mktg", budgetCode: "Y", lineItems: [{ description: "y", quantity: 2, unitPriceUsd: 50 }] });
+    const s = rm.summary();
+    assert.equal(s.totalRequisitions, 2);
+    assert.equal(s.pendingApproval, 1);
+    assert.equal(s.totalRequestedUsd, 200);
+    assert.equal(s.byDepartment.Eng, 1);
+  });
+});
+
+describe("GoodsReceiptManager", () => {
+  it("registerPO publishes po_registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("goodsreceipt.po_registered", (e) => { events.push(e.payload); });
+    const gm = new GoodsReceiptManager(bus);
+    gm.registerPO("PO-1", "s1", [{ sku: "A", expectedQty: 10 }]);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].expectedUnits, 10);
+  });
+
+  it("receive accrues quantity and publishes received", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("goodsreceipt.received", (e) => { events.push(e.payload); });
+    const gm = new GoodsReceiptManager(bus);
+    const po = gm.registerPO("PO-1", "s1", [{ sku: "A", expectedQty: 10 }]);
+    gm.receive(po.id, "A", 10, "good", "2026-06-01");
+    assert.equal(gm.getPO(po.id)!.status, "complete");
+    assert.equal(events.length, 1);
+  });
+
+  it("partial receipt flags discrepancy and partial status", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("goodsreceipt.discrepancy", (e) => { events.push(e.payload); });
+    const gm = new GoodsReceiptManager(bus);
+    const po = gm.registerPO("PO-1", "s1", [{ sku: "A", expectedQty: 10 }]);
+    gm.receive(po.id, "A", 6, "good", "2026-06-01");
+    assert.equal(gm.getPO(po.id)!.status, "partial");
+    assert.equal(events.length, 1);
+  });
+
+  it("receive rejects unknown sku", () => {
+    const bus = new EventBus();
+    const gm = new GoodsReceiptManager(bus);
+    const po = gm.registerPO("PO-1", "s1", [{ sku: "A", expectedQty: 10 }]);
+    assert.equal(gm.receive(po.id, "Z", 1, "good", "2026-06-01"), undefined);
+  });
+
+  it("discrepancies lists mismatched lines", () => {
+    const bus = new EventBus();
+    const gm = new GoodsReceiptManager(bus);
+    const po = gm.registerPO("PO-1", "s1", [{ sku: "A", expectedQty: 10 }, { sku: "B", expectedQty: 5 }]);
+    gm.receive(po.id, "A", 10, "good", "2026-06-01");
+    gm.receive(po.id, "B", 3, "good", "2026-06-01");
+    assert.equal(gm.discrepancies(po.id).length, 1);
+  });
+
+  it("summary aggregates POs and receipts", () => {
+    const bus = new EventBus();
+    const gm = new GoodsReceiptManager(bus);
+    const po1 = gm.registerPO("PO-1", "s1", [{ sku: "A", expectedQty: 10 }]);
+    gm.receive(po1.id, "A", 10, "good", "2026-06-01");
+    gm.registerPO("PO-2", "s2", [{ sku: "B", expectedQty: 5 }]);
+    const s = gm.summary();
+    assert.equal(s.totalPOs, 2);
+    assert.equal(s.completePOs, 1);
+    assert.equal(s.totalReceipts, 1);
   });
 });

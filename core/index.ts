@@ -171,6 +171,8 @@ import { ChargebackManager } from "./chargeback/chargeback-manager.js";
 import { TaxExemptionManager } from "./tax-exemption/tax-exemption-manager.js";
 import { BackgroundCheckManager } from "./background-check/background-check-manager.js";
 import { InsuranceCertificateManager } from "./insurance-cert/insurance-certificate-manager.js";
+import { PurchaseRequisitionManager } from "./requisition/purchase-requisition-manager.js";
+import { GoodsReceiptManager } from "./goods-receipt/goods-receipt-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -430,6 +432,8 @@ export class Olympus {
   readonly taxExemption: TaxExemptionManager;
   readonly backgroundCheck: BackgroundCheckManager;
   readonly insuranceCert: InsuranceCertificateManager;
+  readonly requisition: PurchaseRequisitionManager;
+  readonly goodsReceipt: GoodsReceiptManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -593,6 +597,8 @@ export class Olympus {
     this.taxExemption = new TaxExemptionManager(this.bus);
     this.backgroundCheck = new BackgroundCheckManager(this.bus);
     this.insuranceCert = new InsuranceCertificateManager(this.bus);
+    this.requisition = new PurchaseRequisitionManager(this.bus);
+    this.goodsReceipt = new GoodsReceiptManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -762,3 +768,5 @@ export { ChargebackManager, type ChargebackReason, type ChargebackStatus, type C
 export { TaxExemptionManager, type ExemptionType, type ExemptionStatus, type ExemptionCertificate, type TaxExemptionSummary } from "./tax-exemption/index.js";
 export { BackgroundCheckManager, type ScreenType, type CheckStatus, type CheckResult, type BackgroundCheck, type BackgroundCheckSummary } from "./background-check/index.js";
 export { InsuranceCertificateManager, type CoverageType, type CertStatus, type InsuranceCert, type InsuranceCertSummary } from "./insurance-cert/index.js";
+export { PurchaseRequisitionManager, type ReqStatus, type ReqLineItem, type PurchaseRequisition, type RequisitionSummary } from "./requisition/index.js";
+export { GoodsReceiptManager, type POReceiptStatus, type POLine, type ReceivablePO, type GoodsReceipt, type GoodsReceiptSummary } from "./goods-receipt/index.js";
