@@ -161,6 +161,8 @@ import { DocumentTemplateManager } from "./doc-template/document-template-manage
 import { AssetTransferManager } from "./asset-transfer/asset-transfer-manager.js";
 import { WaitlistManager } from "./waitlist/waitlist-manager.js";
 import { AppointmentManager } from "./appointment/appointment-manager.js";
+import { SupplierScorecardManager } from "./supplier-scorecard/supplier-scorecard-manager.js";
+import { NonconformanceManager } from "./nonconformance/nonconformance-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -410,6 +412,8 @@ export class Olympus {
   readonly assetTransfer: AssetTransferManager;
   readonly waitlist: WaitlistManager;
   readonly appointment: AppointmentManager;
+  readonly supplierScorecard: SupplierScorecardManager;
+  readonly nonconformance: NonconformanceManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -563,6 +567,8 @@ export class Olympus {
     this.assetTransfer = new AssetTransferManager(this.bus);
     this.waitlist = new WaitlistManager(this.bus);
     this.appointment = new AppointmentManager(this.bus);
+    this.supplierScorecard = new SupplierScorecardManager(this.bus);
+    this.nonconformance = new NonconformanceManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -722,3 +728,5 @@ export { DocumentTemplateManager, type TemplateCategory, type DocumentTemplate, 
 export { AssetTransferManager, type TransferState, type AssetCondition, type AssetTransfer, type AssetTransferSummary } from "./asset-transfer/index.js";
 export { WaitlistManager, type EntryStatus, type WaitlistEntry, type Waitlist, type WaitlistSummary } from "./waitlist/index.js";
 export { AppointmentManager, type AppointmentStatus, type Appointment, type AppointmentSummary } from "./appointment/index.js";
+export { SupplierScorecardManager, type SupplierTier, type ScoreDimension, type SupplierScorecard, type SupplierScorecardSummary } from "./supplier-scorecard/index.js";
+export { NonconformanceManager, type NCRSeverity, type NCRSource, type NCRStatus, type Disposition, type CAPAType, type CAPA, type NCR, type NonconformanceSummary } from "./nonconformance/index.js";

@@ -64,6 +64,8 @@ import { DocumentTemplateManager } from "../doc-template/document-template-manag
 import { AssetTransferManager } from "../asset-transfer/asset-transfer-manager.js";
 import { WaitlistManager } from "../waitlist/waitlist-manager.js";
 import { AppointmentManager } from "../appointment/appointment-manager.js";
+import { SupplierScorecardManager } from "../supplier-scorecard/supplier-scorecard-manager.js";
+import { NonconformanceManager } from "../nonconformance/nonconformance-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12313,5 +12315,137 @@ describe("AppointmentManager", () => {
     assert.equal(s.noShows, 1);
     assert.equal(s.noShowRatePct, 50);
     assert.equal(s.byProvider.dr1, 2);
+  });
+});
+
+describe("SupplierScorecardManager", () => {
+  it("record computes weighted score and tier", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("supplierscorecard.recorded", (e) => { events.push(e.payload); });
+    const sm = new SupplierScorecardManager(bus);
+    const sc = sm.record("s1", "Acme", "2026-Q1", [{ name: "quality", scorePct: 90, weight: 2 }, { name: "delivery", scorePct: 90, weight: 1 }]);
+    assert.equal(sc.score, 90);
+    assert.equal(sc.tier, "preferred");
+    assert.equal(events.length, 1);
+  });
+
+  it("low score flags supplier on probation", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("supplierscorecard.flagged", (e) => { events.push(e.payload); });
+    const sm = new SupplierScorecardManager(bus);
+    const sc = sm.record("s1", "Bad", "2026-Q1", [{ name: "quality", scorePct: 40, weight: 1 }]);
+    assert.equal(sc.tier, "probation");
+    assert.equal(events.length, 1);
+  });
+
+  it("downgrade publishes event on tier drop", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("supplierscorecard.downgraded", (e) => { events.push(e.payload); });
+    const sm = new SupplierScorecardManager(bus);
+    sm.record("s1", "Acme", "2026-Q1", [{ name: "quality", scorePct: 95, weight: 1 }]); // preferred
+    sm.record("s1", "Acme", "2026-Q2", [{ name: "quality", scorePct: 65, weight: 1 }]); // conditional
+    assert.equal(events.length, 1);
+    assert.equal(events[0].fromTier, "preferred");
+    assert.equal(events[0].toTier, "conditional");
+  });
+
+  it("trend returns chronological scores", () => {
+    const bus = new EventBus();
+    const sm = new SupplierScorecardManager(bus);
+    sm.record("s1", "Acme", "2026-Q2", [{ name: "q", scorePct: 80, weight: 1 }]);
+    sm.record("s1", "Acme", "2026-Q1", [{ name: "q", scorePct: 70, weight: 1 }]);
+    assert.deepEqual(sm.trend("s1"), [70, 80]);
+  });
+
+  it("latestFor returns most recent scorecard", () => {
+    const bus = new EventBus();
+    const sm = new SupplierScorecardManager(bus);
+    sm.record("s1", "Acme", "2026-Q1", [{ name: "q", scorePct: 70, weight: 1 }]);
+    const latest = sm.record("s1", "Acme", "2026-Q2", [{ name: "q", scorePct: 88, weight: 1 }]);
+    assert.equal(sm.latestFor("s1")!.id, latest.id);
+  });
+
+  it("summary aggregates tiers and average", () => {
+    const bus = new EventBus();
+    const sm = new SupplierScorecardManager(bus);
+    sm.record("s1", "A", "2026-Q1", [{ name: "q", scorePct: 95, weight: 1 }]);
+    sm.record("s2", "B", "2026-Q1", [{ name: "q", scorePct: 45, weight: 1 }]);
+    const s = sm.summary();
+    assert.equal(s.scoredSuppliers, 2);
+    assert.equal(s.avgScore, 70);
+    assert.equal(s.byTier.preferred, 1);
+    assert.equal(s.flaggedSuppliers, 1);
+  });
+});
+
+describe("NonconformanceManager", () => {
+  it("raise assigns NCR number and publishes raised", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ncr.raised", (e) => { events.push(e.payload); });
+    const nm = new NonconformanceManager(bus);
+    const ncr = nm.raise({ source: "production", severity: "major", description: "out of spec", partRef: "P-1", quantity: 10, raisedAt: "2026-06-01" });
+    assert.equal(ncr.ncrNumber, "NCR-00001");
+    assert.equal(events.length, 1);
+  });
+
+  it("addCAPA publishes capa_added and sets status", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ncr.capa_added", (e) => { events.push(e.payload); });
+    const nm = new NonconformanceManager(bus);
+    const ncr = nm.raise({ source: "audit", severity: "minor", description: "x", partRef: "P-1", quantity: 1, raisedAt: "2026-06-01" });
+    nm.addCAPA(ncr.id, "corrective", "retrain", "qm1", "2026-07-01");
+    assert.equal(nm.getNCR(ncr.id)!.status, "capa_in_progress");
+    assert.equal(events.length, 1);
+  });
+
+  it("close requires disposition and completed CAPAs", () => {
+    const bus = new EventBus();
+    const nm = new NonconformanceManager(bus);
+    const ncr = nm.raise({ source: "production", severity: "major", description: "x", partRef: "P-1", quantity: 5, raisedAt: "2026-06-01" });
+    const capa = nm.addCAPA(ncr.id, "corrective", "fix", "qm1", "2026-07-01")!;
+    assert.equal(nm.close(ncr.id, "2026-06-10"), undefined); // no disposition
+    nm.setDisposition(ncr.id, "rework");
+    assert.equal(nm.close(ncr.id, "2026-06-10"), undefined); // capa incomplete
+    nm.completeCAPA(ncr.id, capa.id);
+    assert.ok(nm.close(ncr.id, "2026-06-10"));
+  });
+
+  it("close publishes closed with days open", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ncr.closed", (e) => { events.push(e.payload); });
+    const nm = new NonconformanceManager(bus);
+    const ncr = nm.raise({ source: "supplier", severity: "critical", description: "x", partRef: "P-1", quantity: 1, raisedAt: "2026-06-01" });
+    nm.setDisposition(ncr.id, "return_to_supplier");
+    nm.close(ncr.id, "2026-06-06");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].daysOpen, 5);
+  });
+
+  it("setDisposition moves open NCR to investigating", () => {
+    const bus = new EventBus();
+    const nm = new NonconformanceManager(bus);
+    const ncr = nm.raise({ source: "production", severity: "minor", description: "x", partRef: "P-1", quantity: 1, raisedAt: "2026-06-01" });
+    nm.setDisposition(ncr.id, "scrap");
+    assert.equal(nm.getNCR(ncr.id)!.status, "investigating");
+  });
+
+  it("summary aggregates severity, source and open CAPAs", () => {
+    const bus = new EventBus();
+    const nm = new NonconformanceManager(bus);
+    const ncr = nm.raise({ source: "production", severity: "major", description: "x", partRef: "P-1", quantity: 1, raisedAt: "2026-06-01" });
+    nm.addCAPA(ncr.id, "preventive", "y", "qm1", "2026-07-01");
+    nm.raise({ source: "audit", severity: "minor", description: "z", partRef: "P-2", quantity: 1, raisedAt: "2026-06-01" });
+    const s = nm.summary();
+    assert.equal(s.totalNCRs, 2);
+    assert.equal(s.open, 2);
+    assert.equal(s.openCAPAs, 1);
+    assert.equal(s.bySeverity.major, 1);
+    assert.equal(s.bySource.audit, 1);
   });
 });
