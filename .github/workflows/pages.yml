@@ -1,9 +1,11 @@
 name: Deploy Operator Console to GitHub Pages
 
+# Manual trigger only: GitHub Pages must be enabled for this repo first
+# (Settings -> Pages -> Source: GitHub Actions). Once enabled, run this
+# workflow from the Actions tab. Kept off `push` so it does not emit a
+# failing check on every commit while Pages is unavailable.
 on:
-  push:
-    branches:
-      - claude/hopeful-clarke-s8kxjk
+  workflow_dispatch:
 
 permissions:
   pages: write
