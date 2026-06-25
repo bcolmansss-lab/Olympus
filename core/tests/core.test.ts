@@ -72,6 +72,8 @@ import { SponsorshipManager } from "../sponsorship/sponsorship-manager.js";
 import { MembershipManager } from "../membership/membership-manager.js";
 import { ChargebackManager } from "../chargeback/chargeback-manager.js";
 import { TaxExemptionManager } from "../tax-exemption/tax-exemption-manager.js";
+import { BackgroundCheckManager } from "../background-check/background-check-manager.js";
+import { InsuranceCertificateManager } from "../insurance-cert/insurance-certificate-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12839,5 +12841,135 @@ describe("TaxExemptionManager", () => {
     assert.equal(s.active, 2);
     assert.equal(s.byType.resale, 1);
     assert.equal(s.expiringIn30Days, 1);
+  });
+});
+
+describe("BackgroundCheckManager", () => {
+  it("order publishes ordered and requires screens", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("backgroundcheck.ordered", (e) => { events.push(e.payload); });
+    const bm = new BackgroundCheckManager(bus);
+    assert.equal(bm.order("s1", "Jane", [], "2026-06-01"), undefined);
+    bm.order("s1", "Jane", ["criminal", "employment"], "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("complete publishes completed with result", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("backgroundcheck.completed", (e) => { events.push(e.payload); });
+    const bm = new BackgroundCheckManager(bus);
+    const c = bm.order("s1", "Jane", ["criminal"], "2026-06-01")!;
+    bm.start(c.id);
+    bm.complete(c.id, "clear", "2026-06-04");
+    assert.equal(bm.getCheck(c.id)!.result, "clear");
+    assert.equal(events.length, 1);
+  });
+
+  it("sendAdverseAction requires adverse result", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("backgroundcheck.adverse_action", (e) => { events.push(e.payload); });
+    const bm = new BackgroundCheckManager(bus);
+    const c = bm.order("s1", "Jane", ["criminal"], "2026-06-01")!;
+    bm.complete(c.id, "clear", "2026-06-04");
+    assert.equal(bm.sendAdverseAction(c.id), undefined);
+    const c2 = bm.order("s2", "Bob", ["criminal"], "2026-06-01")!;
+    bm.complete(c2.id, "adverse", "2026-06-04");
+    bm.sendAdverseAction(c2.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("cancel blocks completed checks", () => {
+    const bus = new EventBus();
+    const bm = new BackgroundCheckManager(bus);
+    const c = bm.order("s1", "Jane", ["criminal"], "2026-06-01")!;
+    bm.complete(c.id, "clear", "2026-06-04");
+    assert.equal(bm.cancel(c.id), undefined);
+  });
+
+  it("start transitions to in_progress", () => {
+    const bus = new EventBus();
+    const bm = new BackgroundCheckManager(bus);
+    const c = bm.order("s1", "Jane", ["drug"], "2026-06-01")!;
+    bm.start(c.id);
+    assert.equal(bm.getCheck(c.id)!.status, "in_progress");
+  });
+
+  it("summary computes turnaround and result counts", () => {
+    const bus = new EventBus();
+    const bm = new BackgroundCheckManager(bus);
+    const c1 = bm.order("s1", "A", ["criminal"], "2026-06-01")!;
+    bm.complete(c1.id, "clear", "2026-06-05");
+    const c2 = bm.order("s2", "B", ["criminal"], "2026-06-01")!;
+    bm.complete(c2.id, "adverse", "2026-06-03");
+    const s = bm.summary();
+    assert.equal(s.totalChecks, 2);
+    assert.equal(s.clear, 1);
+    assert.equal(s.adverse, 1);
+    assert.equal(s.avgTurnaroundDays, 3); // (4 + 2) / 2
+  });
+});
+
+describe("InsuranceCertificateManager", () => {
+  it("record publishes recorded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("insurancecert.recorded", (e) => { events.push(e.payload); });
+    const im = new InsuranceCertificateManager(bus);
+    im.record({ vendorId: "v1", vendorName: "Acme", carrier: "Hartford", coverageType: "general_liability", limitUsd: 1000000, effectiveDate: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("noncompliant event fires below required limit", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("insurancecert.noncompliant", (e) => { events.push(e.payload); });
+    const im = new InsuranceCertificateManager(bus);
+    im.setRequirement("general_liability", 1000000);
+    im.record({ vendorId: "v1", vendorName: "Acme", carrier: "X", coverageType: "general_liability", limitUsd: 500000, effectiveDate: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("isCompliant checks limit, jurisdiction and expiry", () => {
+    const bus = new EventBus();
+    const im = new InsuranceCertificateManager(bus);
+    im.setRequirement("auto", 500000);
+    im.record({ vendorId: "v1", vendorName: "Acme", carrier: "X", coverageType: "auto", limitUsd: 1000000, effectiveDate: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(im.isCompliant("v1", "auto", "2026-06-01"), true);
+    assert.equal(im.isCompliant("v1", "auto", "2028-01-01"), false); // expired
+  });
+
+  it("checkExpiry marks expired and warns expiring", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("insurancecert.expiring", (e) => { events.push(e.payload); });
+    const im = new InsuranceCertificateManager(bus);
+    im.record({ vendorId: "v1", vendorName: "Acme", carrier: "X", coverageType: "cyber", limitUsd: 1000000, effectiveDate: "2026-01-01", expiresAt: "2026-07-10" });
+    const expiring = im.checkExpiry("2026-06-25", 30);
+    assert.equal(expiring.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("revoke blocks compliance", () => {
+    const bus = new EventBus();
+    const im = new InsuranceCertificateManager(bus);
+    const c = im.record({ vendorId: "v1", vendorName: "Acme", carrier: "X", coverageType: "umbrella", limitUsd: 5000000, effectiveDate: "2026-01-01", expiresAt: "2027-01-01" });
+    im.revoke(c.id);
+    assert.equal(im.isCompliant("v1", "umbrella", "2026-06-01"), false);
+  });
+
+  it("summary aggregates coverage types and vendors", () => {
+    const bus = new EventBus();
+    const im = new InsuranceCertificateManager(bus);
+    im.record({ vendorId: "v1", vendorName: "A", carrier: "X", coverageType: "general_liability", limitUsd: 1000000, effectiveDate: "2026-01-01", expiresAt: "2027-01-01" });
+    im.record({ vendorId: "v2", vendorName: "B", carrier: "Y", coverageType: "workers_comp", limitUsd: 1000000, effectiveDate: "2026-01-01", expiresAt: "2026-07-05" });
+    const s = im.summary("2026-06-25");
+    assert.equal(s.totalCerts, 2);
+    assert.equal(s.active, 2);
+    assert.equal(s.vendorsCovered, 2);
+    assert.equal(s.expiringIn30Days, 1);
+    assert.equal(s.byCoverageType.general_liability, 1);
   });
 });

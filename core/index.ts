@@ -169,6 +169,8 @@ import { SponsorshipManager } from "./sponsorship/sponsorship-manager.js";
 import { MembershipManager } from "./membership/membership-manager.js";
 import { ChargebackManager } from "./chargeback/chargeback-manager.js";
 import { TaxExemptionManager } from "./tax-exemption/tax-exemption-manager.js";
+import { BackgroundCheckManager } from "./background-check/background-check-manager.js";
+import { InsuranceCertificateManager } from "./insurance-cert/insurance-certificate-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -426,6 +428,8 @@ export class Olympus {
   readonly membership: MembershipManager;
   readonly chargeback: ChargebackManager;
   readonly taxExemption: TaxExemptionManager;
+  readonly backgroundCheck: BackgroundCheckManager;
+  readonly insuranceCert: InsuranceCertificateManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -587,6 +591,8 @@ export class Olympus {
     this.membership = new MembershipManager(this.bus);
     this.chargeback = new ChargebackManager(this.bus);
     this.taxExemption = new TaxExemptionManager(this.bus);
+    this.backgroundCheck = new BackgroundCheckManager(this.bus);
+    this.insuranceCert = new InsuranceCertificateManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -754,3 +760,5 @@ export { SponsorshipManager, type SponsorTier, type SponsorshipStatus, type Deli
 export { MembershipManager, type MembershipTier, type MembershipStatus, type Membership, type MembershipSummary } from "./membership/index.js";
 export { ChargebackManager, type ChargebackReason, type ChargebackStatus, type Chargeback, type ChargebackSummary } from "./chargeback/index.js";
 export { TaxExemptionManager, type ExemptionType, type ExemptionStatus, type ExemptionCertificate, type TaxExemptionSummary } from "./tax-exemption/index.js";
+export { BackgroundCheckManager, type ScreenType, type CheckStatus, type CheckResult, type BackgroundCheck, type BackgroundCheckSummary } from "./background-check/index.js";
+export { InsuranceCertificateManager, type CoverageType, type CertStatus, type InsuranceCert, type InsuranceCertSummary } from "./insurance-cert/index.js";
