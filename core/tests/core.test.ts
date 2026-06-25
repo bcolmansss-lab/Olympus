@@ -48,6 +48,8 @@ import { DocumentSignatureManager } from "../e-signature/document-signature-mana
 import { EquipmentCalibrationManager } from "../equipment-calibration/equipment-calibration-manager.js";
 import { LocalizationManager } from "../localization/localization-manager.js";
 import { AffiliateManager } from "../affiliate/affiliate-manager.js";
+import { WebhookDeliveryManager } from "../webhook-delivery/webhook-delivery-manager.js";
+import { ReleaseManager } from "../release/release-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -11237,5 +11239,148 @@ describe("AffiliateManager", () => {
     assert.equal(s.totalAccruedUsd, 30);
     assert.equal(s.totalPaidUsd, 10);
     assert.equal(s.outstandingUsd, 20);
+  });
+});
+
+describe("WebhookDeliveryManager", () => {
+  it("registerEndpoint publishes endpoint_registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("webhookdelivery.endpoint_registered", (e) => { events.push(e.payload); });
+    const wd = new WebhookDeliveryManager(bus);
+    wd.registerEndpoint("https://x.com/hook", ["order.created"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("enqueue creates deliveries only for subscribed active endpoints", () => {
+    const bus = new EventBus();
+    const wd = new WebhookDeliveryManager(bus);
+    wd.registerEndpoint("https://a.com", ["order.created"]);
+    wd.registerEndpoint("https://b.com", ["payment.failed"]);
+    wd.registerEndpoint("https://c.com", ["*"]);
+    const deliveries = wd.enqueue("order.created", { id: 1 });
+    assert.equal(deliveries.length, 2); // a (matches) + c (wildcard)
+  });
+
+  it("attemptDelivery success marks delivered and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("webhookdelivery.delivered", (e) => { events.push(e.payload); });
+    const wd = new WebhookDeliveryManager(bus);
+    wd.registerEndpoint("https://a.com", ["*"]);
+    const [d] = wd.enqueue("order.created", {});
+    wd.attemptDelivery(d!.id, true, "2026-06-01");
+    assert.equal(wd.getDelivery(d!.id)!.status, "delivered");
+    assert.equal(events.length, 1);
+  });
+
+  it("delivery exhausts after max attempts", () => {
+    const bus = new EventBus();
+    const wd = new WebhookDeliveryManager(bus);
+    wd.registerEndpoint("https://a.com", ["*"]);
+    const [d] = wd.enqueue("order.created", {}, 2);
+    wd.attemptDelivery(d!.id, false, "2026-06-01");
+    assert.equal(wd.getDelivery(d!.id)!.status, "failed");
+    wd.attemptDelivery(d!.id, false, "2026-06-01");
+    assert.equal(wd.getDelivery(d!.id)!.status, "exhausted");
+  });
+
+  it("endpoint auto-disables after consecutive failures", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("webhookdelivery.endpoint_disabled", (e) => { events.push(e.payload); });
+    const wd = new WebhookDeliveryManager(bus, 2);
+    const ep = wd.registerEndpoint("https://a.com", ["*"]);
+    const [d1] = wd.enqueue("e1", {});
+    wd.attemptDelivery(d1!.id, false, "2026-06-01");
+    const [d2] = wd.enqueue("e2", {});
+    wd.attemptDelivery(d2!.id, false, "2026-06-01");
+    assert.equal(wd.getEndpoint(ep.id)!.active, false);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes delivery rate", () => {
+    const bus = new EventBus();
+    const wd = new WebhookDeliveryManager(bus);
+    wd.registerEndpoint("https://a.com", ["*"]);
+    const [d1] = wd.enqueue("e1", {}, 1);
+    wd.attemptDelivery(d1!.id, true, "2026-06-01");
+    const [d2] = wd.enqueue("e2", {}, 1);
+    wd.attemptDelivery(d2!.id, false, "2026-06-01"); // exhausted
+    const s = wd.summary();
+    assert.equal(s.totalDeliveries, 2);
+    assert.equal(s.delivered, 1);
+    assert.equal(s.deliveryRatePct, 50);
+  });
+});
+
+describe("ReleaseManager", () => {
+  it("createRelease publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("release.created", (e) => { events.push(e.payload); });
+    const rm = new ReleaseManager(bus);
+    rm.createRelease("v1.2.0", "2026-07-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("promote advances stage on success and publishes promoted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("release.promoted", (e) => { events.push(e.payload); });
+    const rm = new ReleaseManager(bus);
+    const r = rm.createRelease("v1.0.0", "2026-07-01");
+    rm.promote(r.id, "success", "2026-07-01"); // -> dev
+    assert.equal(rm.getRelease(r.id)!.stage, "dev");
+    assert.equal(events.length, 1);
+  });
+
+  it("failed promotion records deployment but does not advance", () => {
+    const bus = new EventBus();
+    const rm = new ReleaseManager(bus);
+    const r = rm.createRelease("v1.0.0", "2026-07-01");
+    rm.promote(r.id, "failed", "2026-07-01");
+    assert.equal(rm.getRelease(r.id)!.stage, "planned");
+    assert.equal(rm.getRelease(r.id)!.deployments.length, 1);
+  });
+
+  it("full promotion path reaches production", () => {
+    const bus = new EventBus();
+    const rm = new ReleaseManager(bus);
+    const r = rm.createRelease("v1.0.0", "2026-07-01");
+    rm.promote(r.id, "success", "2026-07-01"); // dev
+    rm.promote(r.id, "success", "2026-07-02"); // staging
+    rm.promote(r.id, "success", "2026-07-03"); // production
+    assert.equal(rm.getRelease(r.id)!.stage, "production");
+    assert.ok(rm.getRelease(r.id)!.shippedAt);
+    assert.equal(rm.promote(r.id, "success", "2026-07-04"), undefined); // can't go past prod
+  });
+
+  it("rollback marks release rolled_back and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("release.rolled_back", (e) => { events.push(e.payload); });
+    const rm = new ReleaseManager(bus);
+    const r = rm.createRelease("v1.0.0", "2026-07-01");
+    rm.promote(r.id, "success", "2026-07-01"); // dev
+    rm.rollback(r.id, "bug", "2026-07-02");
+    assert.equal(rm.getRelease(r.id)!.stage, "rolled_back");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates stages and failed deployments", () => {
+    const bus = new EventBus();
+    const rm = new ReleaseManager(bus);
+    const r1 = rm.createRelease("v1", "2026-07-01");
+    rm.promote(r1.id, "success", "2026-07-01");
+    rm.promote(r1.id, "success", "2026-07-02");
+    rm.promote(r1.id, "success", "2026-07-03"); // production
+    const r2 = rm.createRelease("v2", "2026-08-01");
+    rm.promote(r2.id, "failed", "2026-08-01");
+    const s = rm.summary();
+    assert.equal(s.totalReleases, 2);
+    assert.equal(s.inProduction, 1);
+    assert.equal(s.failedDeployments, 1);
+    assert.equal(s.byStage.production, 1);
   });
 });

@@ -145,6 +145,8 @@ import { DocumentSignatureManager } from "./e-signature/document-signature-manag
 import { EquipmentCalibrationManager } from "./equipment-calibration/equipment-calibration-manager.js";
 import { LocalizationManager } from "./localization/localization-manager.js";
 import { AffiliateManager } from "./affiliate/affiliate-manager.js";
+import { WebhookDeliveryManager } from "./webhook-delivery/webhook-delivery-manager.js";
+import { ReleaseManager } from "./release/release-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -378,6 +380,8 @@ export class Olympus {
   readonly equipmentCalibration: EquipmentCalibrationManager;
   readonly localization: LocalizationManager;
   readonly affiliate: AffiliateManager;
+  readonly webhookDelivery: WebhookDeliveryManager;
+  readonly release: ReleaseManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -515,6 +519,8 @@ export class Olympus {
     this.equipmentCalibration = new EquipmentCalibrationManager(this.bus);
     this.localization = new LocalizationManager(this.bus);
     this.affiliate = new AffiliateManager(this.bus);
+    this.webhookDelivery = new WebhookDeliveryManager(this.bus);
+    this.release = new ReleaseManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -658,3 +664,5 @@ export { DocumentSignatureManager, type EnvelopeStatus, type SignerStatus, type 
 export { EquipmentCalibrationManager, type CalibrationResult, type CalibratedEquipmentStatus, type CalibrationEvent, type EquipmentItem, type CalibrationSummary } from "./equipment-calibration/index.js";
 export { LocalizationManager, type TranslationState, type TranslationEntry, type LocaleBundle, type LocalizationProject, type LocaleCoverage, type LocalizationSummary } from "./localization/index.js";
 export { AffiliateManager, type AffiliateStatus, type Affiliate, type AffiliateConversion, type AffiliateSummary } from "./affiliate/index.js";
+export { WebhookDeliveryManager, type DeliveryStatus, type WebhookEndpoint, type WebhookDelivery, type WebhookDeliverySummary } from "./webhook-delivery/index.js";
+export { ReleaseManager, type ReleaseStage, type DeploymentOutcome, type ReleaseChangeItem, type Deployment, type SoftwareRelease, type ReleaseSummary } from "./release/index.js";
