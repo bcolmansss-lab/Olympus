@@ -46,6 +46,8 @@ import { EthicsCaseManager } from "../ethics/ethics-case-manager.js";
 import { CorporateTravelManager } from "../travel/corporate-travel-manager.js";
 import { DocumentSignatureManager } from "../e-signature/document-signature-manager.js";
 import { EquipmentCalibrationManager } from "../equipment-calibration/equipment-calibration-manager.js";
+import { LocalizationManager } from "../localization/localization-manager.js";
+import { AffiliateManager } from "../affiliate/affiliate-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -11099,5 +11101,141 @@ describe("EquipmentCalibrationManager", () => {
     assert.equal(s.dueSoon, 1);
     assert.equal(s.failureCount, 1);
     assert.equal(s.totalCalibrations, 2);
+  });
+});
+
+describe("LocalizationManager", () => {
+  it("createProject publishes project_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("localization.project_created", (e) => { events.push(e.payload); });
+    const lm = new LocalizationManager(bus);
+    lm.createProject("Web App", "en");
+    assert.equal(events.length, 1);
+  });
+
+  it("addLocale publishes locale_added and rejects duplicates", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("localization.locale_added", (e) => { events.push(e.payload); });
+    const lm = new LocalizationManager(bus);
+    const p = lm.createProject("App", "en");
+    assert.equal(lm.addLocale(p.id, "fr"), true);
+    assert.equal(lm.addLocale(p.id, "fr"), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("translate requires an existing key", () => {
+    const bus = new EventBus();
+    const lm = new LocalizationManager(bus);
+    const p = lm.createProject("App", "en");
+    assert.equal(lm.translate(p.id, "fr", "greeting", "Bonjour"), false);
+    lm.addKey(p.id, "greeting", "Hello");
+    assert.equal(lm.translate(p.id, "fr", "greeting", "Bonjour"), true);
+  });
+
+  it("review only promotes translated entries", () => {
+    const bus = new EventBus();
+    const lm = new LocalizationManager(bus);
+    const p = lm.createProject("App", "en");
+    lm.addKey(p.id, "k1", "Hello");
+    assert.equal(lm.review(p.id, "fr", "k1"), false); // not translated yet
+    lm.translate(p.id, "fr", "k1", "Bonjour");
+    assert.equal(lm.review(p.id, "fr", "k1"), true);
+  });
+
+  it("coverage computes per-locale percentage", () => {
+    const bus = new EventBus();
+    const lm = new LocalizationManager(bus);
+    const p = lm.createProject("App", "en");
+    lm.addKey(p.id, "k1", "Hello");
+    lm.addKey(p.id, "k2", "Bye");
+    lm.addLocale(p.id, "fr");
+    lm.translate(p.id, "fr", "k1", "Bonjour");
+    const cov = lm.coverage(p.id).find(c => c.locale === "fr")!;
+    assert.equal(cov.totalKeys, 2);
+    assert.equal(cov.translated, 1);
+    assert.equal(cov.coveragePct, 50);
+  });
+
+  it("summary aggregates projects, keys and locales", () => {
+    const bus = new EventBus();
+    const lm = new LocalizationManager(bus);
+    const p = lm.createProject("App", "en");
+    lm.addKey(p.id, "k1", "Hello");
+    lm.addLocale(p.id, "de");
+    const s = lm.summary();
+    assert.equal(s.totalProjects, 1);
+    assert.equal(s.totalKeys, 1);
+    assert.equal(s.totalLocales, 2); // en + de
+  });
+});
+
+describe("AffiliateManager", () => {
+  it("join publishes joined and rejects duplicate code", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("affiliate.joined", (e) => { events.push(e.payload); });
+    const am = new AffiliateManager(bus);
+    assert.ok(am.join("Blog A", "BLOGA", 10));
+    assert.equal(am.join("Blog B", "BLOGA", 5), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordClick increments clicks for active affiliate", () => {
+    const bus = new EventBus();
+    const am = new AffiliateManager(bus);
+    am.join("Blog", "BLOG", 10);
+    am.recordClick("BLOG");
+    assert.equal(am.findByCode("BLOG")!.clicks, 1);
+  });
+
+  it("recordConversion accrues commission and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("affiliate.conversion_recorded", (e) => { events.push(e.payload); });
+    const am = new AffiliateManager(bus);
+    const a = am.join("Blog", "BLOG", 10)!;
+    am.recordConversion("BLOG", 250, "2026-06-01");
+    assert.equal(am.getAffiliate(a.id)!.accruedCommissionUsd, 25);
+    assert.equal(events.length, 1);
+  });
+
+  it("suspended affiliate cannot convert", () => {
+    const bus = new EventBus();
+    const am = new AffiliateManager(bus);
+    const a = am.join("Blog", "BLOG", 10)!;
+    am.setStatus(a.id, "suspended");
+    assert.equal(am.recordConversion("BLOG", 100, "2026-06-01"), undefined);
+  });
+
+  it("settlePayout pays outstanding accrued commission", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("affiliate.payout_settled", (e) => { events.push(e.payload); });
+    const am = new AffiliateManager(bus);
+    const a = am.join("Blog", "BLOG", 10)!;
+    am.recordConversion("BLOG", 250, "2026-06-01");
+    const paid = am.settlePayout(a.id);
+    assert.equal(paid, 25);
+    assert.equal(am.settlePayout(a.id), 0); // nothing left
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes conversion rate and outstanding", () => {
+    const bus = new EventBus();
+    const am = new AffiliateManager(bus);
+    const a = am.join("Blog", "BLOG", 10)!;
+    am.recordClick("BLOG"); am.recordClick("BLOG"); am.recordClick("BLOG"); am.recordClick("BLOG");
+    am.recordConversion("BLOG", 100, "2026-06-01");
+    am.settlePayout(a.id);
+    am.recordConversion("BLOG", 200, "2026-06-02");
+    const s = am.summary();
+    assert.equal(s.totalConversions, 2);
+    assert.equal(s.totalClicks, 4);
+    assert.equal(s.conversionRatePct, 50);
+    assert.equal(s.totalAccruedUsd, 30);
+    assert.equal(s.totalPaidUsd, 10);
+    assert.equal(s.outstandingUsd, 20);
   });
 });

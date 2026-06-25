@@ -143,6 +143,8 @@ import { EthicsCaseManager } from "./ethics/ethics-case-manager.js";
 import { CorporateTravelManager } from "./travel/corporate-travel-manager.js";
 import { DocumentSignatureManager } from "./e-signature/document-signature-manager.js";
 import { EquipmentCalibrationManager } from "./equipment-calibration/equipment-calibration-manager.js";
+import { LocalizationManager } from "./localization/localization-manager.js";
+import { AffiliateManager } from "./affiliate/affiliate-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -374,6 +376,8 @@ export class Olympus {
   readonly travel: CorporateTravelManager;
   readonly eSignature: DocumentSignatureManager;
   readonly equipmentCalibration: EquipmentCalibrationManager;
+  readonly localization: LocalizationManager;
+  readonly affiliate: AffiliateManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -509,6 +513,8 @@ export class Olympus {
     this.travel = new CorporateTravelManager(this.bus);
     this.eSignature = new DocumentSignatureManager(this.bus);
     this.equipmentCalibration = new EquipmentCalibrationManager(this.bus);
+    this.localization = new LocalizationManager(this.bus);
+    this.affiliate = new AffiliateManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -650,3 +656,5 @@ export { EthicsCaseManager, type EthicsCategory, type CaseSeverity, type EthicsC
 export { CorporateTravelManager, type TripStatus, type TripPurpose, type TravelSegment, type Trip, type TravelSummary } from "./travel/index.js";
 export { DocumentSignatureManager, type EnvelopeStatus, type SignerStatus, type SigningOrder, type Signer, type SignatureEnvelope, type SignatureSummary } from "./e-signature/index.js";
 export { EquipmentCalibrationManager, type CalibrationResult, type CalibratedEquipmentStatus, type CalibrationEvent, type EquipmentItem, type CalibrationSummary } from "./equipment-calibration/index.js";
+export { LocalizationManager, type TranslationState, type TranslationEntry, type LocaleBundle, type LocalizationProject, type LocaleCoverage, type LocalizationSummary } from "./localization/index.js";
+export { AffiliateManager, type AffiliateStatus, type Affiliate, type AffiliateConversion, type AffiliateSummary } from "./affiliate/index.js";
