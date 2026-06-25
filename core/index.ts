@@ -167,6 +167,8 @@ import { GrievanceManager } from "./grievance/grievance-manager.js";
 import { AssetCheckoutManager } from "./asset-checkout/asset-checkout-manager.js";
 import { SponsorshipManager } from "./sponsorship/sponsorship-manager.js";
 import { MembershipManager } from "./membership/membership-manager.js";
+import { ChargebackManager } from "./chargeback/chargeback-manager.js";
+import { TaxExemptionManager } from "./tax-exemption/tax-exemption-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -422,6 +424,8 @@ export class Olympus {
   readonly assetCheckout: AssetCheckoutManager;
   readonly sponsorship: SponsorshipManager;
   readonly membership: MembershipManager;
+  readonly chargeback: ChargebackManager;
+  readonly taxExemption: TaxExemptionManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -581,6 +585,8 @@ export class Olympus {
     this.assetCheckout = new AssetCheckoutManager(this.bus);
     this.sponsorship = new SponsorshipManager(this.bus);
     this.membership = new MembershipManager(this.bus);
+    this.chargeback = new ChargebackManager(this.bus);
+    this.taxExemption = new TaxExemptionManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -746,3 +752,5 @@ export { GrievanceManager, type GrievanceCategory, type GrievanceStage, type Gri
 export { AssetCheckoutManager, type ItemAvailability, type LoanStatus, type CheckoutItem, type Loan, type CheckoutSummary } from "./asset-checkout/index.js";
 export { SponsorshipManager, type SponsorTier, type SponsorshipStatus, type Deliverable, type Sponsorship, type SponsorshipSummary } from "./sponsorship/index.js";
 export { MembershipManager, type MembershipTier, type MembershipStatus, type Membership, type MembershipSummary } from "./membership/index.js";
+export { ChargebackManager, type ChargebackReason, type ChargebackStatus, type Chargeback, type ChargebackSummary } from "./chargeback/index.js";
+export { TaxExemptionManager, type ExemptionType, type ExemptionStatus, type ExemptionCertificate, type TaxExemptionSummary } from "./tax-exemption/index.js";

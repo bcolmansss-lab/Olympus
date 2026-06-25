@@ -70,6 +70,8 @@ import { GrievanceManager } from "../grievance/grievance-manager.js";
 import { AssetCheckoutManager } from "../asset-checkout/asset-checkout-manager.js";
 import { SponsorshipManager } from "../sponsorship/sponsorship-manager.js";
 import { MembershipManager } from "../membership/membership-manager.js";
+import { ChargebackManager } from "../chargeback/chargeback-manager.js";
+import { TaxExemptionManager } from "../tax-exemption/tax-exemption-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12711,5 +12713,131 @@ describe("MembershipManager", () => {
     assert.equal(s.totalAnnualDuesUsd, 250);
     assert.equal(s.byTier.premium, 1);
     assert.equal(s.retentionRatePct, 50);
+  });
+});
+
+describe("ChargebackManager", () => {
+  it("open publishes opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("chargeback.opened", (e) => { events.push(e.payload); });
+    const cm = new ChargebackManager(bus);
+    cm.open({ transactionId: "tx1", customerId: "c1", amountUsd: 200, reasonCode: "fraud", openedAt: "2026-06-01", dueBy: "2026-06-15" });
+    assert.equal(events.length, 1);
+  });
+
+  it("represent requires evidence and sets status", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("chargeback.represented", (e) => { events.push(e.payload); });
+    const cm = new ChargebackManager(bus);
+    const cb = cm.open({ transactionId: "tx1", customerId: "c1", amountUsd: 200, reasonCode: "fraud", openedAt: "2026-06-01", dueBy: "2026-06-15" });
+    assert.equal(cm.represent(cb.id, []), undefined);
+    cm.represent(cb.id, ["receipt", "delivery proof"]);
+    assert.equal(cm.getChargeback(cb.id)!.status, "represented");
+    assert.equal(events.length, 1);
+  });
+
+  it("resolve won publishes resolved with won flag", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("chargeback.resolved", (e) => { events.push(e.payload); });
+    const cm = new ChargebackManager(bus);
+    const cb = cm.open({ transactionId: "tx1", customerId: "c1", amountUsd: 200, reasonCode: "duplicate", openedAt: "2026-06-01", dueBy: "2026-06-15" });
+    cm.represent(cb.id, ["evidence"]);
+    cm.resolve(cb.id, true, "2026-06-20");
+    assert.equal(cm.getChargeback(cb.id)!.status, "won");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].won, true);
+  });
+
+  it("resolve requires represented state", () => {
+    const bus = new EventBus();
+    const cm = new ChargebackManager(bus);
+    const cb = cm.open({ transactionId: "tx1", customerId: "c1", amountUsd: 200, reasonCode: "fraud", openedAt: "2026-06-01", dueBy: "2026-06-15" });
+    assert.equal(cm.resolve(cb.id, true, "2026-06-20"), undefined);
+  });
+
+  it("accept resolves as a loss", () => {
+    const bus = new EventBus();
+    const cm = new ChargebackManager(bus);
+    const cb = cm.open({ transactionId: "tx1", customerId: "c1", amountUsd: 200, reasonCode: "other", openedAt: "2026-06-01", dueBy: "2026-06-15" });
+    cm.accept(cb.id, "2026-06-05");
+    assert.equal(cm.getChargeback(cb.id)!.status, "accepted");
+  });
+
+  it("summary computes win rate and recovered amount", () => {
+    const bus = new EventBus();
+    const cm = new ChargebackManager(bus);
+    const a = cm.open({ transactionId: "t1", customerId: "c1", amountUsd: 100, reasonCode: "fraud", openedAt: "2026-06-01", dueBy: "2026-06-15" });
+    cm.represent(a.id, ["x"]); cm.resolve(a.id, true, "2026-06-20");
+    const b = cm.open({ transactionId: "t2", customerId: "c2", amountUsd: 50, reasonCode: "fraud", openedAt: "2026-06-01", dueBy: "2026-06-15" });
+    cm.represent(b.id, ["y"]); cm.resolve(b.id, false, "2026-06-20");
+    const s = cm.summary();
+    assert.equal(s.totalChargebacks, 2);
+    assert.equal(s.won, 1);
+    assert.equal(s.recoveredUsd, 100);
+    assert.equal(s.winRatePct, 50);
+    assert.equal(s.byReason.fraud, 2);
+  });
+});
+
+describe("TaxExemptionManager", () => {
+  it("register publishes registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("taxexemption.registered", (e) => { events.push(e.payload); });
+    const tm = new TaxExemptionManager(bus);
+    tm.register({ customerId: "c1", exemptionType: "resale", certificateNumber: "RS-1", jurisdictions: ["CA"], issuedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("verify returns valid for active cert in jurisdiction", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("taxexemption.verified", (e) => { events.push(e.payload); });
+    const tm = new TaxExemptionManager(bus);
+    tm.register({ customerId: "c1", exemptionType: "nonprofit", certificateNumber: "NP-1", jurisdictions: ["NY"], issuedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    const r = tm.verify("c1", "NY", "2026-06-01");
+    assert.equal(r.valid, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("verify fails for wrong jurisdiction", () => {
+    const bus = new EventBus();
+    const tm = new TaxExemptionManager(bus);
+    tm.register({ customerId: "c1", exemptionType: "resale", certificateNumber: "RS-1", jurisdictions: ["CA"], issuedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(tm.verify("c1", "TX", "2026-06-01").valid, false);
+  });
+
+  it("checkExpired flags and publishes expired certs", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("taxexemption.expired", (e) => { events.push(e.payload); });
+    const tm = new TaxExemptionManager(bus);
+    tm.register({ customerId: "c1", exemptionType: "government", certificateNumber: "G-1", jurisdictions: ["DC"], issuedAt: "2025-01-01", expiresAt: "2026-01-01" });
+    const expired = tm.checkExpired("2026-06-25");
+    assert.equal(expired.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("revoke marks certificate revoked and blocks verify", () => {
+    const bus = new EventBus();
+    const tm = new TaxExemptionManager(bus);
+    const c = tm.register({ customerId: "c1", exemptionType: "resale", certificateNumber: "RS-1", jurisdictions: ["CA"], issuedAt: "2026-01-01", expiresAt: "2027-01-01" });
+    tm.revoke(c.id);
+    assert.equal(tm.verify("c1", "CA", "2026-06-01").valid, false);
+  });
+
+  it("summary aggregates types and expiring soon", () => {
+    const bus = new EventBus();
+    const tm = new TaxExemptionManager(bus);
+    tm.register({ customerId: "c1", exemptionType: "resale", certificateNumber: "RS-1", jurisdictions: ["CA"], issuedAt: "2026-01-01", expiresAt: "2026-07-10" });
+    tm.register({ customerId: "c2", exemptionType: "nonprofit", certificateNumber: "NP-1", jurisdictions: ["NY"], issuedAt: "2026-01-01", expiresAt: "2028-01-01" });
+    const s = tm.summary("2026-06-25");
+    assert.equal(s.totalCertificates, 2);
+    assert.equal(s.active, 2);
+    assert.equal(s.byType.resale, 1);
+    assert.equal(s.expiringIn30Days, 1);
   });
 });
