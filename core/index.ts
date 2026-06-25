@@ -139,6 +139,8 @@ import { InvestorRelationsManager } from "./investor-relations/investor-relation
 import { GiftCardManager } from "./gift-card/gift-card-manager.js";
 import { RevenueRecognitionManager } from "./rev-rec/revenue-recognition-manager.js";
 import { SafetyIncidentManager } from "./safety/safety-incident-manager.js";
+import { EthicsCaseManager } from "./ethics/ethics-case-manager.js";
+import { CorporateTravelManager } from "./travel/corporate-travel-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -366,6 +368,8 @@ export class Olympus {
   readonly giftCard: GiftCardManager;
   readonly revRec: RevenueRecognitionManager;
   readonly safety: SafetyIncidentManager;
+  readonly ethics: EthicsCaseManager;
+  readonly travel: CorporateTravelManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -497,6 +501,8 @@ export class Olympus {
     this.giftCard = new GiftCardManager(this.bus);
     this.revRec = new RevenueRecognitionManager(this.bus);
     this.safety = new SafetyIncidentManager(this.bus);
+    this.ethics = new EthicsCaseManager(this.bus);
+    this.travel = new CorporateTravelManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -634,3 +640,5 @@ export { InvestorRelationsManager, type RoundStage, type RoundStatus, type Inves
 export { GiftCardManager, type GiftCardStatus, type GiftCard, type GiftCardTransaction, type GiftCardSummary } from "./gift-card/index.js";
 export { RevenueRecognitionManager, type RecognitionMethod, type ObligationStatus, type RecognitionEntry, type PerformanceObligation, type RevRecSummary } from "./rev-rec/index.js";
 export { SafetyIncidentManager, type SafetySeverity, type IncidentState, type CorrectiveAction, type SafetyIncident, type SafetySummary } from "./safety/index.js";
+export { EthicsCaseManager, type EthicsCategory, type CaseSeverity, type EthicsCaseState, type CaseOutcome, type EthicsCaseNote, type EthicsCase, type EthicsSummary } from "./ethics/index.js";
+export { CorporateTravelManager, type TripStatus, type TripPurpose, type TravelSegment, type Trip, type TravelSummary } from "./travel/index.js";

@@ -42,6 +42,8 @@ import { InvestorRelationsManager } from "../investor-relations/investor-relatio
 import { GiftCardManager } from "../gift-card/gift-card-manager.js";
 import { RevenueRecognitionManager } from "../rev-rec/revenue-recognition-manager.js";
 import { SafetyIncidentManager } from "../safety/safety-incident-manager.js";
+import { EthicsCaseManager } from "../ethics/ethics-case-manager.js";
+import { CorporateTravelManager } from "../travel/corporate-travel-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10826,5 +10828,139 @@ describe("SafetyIncidentManager", () => {
     assert.equal(s.lostTimeCount, 1);
     assert.equal(s.totalLostDays, 5);
     assert.equal(s.bySeverity.near_miss, 1);
+  });
+});
+
+describe("EthicsCaseManager", () => {
+  it("openCase assigns case number and publishes case_opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ethics.case_opened", (e) => { events.push(e.payload); });
+    const em = new EthicsCaseManager(bus);
+    const c = em.openCase({ category: "fraud", severity: "high", summary: "expense fraud", anonymous: false, reporterId: "u1" });
+    assert.equal(c.caseNumber, "ETH-00001");
+    assert.equal(events.length, 1);
+  });
+
+  it("anonymous case drops reporter id", () => {
+    const bus = new EventBus();
+    const em = new EthicsCaseManager(bus);
+    const c = em.openCase({ category: "harassment", severity: "high", summary: "x", anonymous: true, reporterId: "u1" });
+    assert.equal(c.reporterId, undefined);
+    assert.equal(c.anonymous, true);
+  });
+
+  it("assign moves to investigating and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ethics.case_assigned", (e) => { events.push(e.payload); });
+    const em = new EthicsCaseManager(bus);
+    const c = em.openCase({ category: "safety", severity: "medium", summary: "x", anonymous: true });
+    em.assign(c.id, "inv1");
+    assert.equal(em.getCase(c.id)!.state, "investigating");
+    assert.equal(events.length, 1);
+  });
+
+  it("addNote appends investigation notes", () => {
+    const bus = new EventBus();
+    const em = new EthicsCaseManager(bus);
+    const c = em.openCase({ category: "other", severity: "low", summary: "x", anonymous: true });
+    em.addNote(c.id, "inv1", "interviewed witness");
+    assert.equal(em.getCase(c.id)!.notes.length, 1);
+  });
+
+  it("resolve publishes case_resolved with substantiation", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ethics.case_resolved", (e) => { events.push(e.payload); });
+    const em = new EthicsCaseManager(bus);
+    const c = em.openCase({ category: "fraud", severity: "critical", summary: "x", anonymous: false, reporterId: "u1" });
+    em.resolve(c.id, "substantiated", "2026-06-20");
+    assert.equal(em.getCase(c.id)!.state, "resolved");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].substantiated, true);
+  });
+
+  it("summary aggregates categories, severity and anonymous count", () => {
+    const bus = new EventBus();
+    const em = new EthicsCaseManager(bus);
+    em.openCase({ category: "fraud", severity: "high", summary: "x", anonymous: true });
+    const c2 = em.openCase({ category: "harassment", severity: "medium", summary: "y", anonymous: false, reporterId: "u2" });
+    em.resolve(c2.id, "unsubstantiated", "2026-06-20");
+    const s = em.summary();
+    assert.equal(s.totalCases, 2);
+    assert.equal(s.resolvedCases, 1);
+    assert.equal(s.anonymousCount, 1);
+    assert.equal(s.byCategory.fraud, 1);
+    assert.equal(s.bySeverity.high, 1);
+  });
+});
+
+describe("CorporateTravelManager", () => {
+  it("request flags within-policy and publishes requested", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("travel.requested", (e) => { events.push(e.payload); });
+    const tm = new CorporateTravelManager(bus, 3000);
+    const trip = tm.request({ travelerId: "u1", purpose: "conference", destination: "NYC", departDate: "2026-08-01", returnDate: "2026-08-03", segments: [{ kind: "flight", description: "RT", costUsd: 500 }, { kind: "hotel", description: "2 nights", costUsd: 600 }] });
+    assert.equal(trip.estimatedCostUsd, 1100);
+    assert.equal(trip.withinPolicy, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("request flags out-of-policy over cap", () => {
+    const bus = new EventBus();
+    const tm = new CorporateTravelManager(bus, 1000);
+    const trip = tm.request({ travelerId: "u1", purpose: "sales", destination: "LON", departDate: "2026-08-01", returnDate: "2026-08-05", segments: [{ kind: "flight", description: "intl", costUsd: 2000 }] });
+    assert.equal(trip.withinPolicy, false);
+  });
+
+  it("approve publishes approved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("travel.approved", (e) => { events.push(e.payload); });
+    const tm = new CorporateTravelManager(bus);
+    const trip = tm.request({ travelerId: "u1", purpose: "internal", destination: "SF", departDate: "2026-08-01", returnDate: "2026-08-02", segments: [{ kind: "flight", description: "x", costUsd: 300 }] });
+    tm.approve(trip.id, "mgr1");
+    assert.equal(tm.getTrip(trip.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("book requires approval and publishes booked", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("travel.booked", (e) => { events.push(e.payload); });
+    const tm = new CorporateTravelManager(bus);
+    const trip = tm.request({ travelerId: "u1", purpose: "training", destination: "AUS", departDate: "2026-08-01", returnDate: "2026-08-02", segments: [{ kind: "flight", description: "x", costUsd: 300 }] });
+    assert.equal(tm.book(trip.id, 320), undefined); // not approved
+    tm.approve(trip.id, "mgr1");
+    tm.book(trip.id, 320);
+    assert.equal(tm.getTrip(trip.id)!.status, "booked");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].actualCostUsd, 320);
+  });
+
+  it("cancel blocks completed trips", () => {
+    const bus = new EventBus();
+    const tm = new CorporateTravelManager(bus);
+    const trip = tm.request({ travelerId: "u1", purpose: "other", destination: "X", departDate: "2026-08-01", returnDate: "2026-08-02", segments: [{ kind: "car", description: "x", costUsd: 100 }] });
+    tm.approve(trip.id, "m1");
+    tm.book(trip.id, 100);
+    tm.complete(trip.id);
+    assert.equal(tm.cancel(trip.id), undefined);
+  });
+
+  it("summary aggregates spend and out-of-policy count", () => {
+    const bus = new EventBus();
+    const tm = new CorporateTravelManager(bus, 500);
+    const t1 = tm.request({ travelerId: "u1", purpose: "sales", destination: "X", departDate: "2026-08-01", returnDate: "2026-08-02", segments: [{ kind: "flight", description: "x", costUsd: 800 }] });
+    tm.approve(t1.id, "m1"); tm.book(t1.id, 820);
+    tm.request({ travelerId: "u2", purpose: "internal", destination: "Y", departDate: "2026-08-01", returnDate: "2026-08-02", segments: [{ kind: "rail", description: "x", costUsd: 100 }] });
+    const s = tm.summary();
+    assert.equal(s.totalTrips, 2);
+    assert.equal(s.booked, 1);
+    assert.equal(s.totalActualUsd, 820);
+    assert.equal(s.outOfPolicyCount, 1);
+    assert.equal(s.byPurpose.sales, 1);
   });
 });
