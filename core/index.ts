@@ -121,6 +121,8 @@ import { ServiceLevelManager } from "./service-level/service-level-manager.js";
 import { DigitalAssetManager } from "./digital-assets/digital-asset-manager.js";
 import { HealthBenefitsManager } from "./health-benefits/health-benefits-manager.js";
 import { CommissionEngine } from "./commission-engine/commission-engine.js";
+import { TimeTrackingManager } from "./time-tracking/time-tracking-manager.js";
+import { VendorRiskManager } from "./vendor-risk/vendor-risk-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -330,6 +332,8 @@ export class Olympus {
   readonly digitalAssets: DigitalAssetManager;
   readonly healthBenefits: HealthBenefitsManager;
   readonly commissionEngine: CommissionEngine;
+  readonly timeTracking: TimeTrackingManager;
+  readonly vendorRisk: VendorRiskManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -443,6 +447,8 @@ export class Olympus {
     this.digitalAssets = new DigitalAssetManager(this.bus);
     this.healthBenefits = new HealthBenefitsManager(this.bus);
     this.commissionEngine = new CommissionEngine(this.bus);
+    this.timeTracking = new TimeTrackingManager(this.bus);
+    this.vendorRisk = new VendorRiskManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -562,3 +568,5 @@ export { ServiceLevelManager, type ServiceTierLevel, type ServiceTierDefinition,
 export { DigitalAssetManager, type DigitalAssetCategory, type DigitalAssetStatus, type DigitalAsset, type DigitalAssetSummary } from "./digital-assets/index.js";
 export { HealthBenefitsManager, type BenefitPlanType, type BenefitClaimType, type BenefitClaimStatus, type BenefitPlan, type BenefitEnrollment, type BenefitClaim, type BenefitsSummary } from "./health-benefits/index.js";
 export { CommissionEngine, type CommissionPlanStatus, type PayoutStatus, type DisputeStatus, type CommissionTier, type CommissionPlan, type CommissionDeal, type CommissionPayout, type CommissionDispute, type CommissionSummary } from "./commission-engine/index.js";
+export { TimeTrackingManager, type TimesheetStatus, type TimeEntry, type Timesheet, type TimeTrackingSummary } from "./time-tracking/index.js";
+export { VendorRiskManager, type VendorRiskTier, type RemediationStatus, type VendorRiskDomain, type VendorRiskAssessment, type RemediationItem, type VendorRiskSummary } from "./vendor-risk/index.js";

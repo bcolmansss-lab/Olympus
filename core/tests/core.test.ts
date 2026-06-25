@@ -24,6 +24,8 @@ import { ServiceLevelManager } from "../service-level/service-level-manager.js";
 import { DigitalAssetManager } from "../digital-assets/digital-asset-manager.js";
 import { HealthBenefitsManager } from "../health-benefits/health-benefits-manager.js";
 import { CommissionEngine } from "../commission-engine/commission-engine.js";
+import { TimeTrackingManager } from "../time-tracking/time-tracking-manager.js";
+import { VendorRiskManager } from "../vendor-risk/vendor-risk-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -9581,5 +9583,143 @@ describe("CommissionEngine", () => {
     assert.equal(s.totalSalesUsd, 10000);
     assert.equal(s.openDisputes, 1);
     assert.equal(s.totalCommissionUsd, 500);
+  });
+});
+
+describe("TimeTrackingManager", () => {
+  it("createTimesheet and addEntry track hours", () => {
+    const bus = new EventBus();
+    const tt = new TimeTrackingManager(bus);
+    const ts = tt.createTimesheet("emp1", "2026-W26");
+    const e = tt.addEntry(ts.id, { date: "2026-06-22", projectId: "p1", taskDescription: "dev", hours: 8, billable: true });
+    assert.ok(e);
+    assert.equal(tt.getTimesheet(ts.id)!.entries.length, 1);
+  });
+
+  it("addEntry returns undefined for approved timesheet", () => {
+    const bus = new EventBus();
+    const tt = new TimeTrackingManager(bus);
+    const ts = tt.createTimesheet("emp1", "2026-W26");
+    tt.submitTimesheet(ts.id);
+    tt.approveTimesheet(ts.id, "mgr1");
+    assert.equal(tt.addEntry(ts.id, { date: "2026-06-22", taskDescription: "x", hours: 2, billable: false }), undefined);
+  });
+
+  it("submitTimesheet publishes submitted event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("timetracking.timesheet_submitted", (e) => { events.push(e.payload); });
+    const tt = new TimeTrackingManager(bus);
+    const ts = tt.createTimesheet("emp1", "2026-W26");
+    tt.addEntry(ts.id, { date: "2026-06-22", taskDescription: "dev", hours: 8, billable: true });
+    tt.submitTimesheet(ts.id);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].totalHours, 8);
+  });
+
+  it("submitTimesheet flags overtime above threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("timetracking.overtime_flagged", (e) => { events.push(e.payload); });
+    const tt = new TimeTrackingManager(bus, 40);
+    const ts = tt.createTimesheet("emp1", "2026-W26");
+    tt.addEntry(ts.id, { date: "2026-06-22", taskDescription: "dev", hours: 45, billable: true });
+    tt.submitTimesheet(ts.id);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].totalHours, 45);
+  });
+
+  it("approveTimesheet publishes approved event and sets approver", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("timetracking.timesheet_approved", (e) => { events.push(e.payload); });
+    const tt = new TimeTrackingManager(bus);
+    const ts = tt.createTimesheet("emp1", "2026-W26");
+    tt.submitTimesheet(ts.id);
+    tt.approveTimesheet(ts.id, "mgr1");
+    assert.equal(tt.getTimesheet(ts.id)!.status, "approved");
+    assert.equal(tt.getTimesheet(ts.id)!.approverId, "mgr1");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes utilization and per-project hours", () => {
+    const bus = new EventBus();
+    const tt = new TimeTrackingManager(bus);
+    const ts = tt.createTimesheet("emp1", "2026-W26");
+    tt.addEntry(ts.id, { date: "2026-06-22", projectId: "p1", taskDescription: "dev", hours: 6, billable: true });
+    tt.addEntry(ts.id, { date: "2026-06-23", projectId: "p1", taskDescription: "admin", hours: 2, billable: false });
+    const s = tt.summary();
+    assert.equal(s.totalHours, 8);
+    assert.equal(s.billableHours, 6);
+    assert.equal(s.nonBillableHours, 2);
+    assert.equal(s.utilizationPct, 75);
+    assert.equal(s.byProject.p1, 8);
+  });
+});
+
+describe("VendorRiskManager", () => {
+  it("assess computes weighted score and tier", () => {
+    const bus = new EventBus();
+    const vr = new VendorRiskManager(bus);
+    const a = vr.assess("v1", "Acme", [{ domain: "security", scorePct: 80, weight: 2 }, { domain: "financial", scorePct: 20, weight: 1 }], "auditor1");
+    assert.equal(a.riskScore, 60); // (80*2+20*1)/3 = 60
+    assert.equal(a.tier, "high");
+  });
+
+  it("assess publishes assessment_completed and high_risk_flagged", () => {
+    const bus = new EventBus();
+    const done: any[] = [];
+    const high: any[] = [];
+    bus.subscribe("vendorrisk.assessment_completed", (e) => { done.push(e.payload); });
+    bus.subscribe("vendorrisk.high_risk_flagged", (e) => { high.push(e.payload); });
+    const vr = new VendorRiskManager(bus);
+    vr.assess("v1", "Acme", [{ domain: "security", scorePct: 90, weight: 1 }], "auditor1");
+    assert.equal(done.length, 1);
+    assert.equal(high.length, 1);
+  });
+
+  it("low risk does not flag high risk", () => {
+    const bus = new EventBus();
+    const high: any[] = [];
+    bus.subscribe("vendorrisk.high_risk_flagged", (e) => { high.push(e.payload); });
+    const vr = new VendorRiskManager(bus);
+    const a = vr.assess("v2", "SafeCo", [{ domain: "security", scorePct: 10, weight: 1 }], "auditor1");
+    assert.equal(a.tier, "low");
+    assert.equal(high.length, 0);
+  });
+
+  it("addRemediation and updateRemediation track status", () => {
+    const bus = new EventBus();
+    const vr = new VendorRiskManager(bus);
+    const item = vr.addRemediation({ vendorId: "v1", finding: "no SOC2", severity: "high", dueDate: "2026-12-01" });
+    assert.equal(item.status, "open");
+    const updated = vr.updateRemediation(item.id, "resolved");
+    assert.equal(updated!.status, "resolved");
+    assert.ok(updated!.resolvedAt);
+  });
+
+  it("checkOverdue flags and publishes overdue remediations", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("vendorrisk.remediation_overdue", (e) => { events.push(e.payload); });
+    const vr = new VendorRiskManager(bus);
+    vr.addRemediation({ vendorId: "v1", finding: "patch", severity: "moderate", dueDate: "2026-01-01" });
+    const overdue = vr.checkOverdue("2026-06-25");
+    assert.equal(overdue.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates tiers and remediation counts", () => {
+    const bus = new EventBus();
+    const vr = new VendorRiskManager(bus);
+    vr.assess("v1", "Acme", [{ domain: "security", scorePct: 90, weight: 1 }], "a1");
+    vr.assess("v2", "SafeCo", [{ domain: "security", scorePct: 10, weight: 1 }], "a1");
+    vr.addRemediation({ vendorId: "v1", finding: "x", severity: "high", dueDate: "2026-01-01" });
+    const s = vr.summary();
+    assert.equal(s.totalAssessments, 2);
+    assert.equal(s.byTier.critical, 1);
+    assert.equal(s.byTier.low, 1);
+    assert.equal(s.openRemediations, 1);
+    assert.equal(s.overdueRemediations, 1);
   });
 });
