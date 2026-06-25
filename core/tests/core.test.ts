@@ -52,6 +52,8 @@ import { WebhookDeliveryManager } from "../webhook-delivery/webhook-delivery-man
 import { ReleaseManager } from "../release/release-manager.js";
 import { EnergyUsageManager } from "../energy/energy-usage-manager.js";
 import { VisitorManager } from "../visitor/visitor-manager.js";
+import { PurchaseCardManager } from "../purchase-card/purchase-card-manager.js";
+import { CycleCountManager } from "../cycle-count/cycle-count-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -11517,5 +11519,135 @@ describe("VisitorManager", () => {
     assert.equal(s.onSite, 1);
     assert.equal(s.preregistered, 1);
     assert.equal(s.byPurpose.meeting, 1);
+  });
+});
+
+describe("PurchaseCardManager", () => {
+  it("issueCard publishes issued", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pcard.issued", (e) => { events.push(e.payload); });
+    const pc = new PurchaseCardManager(bus);
+    pc.issueCard("emp1", "1234", 5000);
+    assert.equal(events.length, 1);
+  });
+
+  it("postTransaction accrues spend and publishes posted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pcard.transaction_posted", (e) => { events.push(e.payload); });
+    const pc = new PurchaseCardManager(bus);
+    const card = pc.issueCard("emp1", "1234", 5000);
+    pc.postTransaction(card.id, 200, "AWS", "cloud", "2026-06-01");
+    assert.equal(pc.getCard(card.id)!.currentMonthSpendUsd, 200);
+    assert.equal(events.length, 1);
+  });
+
+  it("postTransaction enforces category controls", () => {
+    const bus = new EventBus();
+    const pc = new PurchaseCardManager(bus);
+    const card = pc.issueCard("emp1", "1234", 5000, ["cloud"]);
+    assert.equal(pc.postTransaction(card.id, 100, "Bar", "entertainment", "2026-06-01"), undefined);
+    assert.ok(pc.postTransaction(card.id, 100, "AWS", "cloud", "2026-06-01"));
+  });
+
+  it("limit exceeded publishes event and blocks", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pcard.limit_exceeded", (e) => { events.push(e.payload); });
+    const pc = new PurchaseCardManager(bus);
+    const card = pc.issueCard("emp1", "1234", 100);
+    assert.equal(pc.postTransaction(card.id, 150, "X", "office", "2026-06-01"), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("reconcile and dispute update transaction state", () => {
+    const bus = new EventBus();
+    const pc = new PurchaseCardManager(bus);
+    const card = pc.issueCard("emp1", "1234", 5000);
+    const tx = pc.postTransaction(card.id, 200, "AWS", "cloud", "2026-06-01")!;
+    pc.reconcile(tx.id);
+    assert.equal(pc.listTransactions(card.id, "reconciled").length, 1);
+    pc.dispute(tx.id);
+    assert.equal(pc.listTransactions(card.id, "disputed").length, 1);
+  });
+
+  it("summary aggregates spend and reconciliation states", () => {
+    const bus = new EventBus();
+    const pc = new PurchaseCardManager(bus);
+    const card = pc.issueCard("emp1", "1234", 5000);
+    pc.postTransaction(card.id, 200, "AWS", "cloud", "2026-06-01");
+    const t2 = pc.postTransaction(card.id, 50, "Office", "supplies", "2026-06-02")!;
+    pc.reconcile(t2.id);
+    const s = pc.summary();
+    assert.equal(s.totalCards, 1);
+    assert.equal(s.totalTransactions, 2);
+    assert.equal(s.totalSpendUsd, 250);
+    assert.equal(s.pendingReconciliation, 1);
+  });
+});
+
+describe("CycleCountManager", () => {
+  it("schedule publishes scheduled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cyclecount.scheduled", (e) => { events.push(e.payload); });
+    const cc = new CycleCountManager(bus);
+    cc.schedule("BIN-A", "2026-06-26", [{ sku: "S1", systemQty: 100 }]);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordCount computes variance and publishes when nonzero", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cyclecount.variance_detected", (e) => { events.push(e.payload); });
+    const cc = new CycleCountManager(bus);
+    const count = cc.schedule("BIN-A", "2026-06-26", [{ sku: "S1", systemQty: 100 }]);
+    const line = cc.recordCount(count.id, "S1", 95)!;
+    assert.equal(line.variance, -5);
+    assert.equal(events.length, 1);
+  });
+
+  it("no variance event when counts match", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cyclecount.variance_detected", (e) => { events.push(e.payload); });
+    const cc = new CycleCountManager(bus);
+    const count = cc.schedule("BIN-A", "2026-06-26", [{ sku: "S1", systemQty: 100 }]);
+    cc.recordCount(count.id, "S1", 100);
+    assert.equal(events.length, 0);
+  });
+
+  it("complete requires all lines counted", () => {
+    const bus = new EventBus();
+    const cc = new CycleCountManager(bus);
+    const count = cc.schedule("BIN-A", "2026-06-26", [{ sku: "S1", systemQty: 100 }, { sku: "S2", systemQty: 50 }]);
+    cc.recordCount(count.id, "S1", 100);
+    assert.equal(cc.complete(count.id, "2026-06-26"), undefined);
+    cc.recordCount(count.id, "S2", 48);
+    assert.ok(cc.complete(count.id, "2026-06-26"));
+  });
+
+  it("accuracy reflects matching lines", () => {
+    const bus = new EventBus();
+    const cc = new CycleCountManager(bus);
+    const count = cc.schedule("BIN-A", "2026-06-26", [{ sku: "S1", systemQty: 100 }, { sku: "S2", systemQty: 50 }]);
+    cc.recordCount(count.id, "S1", 100);
+    cc.recordCount(count.id, "S2", 40);
+    assert.equal(cc.accuracy(count.id), 50);
+  });
+
+  it("summary aggregates variance and accuracy", () => {
+    const bus = new EventBus();
+    const cc = new CycleCountManager(bus);
+    const count = cc.schedule("BIN-A", "2026-06-26", [{ sku: "S1", systemQty: 100 }, { sku: "S2", systemQty: 50 }]);
+    cc.recordCount(count.id, "S1", 100);
+    cc.recordCount(count.id, "S2", 45);
+    cc.complete(count.id, "2026-06-26");
+    const s = cc.summary();
+    assert.equal(s.totalCounts, 1);
+    assert.equal(s.completed, 1);
+    assert.equal(s.totalVarianceUnits, 5);
+    assert.equal(s.avgAccuracyPct, 50);
   });
 });

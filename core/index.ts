@@ -149,6 +149,8 @@ import { WebhookDeliveryManager } from "./webhook-delivery/webhook-delivery-mana
 import { ReleaseManager } from "./release/release-manager.js";
 import { EnergyUsageManager } from "./energy/energy-usage-manager.js";
 import { VisitorManager } from "./visitor/visitor-manager.js";
+import { PurchaseCardManager } from "./purchase-card/purchase-card-manager.js";
+import { CycleCountManager } from "./cycle-count/cycle-count-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -386,6 +388,8 @@ export class Olympus {
   readonly release: ReleaseManager;
   readonly energy: EnergyUsageManager;
   readonly visitor: VisitorManager;
+  readonly purchaseCard: PurchaseCardManager;
+  readonly cycleCount: CycleCountManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -527,6 +531,8 @@ export class Olympus {
     this.release = new ReleaseManager(this.bus);
     this.energy = new EnergyUsageManager(this.bus);
     this.visitor = new VisitorManager(this.bus);
+    this.purchaseCard = new PurchaseCardManager(this.bus);
+    this.cycleCount = new CycleCountManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -674,3 +680,5 @@ export { WebhookDeliveryManager, type DeliveryStatus, type WebhookEndpoint, type
 export { ReleaseManager, type ReleaseStage, type DeploymentOutcome, type ReleaseChangeItem, type Deployment, type SoftwareRelease, type ReleaseSummary } from "./release/index.js";
 export { EnergyUsageManager, type UtilityType, type UtilityMeter, type MeterReading, type EnergySummary } from "./energy/index.js";
 export { VisitorManager, type VisitStatus, type VisitPurpose, type Visit, type VisitorSummary } from "./visitor/index.js";
+export { PurchaseCardManager, type CardStatus, type TransactionState, type PurchaseCard, type CardTransaction, type PurchaseCardSummary } from "./purchase-card/index.js";
+export { CycleCountManager, type CountStatus, type CountLine, type CycleCount, type CycleCountSummary } from "./cycle-count/index.js";
