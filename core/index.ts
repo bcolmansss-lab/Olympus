@@ -159,6 +159,8 @@ import { PettyCashManager } from "./petty-cash/petty-cash-manager.js";
 import { MileageManager } from "./mileage/mileage-manager.js";
 import { DocumentTemplateManager } from "./doc-template/document-template-manager.js";
 import { AssetTransferManager } from "./asset-transfer/asset-transfer-manager.js";
+import { WaitlistManager } from "./waitlist/waitlist-manager.js";
+import { AppointmentManager } from "./appointment/appointment-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -406,6 +408,8 @@ export class Olympus {
   readonly mileage: MileageManager;
   readonly docTemplate: DocumentTemplateManager;
   readonly assetTransfer: AssetTransferManager;
+  readonly waitlist: WaitlistManager;
+  readonly appointment: AppointmentManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -557,6 +561,8 @@ export class Olympus {
     this.mileage = new MileageManager(this.bus);
     this.docTemplate = new DocumentTemplateManager(this.bus);
     this.assetTransfer = new AssetTransferManager(this.bus);
+    this.waitlist = new WaitlistManager(this.bus);
+    this.appointment = new AppointmentManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -714,3 +720,5 @@ export { PettyCashManager, type DisbursementCategory, type PettyCashFund, type D
 export { MileageManager, type MileageClaimStatus, type MileageClaim, type MileageSummary } from "./mileage/index.js";
 export { DocumentTemplateManager, type TemplateCategory, type DocumentTemplate, type RenderResult, type TemplateSummary } from "./doc-template/index.js";
 export { AssetTransferManager, type TransferState, type AssetCondition, type AssetTransfer, type AssetTransferSummary } from "./asset-transfer/index.js";
+export { WaitlistManager, type EntryStatus, type WaitlistEntry, type Waitlist, type WaitlistSummary } from "./waitlist/index.js";
+export { AppointmentManager, type AppointmentStatus, type Appointment, type AppointmentSummary } from "./appointment/index.js";

@@ -62,6 +62,8 @@ import { PettyCashManager } from "../petty-cash/petty-cash-manager.js";
 import { MileageManager } from "../mileage/mileage-manager.js";
 import { DocumentTemplateManager } from "../doc-template/document-template-manager.js";
 import { AssetTransferManager } from "../asset-transfer/asset-transfer-manager.js";
+import { WaitlistManager } from "../waitlist/waitlist-manager.js";
+import { AppointmentManager } from "../appointment/appointment-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12174,5 +12176,142 @@ describe("AssetTransferManager", () => {
     assert.equal(s.received, 1);
     assert.equal(s.damaged, 1);
     assert.equal(s.byToLocation.Branch, 2);
+  });
+});
+
+describe("WaitlistManager", () => {
+  it("join publishes joined with position", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("waitlist.joined", (e) => { events.push(e.payload); });
+    const wm = new WaitlistManager(bus);
+    const wl = wm.createWaitlist("Beta", 2);
+    wm.join(wl.id, "p1", "2026-06-01T00:00:00.000Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].position, 1);
+  });
+
+  it("position reflects FIFO order", () => {
+    const bus = new EventBus();
+    const wm = new WaitlistManager(bus);
+    const wl = wm.createWaitlist("Beta", 5);
+    const e1 = wm.join(wl.id, "p1", "2026-06-01T00:00:00.000Z")!;
+    const e2 = wm.join(wl.id, "p2", "2026-06-01T01:00:00.000Z")!;
+    assert.equal(wm.position(e1.id), 1);
+    assert.equal(wm.position(e2.id), 2);
+  });
+
+  it("offerNext offers earliest waiting and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("waitlist.offered", (e) => { events.push(e.payload); });
+    const wm = new WaitlistManager(bus);
+    const wl = wm.createWaitlist("Beta", 1);
+    const e1 = wm.join(wl.id, "p1", "2026-06-01T00:00:00.000Z")!;
+    const offered = wm.offerNext(wl.id, "2026-06-02T00:00:00.000Z", "2026-06-01T12:00:00.000Z")!;
+    assert.equal(offered.id, e1.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("convert fills a slot and publishes converted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("waitlist.converted", (e) => { events.push(e.payload); });
+    const wm = new WaitlistManager(bus);
+    const wl = wm.createWaitlist("Beta", 1);
+    wm.join(wl.id, "p1", "2026-06-01T00:00:00.000Z");
+    const offered = wm.offerNext(wl.id, "2026-06-02T00:00:00.000Z", "2026-06-01T12:00:00.000Z")!;
+    wm.convert(offered.id, "2026-06-01T13:00:00.000Z");
+    assert.equal(wm.getWaitlist(wl.id)!.filledSlots, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("offerNext blocked when at capacity", () => {
+    const bus = new EventBus();
+    const wm = new WaitlistManager(bus);
+    const wl = wm.createWaitlist("Beta", 1);
+    wm.join(wl.id, "p1", "2026-06-01T00:00:00.000Z");
+    const o = wm.offerNext(wl.id, "2026-06-02T00:00:00.000Z", "2026-06-01T12:00:00.000Z")!;
+    wm.convert(o.id, "2026-06-01T13:00:00.000Z");
+    wm.join(wl.id, "p2", "2026-06-01T02:00:00.000Z");
+    assert.equal(wm.offerNext(wl.id, "2026-06-02T00:00:00.000Z", "2026-06-01T14:00:00.000Z"), undefined);
+  });
+
+  it("summary computes conversion rate", () => {
+    const bus = new EventBus();
+    const wm = new WaitlistManager(bus);
+    const wl = wm.createWaitlist("Beta", 5);
+    wm.join(wl.id, "p1", "2026-06-01T00:00:00.000Z");
+    wm.join(wl.id, "p2", "2026-06-01T01:00:00.000Z");
+    const o = wm.offerNext(wl.id, "2026-06-02T00:00:00.000Z", "2026-06-01T12:00:00.000Z")!;
+    wm.convert(o.id, "2026-06-01T13:00:00.000Z");
+    const s = wm.summary();
+    assert.equal(s.totalConverted, 1);
+    assert.equal(s.totalWaiting, 1);
+    assert.equal(s.conversionRatePct, 100);
+  });
+});
+
+describe("AppointmentManager", () => {
+  it("book publishes booked and prevents double-booking", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("appointment.booked", (e) => { events.push(e.payload); });
+    const am = new AppointmentManager(bus);
+    assert.ok(am.book({ providerId: "dr1", customerId: "c1", service: "checkup", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" }));
+    assert.equal(am.book({ providerId: "dr1", customerId: "c2", service: "checkup", start: "2026-06-26T09:15:00.000Z", end: "2026-06-26T09:45:00.000Z" }), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("book allows different providers same time", () => {
+    const bus = new EventBus();
+    const am = new AppointmentManager(bus);
+    am.book({ providerId: "dr1", customerId: "c1", service: "x", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" });
+    assert.ok(am.book({ providerId: "dr2", customerId: "c2", service: "x", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" }));
+  });
+
+  it("complete publishes completed with duration", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("appointment.completed", (e) => { events.push(e.payload); });
+    const am = new AppointmentManager(bus);
+    const a = am.book({ providerId: "dr1", customerId: "c1", service: "x", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" })!;
+    am.complete(a.id);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].durationMinutes, 30);
+  });
+
+  it("cancel publishes cancelled and frees the slot", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("appointment.cancelled", (e) => { events.push(e.payload); });
+    const am = new AppointmentManager(bus);
+    const a = am.book({ providerId: "dr1", customerId: "c1", service: "x", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" })!;
+    am.cancel(a.id, "patient request");
+    assert.equal(events.length, 1);
+    assert.ok(am.book({ providerId: "dr1", customerId: "c2", service: "x", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" }));
+  });
+
+  it("markNoShow updates status", () => {
+    const bus = new EventBus();
+    const am = new AppointmentManager(bus);
+    const a = am.book({ providerId: "dr1", customerId: "c1", service: "x", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" })!;
+    am.markNoShow(a.id);
+    assert.equal(am.getAppointment(a.id)!.status, "no_show");
+  });
+
+  it("summary computes no-show rate and per-provider counts", () => {
+    const bus = new EventBus();
+    const am = new AppointmentManager(bus);
+    const a1 = am.book({ providerId: "dr1", customerId: "c1", service: "x", start: "2026-06-26T09:00:00.000Z", end: "2026-06-26T09:30:00.000Z" })!;
+    am.complete(a1.id);
+    const a2 = am.book({ providerId: "dr1", customerId: "c2", service: "x", start: "2026-06-26T10:00:00.000Z", end: "2026-06-26T10:30:00.000Z" })!;
+    am.markNoShow(a2.id);
+    const s = am.summary();
+    assert.equal(s.totalAppointments, 2);
+    assert.equal(s.completed, 1);
+    assert.equal(s.noShows, 1);
+    assert.equal(s.noShowRatePct, 50);
+    assert.equal(s.byProvider.dr1, 2);
   });
 });
