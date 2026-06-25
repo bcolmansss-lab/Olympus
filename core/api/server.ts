@@ -224,6 +224,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/board-governance", handler: (_req, res) => res.json(200, { summary: this.olympus.boardGovernance.summary(), directors: this.olympus.boardGovernance.listDirectors(true) }) },
       { method: "GET", pattern: "/v1/service-levels", handler: (_req, res) => res.json(200, { summary: this.olympus.serviceLevelMgr.summary(), tiers: this.olympus.serviceLevelMgr.listTiers() }) },
       { method: "GET", pattern: "/v1/digital-assets", handler: (_req, res) => res.json(200, { summary: this.olympus.digitalAssets.summary(), assets: this.olympus.digitalAssets.listAssets() }) },
+      { method: "GET", pattern: "/v1/health-benefits", handler: (_req, res) => res.json(200, { summary: this.olympus.healthBenefits.summary(), plans: this.olympus.healthBenefits.listPlans() }) },
+      { method: "GET", pattern: "/v1/commissions", handler: (_req, res) => res.json(200, { summary: this.olympus.commissionEngine.summary(), plans: this.olympus.commissionEngine.listPlans() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

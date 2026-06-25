@@ -119,6 +119,8 @@ import { CryptoTreasury } from "./crypto-treasury/crypto-treasury.js";
 import { BoardGovernance } from "./board-governance/board-governance.js";
 import { ServiceLevelManager } from "./service-level/service-level-manager.js";
 import { DigitalAssetManager } from "./digital-assets/digital-asset-manager.js";
+import { HealthBenefitsManager } from "./health-benefits/health-benefits-manager.js";
+import { CommissionEngine } from "./commission-engine/commission-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -326,6 +328,8 @@ export class Olympus {
   readonly boardGovernance: BoardGovernance;
   readonly serviceLevelMgr: ServiceLevelManager;
   readonly digitalAssets: DigitalAssetManager;
+  readonly healthBenefits: HealthBenefitsManager;
+  readonly commissionEngine: CommissionEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -437,6 +441,8 @@ export class Olympus {
     this.boardGovernance = new BoardGovernance(this.bus);
     this.serviceLevelMgr = new ServiceLevelManager(this.bus);
     this.digitalAssets = new DigitalAssetManager(this.bus);
+    this.healthBenefits = new HealthBenefitsManager(this.bus);
+    this.commissionEngine = new CommissionEngine(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -554,3 +560,5 @@ export { CryptoTreasury, type WalletType, type AssetType as CryptoAssetType, typ
 export { BoardGovernance, type MeetingType, type MeetingStatus as BoardMeetingStatus, type DirectorRole, type ResolutionStatus, type BoardDirector, type BoardMeeting, type BoardResolution, type GovernanceSummary } from "./board-governance/index.js";
 export { ServiceLevelManager, type ServiceTierLevel, type ServiceTierDefinition, type CustomerServiceLevel, type ServiceLevelSummary } from "./service-level/index.js";
 export { DigitalAssetManager, type DigitalAssetCategory, type DigitalAssetStatus, type DigitalAsset, type DigitalAssetSummary } from "./digital-assets/index.js";
+export { HealthBenefitsManager, type BenefitPlanType, type BenefitClaimType, type BenefitClaimStatus, type BenefitPlan, type BenefitEnrollment, type BenefitClaim, type BenefitsSummary } from "./health-benefits/index.js";
+export { CommissionEngine, type CommissionPlanStatus, type PayoutStatus, type DisputeStatus, type CommissionTier, type CommissionPlan, type CommissionDeal, type CommissionPayout, type CommissionDispute, type CommissionSummary } from "./commission-engine/index.js";

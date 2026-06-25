@@ -22,6 +22,8 @@ import { CryptoTreasury } from "../crypto-treasury/crypto-treasury.js";
 import { BoardGovernance } from "../board-governance/board-governance.js";
 import { ServiceLevelManager } from "../service-level/service-level-manager.js";
 import { DigitalAssetManager } from "../digital-assets/digital-asset-manager.js";
+import { HealthBenefitsManager } from "../health-benefits/health-benefits-manager.js";
+import { CommissionEngine } from "../commission-engine/commission-engine.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -9436,5 +9438,148 @@ describe("DigitalAssetManager", () => {
     assert.equal(s.totalAssets, 2);
     assert.equal(s.active, 2);
     assert.equal(s.totalAnnualCostUsd, 600);
+  });
+});
+
+describe("HealthBenefitsManager", () => {
+  it("addPlan stores a benefit plan", () => {
+    const bus = new EventBus();
+    const hbm = new HealthBenefitsManager(bus);
+    const p = hbm.addPlan({ name: "Gold PPO", type: "medical", provider: "Aetna", employeePremiumMonthly: 200, employerPremiumMonthly: 600, deductibleUsd: 1000, outOfPocketMaxUsd: 5000, active: true });
+    assert.ok(p.id);
+    assert.equal(hbm.listPlans().length, 1);
+    assert.equal(hbm.listPlans(true).length, 1);
+  });
+
+  it("enroll publishes enrollment_confirmed and returns enrollment", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("benefits.enrollment_confirmed", (e) => { events.push(e.payload); });
+    const hbm = new HealthBenefitsManager(bus);
+    const p = hbm.addPlan({ name: "Dental", type: "dental", provider: "Delta", employeePremiumMonthly: 20, employerPremiumMonthly: 40, deductibleUsd: 100, outOfPocketMaxUsd: 1000, active: true });
+    const enr = hbm.enroll("emp1", p.id, "2026-01-01", ["dep1"]);
+    assert.ok(enr);
+    assert.equal(enr!.planName, "Dental");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].employeeId, "emp1");
+  });
+
+  it("enroll returns undefined for unknown plan", () => {
+    const bus = new EventBus();
+    const hbm = new HealthBenefitsManager(bus);
+    assert.equal(hbm.enroll("emp1", "nope", "2026-01-01"), undefined);
+  });
+
+  it("submitClaim publishes claim_submitted and tracks claim", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("benefits.claim_submitted", (e) => { events.push(e.payload); });
+    const hbm = new HealthBenefitsManager(bus);
+    const p = hbm.addPlan({ name: "Med", type: "medical", provider: "Aetna", employeePremiumMonthly: 200, employerPremiumMonthly: 600, deductibleUsd: 1000, outOfPocketMaxUsd: 5000, active: true });
+    const enr = hbm.enroll("emp1", p.id, "2026-01-01")!;
+    const claim = hbm.submitClaim({ employeeId: "emp1", enrollmentId: enr.id, claimType: "medical", status: "submitted", amountUsd: 350, serviceDate: "2026-02-01", submittedAt: "2026-02-02" });
+    assert.ok(claim);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].amountUsd, 350);
+  });
+
+  it("resolveClaim updates status and approved amount", () => {
+    const bus = new EventBus();
+    const hbm = new HealthBenefitsManager(bus);
+    const p = hbm.addPlan({ name: "Med", type: "medical", provider: "Aetna", employeePremiumMonthly: 200, employerPremiumMonthly: 600, deductibleUsd: 1000, outOfPocketMaxUsd: 5000, active: true });
+    const enr = hbm.enroll("emp1", p.id, "2026-01-01")!;
+    const claim = hbm.submitClaim({ employeeId: "emp1", enrollmentId: enr.id, claimType: "medical", status: "submitted", amountUsd: 350, serviceDate: "2026-02-01", submittedAt: "2026-02-02" })!;
+    const resolved = hbm.resolveClaim(claim.id, "approved", 300);
+    assert.equal(resolved!.status, "approved");
+    assert.equal(resolved!.approvedUsd, 300);
+  });
+
+  it("summary aggregates enrollments, claims and cost", () => {
+    const bus = new EventBus();
+    const hbm = new HealthBenefitsManager(bus);
+    const p = hbm.addPlan({ name: "Med", type: "medical", provider: "Aetna", employeePremiumMonthly: 200, employerPremiumMonthly: 600, deductibleUsd: 1000, outOfPocketMaxUsd: 5000, active: true });
+    const enr = hbm.enroll("emp1", p.id, "2026-01-01")!;
+    hbm.submitClaim({ employeeId: "emp1", enrollmentId: enr.id, claimType: "medical", status: "submitted", amountUsd: 350, serviceDate: "2026-02-01", submittedAt: "2026-02-02" });
+    const s = hbm.summary();
+    assert.equal(s.totalEnrollments, 1);
+    assert.equal(s.totalClaims, 1);
+    assert.equal(s.pendingClaims, 1);
+    assert.equal(s.totalClaimsUsd, 350);
+    assert.equal(s.monthlyCostUsd, 600);
+    assert.equal(s.byPlanType.medical, 1);
+  });
+});
+
+describe("CommissionEngine", () => {
+  it("createPlan sorts tiers and defaults to draft", () => {
+    const bus = new EventBus();
+    const ce = new CommissionEngine(bus);
+    const plan = ce.createPlan({ name: "Std", baseRatePct: 5, tiers: [{ thresholdUsd: 100000, ratePct: 10 }, { thresholdUsd: 50000, ratePct: 7 }], effectiveDate: "2026-01-01" });
+    assert.equal(plan.status, "draft");
+    assert.equal(plan.tiers[0]!.thresholdUsd, 50000);
+  });
+
+  it("activatePlan publishes plan_activated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("commission.plan_activated", (e) => { events.push(e.payload); });
+    const ce = new CommissionEngine(bus);
+    const plan = ce.createPlan({ name: "Std", baseRatePct: 5, tiers: [], effectiveDate: "2026-01-01" });
+    ce.activatePlan(plan.id);
+    assert.equal(ce.getPlan(plan.id)!.status, "active");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordDeal returns undefined for unknown plan", () => {
+    const bus = new EventBus();
+    const ce = new CommissionEngine(bus);
+    assert.equal(ce.recordDeal({ repId: "r1", planId: "nope", period: "2026-Q1", dealValueUsd: 1000, closedAt: "2026-01-15" }), undefined);
+  });
+
+  it("calculatePayout applies tier rate and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("commission.payout_calculated", (e) => { events.push(e.payload); });
+    const ce = new CommissionEngine(bus);
+    const plan = ce.createPlan({ name: "Std", baseRatePct: 5, tiers: [{ thresholdUsd: 50000, ratePct: 10 }], effectiveDate: "2026-01-01" });
+    ce.recordDeal({ repId: "r1", planId: plan.id, period: "2026-Q1", dealValueUsd: 40000, closedAt: "2026-01-15" });
+    ce.recordDeal({ repId: "r1", planId: plan.id, period: "2026-Q1", dealValueUsd: 20000, closedAt: "2026-02-15" });
+    const payout = ce.calculatePayout("r1", plan.id, "2026-Q1")!;
+    assert.equal(payout.totalSalesUsd, 60000);
+    assert.equal(payout.dealCount, 2);
+    assert.equal(payout.commissionUsd, 6000); // 10% tier applies
+    assert.equal(events.length, 1);
+  });
+
+  it("openDispute marks payout disputed and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("commission.dispute_opened", (e) => { events.push(e.payload); });
+    const ce = new CommissionEngine(bus);
+    const plan = ce.createPlan({ name: "Std", baseRatePct: 5, tiers: [], effectiveDate: "2026-01-01" });
+    ce.recordDeal({ repId: "r1", planId: plan.id, period: "2026-Q1", dealValueUsd: 10000, closedAt: "2026-01-15" });
+    const payout = ce.calculatePayout("r1", plan.id, "2026-Q1")!;
+    const dispute = ce.openDispute(payout.id, "wrong rate")!;
+    assert.equal(dispute.status, "open");
+    assert.equal(ce.listPayouts("r1")[0]!.status, "disputed");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates plans, deals, payouts and disputes", () => {
+    const bus = new EventBus();
+    const ce = new CommissionEngine(bus);
+    const plan = ce.createPlan({ name: "Std", baseRatePct: 5, tiers: [], effectiveDate: "2026-01-01" });
+    ce.activatePlan(plan.id);
+    ce.recordDeal({ repId: "r1", planId: plan.id, period: "2026-Q1", dealValueUsd: 10000, closedAt: "2026-01-15" });
+    const payout = ce.calculatePayout("r1", plan.id, "2026-Q1")!;
+    ce.openDispute(payout.id, "x");
+    const s = ce.summary();
+    assert.equal(s.totalPlans, 1);
+    assert.equal(s.activePlans, 1);
+    assert.equal(s.totalDeals, 1);
+    assert.equal(s.totalPayouts, 1);
+    assert.equal(s.totalSalesUsd, 10000);
+    assert.equal(s.openDisputes, 1);
+    assert.equal(s.totalCommissionUsd, 500);
   });
 });
