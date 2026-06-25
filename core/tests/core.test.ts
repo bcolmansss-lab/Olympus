@@ -30,6 +30,8 @@ import { WarrantyManager } from "../warranty/warranty-manager.js";
 import { ReferralProgramManager } from "../referral/referral-manager.js";
 import { CapTableManager } from "../cap-table/cap-table-manager.js";
 import { ApprovalWorkflowManager } from "../approval-workflow/approval-workflow-manager.js";
+import { DunningManager } from "../dunning/dunning-manager.js";
+import { EventSchedulerManager } from "../event-scheduler/event-scheduler-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10007,5 +10009,130 @@ describe("ApprovalWorkflowManager", () => {
     assert.equal(s.approved, 1);
     assert.equal(s.rejected, 1);
     assert.equal(s.approvalRatePct, 50);
+  });
+});
+
+describe("DunningManager", () => {
+  it("addReceivable starts open and current", () => {
+    const bus = new EventBus();
+    const dm = new DunningManager(bus);
+    const r = dm.addReceivable({ customerId: "c1", invoiceNumber: "INV1", amountUsd: 1000, dueDate: "2026-06-01" });
+    assert.equal(r.status, "open");
+    assert.equal(r.stage, "current");
+  });
+
+  it("runDunningCycle flags overdue and publishes events", () => {
+    const bus = new EventBus();
+    const overdue: any[] = [];
+    const advanced: any[] = [];
+    bus.subscribe("dunning.invoice_overdue", (e) => { overdue.push(e.payload); });
+    bus.subscribe("dunning.stage_advanced", (e) => { advanced.push(e.payload); });
+    const dm = new DunningManager(bus);
+    dm.addReceivable({ customerId: "c1", invoiceNumber: "INV1", amountUsd: 1000, dueDate: "2026-06-01" });
+    dm.runDunningCycle("2026-06-10"); // 9 days overdue -> reminder
+    assert.equal(overdue.length, 1);
+    assert.equal(advanced.length, 1);
+  });
+
+  it("dunning stages escalate with age", () => {
+    const bus = new EventBus();
+    const dm = new DunningManager(bus);
+    const r = dm.addReceivable({ customerId: "c1", invoiceNumber: "INV1", amountUsd: 1000, dueDate: "2026-01-01" });
+    dm.runDunningCycle("2026-04-15"); // >90 days -> collections
+    assert.equal(dm.getReceivable(r.id)!.stage, "collections");
+  });
+
+  it("recordPayment publishes recovered and marks paid", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dunning.invoice_recovered", (e) => { events.push(e.payload); });
+    const dm = new DunningManager(bus);
+    const r = dm.addReceivable({ customerId: "c1", invoiceNumber: "INV1", amountUsd: 1000, dueDate: "2026-06-01" });
+    dm.recordPayment(r.id, "2026-06-15");
+    assert.equal(dm.getReceivable(r.id)!.status, "paid");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].daysToRecover, 14);
+  });
+
+  it("writeOff sets written_off status", () => {
+    const bus = new EventBus();
+    const dm = new DunningManager(bus);
+    const r = dm.addReceivable({ customerId: "c1", invoiceNumber: "INV1", amountUsd: 1000, dueDate: "2026-06-01" });
+    dm.writeOff(r.id);
+    assert.equal(dm.getReceivable(r.id)!.status, "written_off");
+  });
+
+  it("summary computes aging buckets and outstanding", () => {
+    const bus = new EventBus();
+    const dm = new DunningManager(bus);
+    dm.addReceivable({ customerId: "c1", invoiceNumber: "A", amountUsd: 1000, dueDate: "2026-07-20" }); // current
+    dm.addReceivable({ customerId: "c2", invoiceNumber: "B", amountUsd: 500, dueDate: "2026-06-01" });  // ~24 days
+    const s = dm.summary("2026-06-25");
+    assert.equal(s.totalReceivables, 2);
+    assert.equal(s.totalOutstandingUsd, 1500);
+    assert.equal(s.aging.current, 1000);
+    assert.equal(s.aging.days1to30, 500);
+  });
+});
+
+describe("EventSchedulerManager", () => {
+  it("schedule publishes event_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("scheduler.event_created", (e) => { events.push(e.payload); });
+    const es = new EventSchedulerManager(bus);
+    const ev = es.schedule({ name: "Tax filing", category: "compliance", recurrence: "quarterly", nextDueDate: "2026-07-15" });
+    assert.equal(ev.status, "scheduled");
+    assert.equal(events.length, 1);
+  });
+
+  it("evaluate marks due events and publishes event_due", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("scheduler.event_due", (e) => { events.push(e.payload); });
+    const es = new EventSchedulerManager(bus);
+    es.schedule({ name: "Review", category: "ops", recurrence: "monthly", nextDueDate: "2026-06-01" });
+    const due = es.evaluate("2026-06-25");
+    assert.equal(due.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("complete advances recurring next due date", () => {
+    const bus = new EventBus();
+    const es = new EventSchedulerManager(bus);
+    const ev = es.schedule({ name: "Monthly close", category: "finance", recurrence: "monthly", nextDueDate: "2026-06-30" });
+    es.complete(ev.id, "2026-06-30");
+    const updated = es.getEvent(ev.id)!;
+    assert.equal(updated.status, "scheduled");
+    assert.equal(updated.nextDueDate, "2026-07-30T00:00:00.000Z");
+  });
+
+  it("complete marks once events completed", () => {
+    const bus = new EventBus();
+    const es = new EventSchedulerManager(bus);
+    const ev = es.schedule({ name: "Launch", category: "product", recurrence: "once", nextDueDate: "2026-06-01" });
+    es.complete(ev.id, "2026-06-01");
+    assert.equal(es.getEvent(ev.id)!.status, "completed");
+  });
+
+  it("cancel sets cancelled and blocks completion", () => {
+    const bus = new EventBus();
+    const es = new EventSchedulerManager(bus);
+    const ev = es.schedule({ name: "X", category: "ops", recurrence: "daily", nextDueDate: "2026-06-01" });
+    es.cancel(ev.id);
+    assert.equal(es.getEvent(ev.id)!.status, "cancelled");
+    assert.equal(es.complete(ev.id, "2026-06-02"), undefined);
+  });
+
+  it("summary aggregates by category and recurrence", () => {
+    const bus = new EventBus();
+    const es = new EventSchedulerManager(bus);
+    es.schedule({ name: "A", category: "compliance", recurrence: "annually", nextDueDate: "2026-12-31" });
+    es.schedule({ name: "B", category: "compliance", recurrence: "monthly", nextDueDate: "2026-07-01" });
+    const s = es.summary();
+    assert.equal(s.totalEvents, 2);
+    assert.equal(s.byCategory.compliance, 2);
+    assert.equal(s.byRecurrence.annually, 1);
+    assert.equal(s.byRecurrence.monthly, 1);
   });
 });

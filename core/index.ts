@@ -127,6 +127,8 @@ import { WarrantyManager } from "./warranty/warranty-manager.js";
 import { ReferralProgramManager } from "./referral/referral-manager.js";
 import { CapTableManager } from "./cap-table/cap-table-manager.js";
 import { ApprovalWorkflowManager } from "./approval-workflow/approval-workflow-manager.js";
+import { DunningManager } from "./dunning/dunning-manager.js";
+import { EventSchedulerManager } from "./event-scheduler/event-scheduler-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -342,6 +344,8 @@ export class Olympus {
   readonly referral: ReferralProgramManager;
   readonly capTable: CapTableManager;
   readonly approvalWorkflow: ApprovalWorkflowManager;
+  readonly dunning: DunningManager;
+  readonly eventScheduler: EventSchedulerManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -461,6 +465,8 @@ export class Olympus {
     this.referral = new ReferralProgramManager(this.bus);
     this.capTable = new CapTableManager(this.bus);
     this.approvalWorkflow = new ApprovalWorkflowManager(this.bus);
+    this.dunning = new DunningManager(this.bus);
+    this.eventScheduler = new EventSchedulerManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -586,3 +592,5 @@ export { WarrantyManager, type WarrantyStatus, type RMAStatus, type RMAResolutio
 export { ReferralProgramManager, type ReferralStatus, type RewardType, type ReferralProgram, type Referral, type ReferralSummary } from "./referral/index.js";
 export { CapTableManager, type ShareClassName, type ShareClass, type EquityGrant, type CapTableSummary } from "./cap-table/index.js";
 export { ApprovalWorkflowManager, type ApprovalRequestStatus, type StepDecision, type ApprovalStepDef, type ApprovalWorkflowDef, type ApprovalStepState, type ApprovalRequest, type ApprovalSummary } from "./approval-workflow/index.js";
+export { DunningManager, type DunningStage, type ReceivableStatus, type Receivable, type DunningSummary } from "./dunning/index.js";
+export { EventSchedulerManager, type RecurrencePattern, type ScheduledEventStatus, type ScheduledEvent, type SchedulerSummary } from "./event-scheduler/index.js";
