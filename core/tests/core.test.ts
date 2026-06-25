@@ -40,6 +40,8 @@ import { ChangeManagementManager } from "../change-mgmt/change-management-manage
 import { OnCallScheduleManager } from "../on-call/on-call-manager.js";
 import { InvestorRelationsManager } from "../investor-relations/investor-relations-manager.js";
 import { GiftCardManager } from "../gift-card/gift-card-manager.js";
+import { RevenueRecognitionManager } from "../rev-rec/revenue-recognition-manager.js";
+import { SafetyIncidentManager } from "../safety/safety-incident-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10696,5 +10698,133 @@ describe("GiftCardManager", () => {
     assert.equal(s.totalRedeemedUsd, 40);
     assert.equal(s.outstandingLiabilityUsd, 160);
     assert.equal(s.redemptionRatePct, 20);
+  });
+});
+
+describe("RevenueRecognitionManager", () => {
+  it("createObligation publishes obligation_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("revrec.obligation_created", (e) => { events.push(e.payload); });
+    const rr = new RevenueRecognitionManager(bus);
+    rr.createObligation({ contractId: "c1", description: "SaaS annual", method: "ratable", totalAmountUsd: 1200, periods: 12, startPeriod: "2026-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("ratable recognition spreads evenly per period", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("revrec.revenue_recognized", (e) => { events.push(e.payload); });
+    const rr = new RevenueRecognitionManager(bus);
+    const ob = rr.createObligation({ contractId: "c1", description: "SaaS", method: "ratable", totalAmountUsd: 1200, periods: 12, startPeriod: "2026-01" });
+    const e1 = rr.recognize(ob.id, "2026-01", "2026-01-31")!;
+    assert.equal(e1.amountUsd, 100);
+    assert.equal(rr.deferredRevenue(ob.id), 1100);
+    assert.equal(events.length, 1);
+  });
+
+  it("point_in_time recognizes full amount and completes", () => {
+    const bus = new EventBus();
+    const completed: any[] = [];
+    bus.subscribe("revrec.obligation_completed", (e) => { completed.push(e.payload); });
+    const rr = new RevenueRecognitionManager(bus);
+    const ob = rr.createObligation({ contractId: "c1", description: "setup fee", method: "point_in_time", totalAmountUsd: 500, startPeriod: "2026-01" });
+    rr.recognize(ob.id, "2026-01", "2026-01-15");
+    assert.equal(rr.getObligation(ob.id)!.status, "completed");
+    assert.equal(completed.length, 1);
+  });
+
+  it("recognize returns undefined once fully recognized", () => {
+    const bus = new EventBus();
+    const rr = new RevenueRecognitionManager(bus);
+    const ob = rr.createObligation({ contractId: "c1", description: "x", method: "point_in_time", totalAmountUsd: 500, startPeriod: "2026-01" });
+    rr.recognize(ob.id, "2026-01", "2026-01-15");
+    assert.equal(rr.recognize(ob.id, "2026-02", "2026-02-15"), undefined);
+  });
+
+  it("ratable completes after all periods recognized", () => {
+    const bus = new EventBus();
+    const rr = new RevenueRecognitionManager(bus);
+    const ob = rr.createObligation({ contractId: "c1", description: "x", method: "ratable", totalAmountUsd: 300, periods: 3, startPeriod: "2026-01" });
+    rr.recognize(ob.id, "2026-01", "2026-01-31");
+    rr.recognize(ob.id, "2026-02", "2026-02-28");
+    rr.recognize(ob.id, "2026-03", "2026-03-31");
+    assert.equal(rr.getObligation(ob.id)!.status, "completed");
+    assert.equal(rr.deferredRevenue(ob.id), 0);
+  });
+
+  it("summary aggregates deferred revenue and methods", () => {
+    const bus = new EventBus();
+    const rr = new RevenueRecognitionManager(bus);
+    const ob = rr.createObligation({ contractId: "c1", description: "x", method: "ratable", totalAmountUsd: 1200, periods: 12, startPeriod: "2026-01" });
+    rr.recognize(ob.id, "2026-01", "2026-01-31");
+    const s = rr.summary();
+    assert.equal(s.totalObligations, 1);
+    assert.equal(s.totalContractValueUsd, 1200);
+    assert.equal(s.totalRecognizedUsd, 100);
+    assert.equal(s.deferredRevenueUsd, 1100);
+    assert.equal(s.byMethod.ratable, 1);
+  });
+});
+
+describe("SafetyIncidentManager", () => {
+  it("report classifies recordable severities and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("safety.incident_reported", (e) => { events.push(e.payload); });
+    const sm = new SafetyIncidentManager(bus);
+    const inc = sm.report({ location: "Plant A", description: "slip", severity: "medical_treatment", reportedBy: "u1", occurredAt: "2026-06-01" });
+    assert.equal(inc.recordable, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("near_miss is not recordable", () => {
+    const bus = new EventBus();
+    const sm = new SafetyIncidentManager(bus);
+    const inc = sm.report({ location: "Plant A", description: "almost", severity: "near_miss", reportedBy: "u1", occurredAt: "2026-06-01" });
+    assert.equal(inc.recordable, false);
+  });
+
+  it("addCorrectiveAction moves incident to investigating", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("safety.corrective_action_added", (e) => { events.push(e.payload); });
+    const sm = new SafetyIncidentManager(bus);
+    const inc = sm.report({ location: "P", description: "d", severity: "first_aid", reportedBy: "u1", occurredAt: "2026-06-01" });
+    sm.addCorrectiveAction(inc.id, "fix floor", "mgr1", "2026-07-01");
+    assert.equal(sm.getIncident(inc.id)!.state, "investigating");
+    assert.equal(events.length, 1);
+  });
+
+  it("close blocked until corrective actions complete", () => {
+    const bus = new EventBus();
+    const sm = new SafetyIncidentManager(bus);
+    const inc = sm.report({ location: "P", description: "d", severity: "lost_time", lostDays: 3, reportedBy: "u1", occurredAt: "2026-06-01" });
+    const action = sm.addCorrectiveAction(inc.id, "x", "m1", "2026-07-01")!;
+    assert.equal(sm.close(inc.id, "2026-06-10"), undefined);
+    sm.completeAction(inc.id, action.id);
+    assert.ok(sm.close(inc.id, "2026-06-10"));
+    assert.equal(sm.getIncident(inc.id)!.state, "closed");
+  });
+
+  it("trir computes recordable rate per 200k hours", () => {
+    const bus = new EventBus();
+    const sm = new SafetyIncidentManager(bus);
+    sm.report({ location: "P", description: "d", severity: "medical_treatment", reportedBy: "u1", occurredAt: "2026-06-01" });
+    sm.report({ location: "P", description: "d", severity: "near_miss", reportedBy: "u1", occurredAt: "2026-06-01" });
+    assert.equal(sm.trir(200000), 1); // 1 recordable * 200000 / 200000
+  });
+
+  it("summary aggregates severities and lost days", () => {
+    const bus = new EventBus();
+    const sm = new SafetyIncidentManager(bus);
+    sm.report({ location: "P", description: "d", severity: "lost_time", lostDays: 5, reportedBy: "u1", occurredAt: "2026-06-01" });
+    sm.report({ location: "P", description: "d", severity: "near_miss", reportedBy: "u1", occurredAt: "2026-06-01" });
+    const s = sm.summary();
+    assert.equal(s.totalIncidents, 2);
+    assert.equal(s.recordableCount, 1);
+    assert.equal(s.lostTimeCount, 1);
+    assert.equal(s.totalLostDays, 5);
+    assert.equal(s.bySeverity.near_miss, 1);
   });
 });
