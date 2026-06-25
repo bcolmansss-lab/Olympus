@@ -155,6 +155,8 @@ import { AssetReservationManager } from "./reservation/asset-reservation-manager
 import { ComplaintManager } from "./complaint/complaint-manager.js";
 import { BudgetTransferManager } from "./budget-transfer/budget-transfer-manager.js";
 import { AssetDisposalManager } from "./asset-disposal/asset-disposal-manager.js";
+import { PettyCashManager } from "./petty-cash/petty-cash-manager.js";
+import { MileageManager } from "./mileage/mileage-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -398,6 +400,8 @@ export class Olympus {
   readonly complaint: ComplaintManager;
   readonly budgetTransfer: BudgetTransferManager;
   readonly assetDisposal: AssetDisposalManager;
+  readonly pettyCash: PettyCashManager;
+  readonly mileage: MileageManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -545,6 +549,8 @@ export class Olympus {
     this.complaint = new ComplaintManager(this.bus);
     this.budgetTransfer = new BudgetTransferManager(this.bus);
     this.assetDisposal = new AssetDisposalManager(this.bus);
+    this.pettyCash = new PettyCashManager(this.bus);
+    this.mileage = new MileageManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -698,3 +704,5 @@ export { AssetReservationManager, type ReservationStatus, type ReservableResourc
 export { ComplaintManager, type ComplaintCategory, type ComplaintSeverity, type ComplaintStatus, type ComplaintChannel, type Complaint, type ComplaintSummary } from "./complaint/index.js";
 export { BudgetTransferManager, type TransferStatus, type BudgetPool, type BudgetTransfer, type BudgetTransferSummary } from "./budget-transfer/index.js";
 export { AssetDisposalManager, type DisposalMethod, type DisposalStatus, type DisposalRequest, type DisposalSummary } from "./asset-disposal/index.js";
+export { PettyCashManager, type DisbursementCategory, type PettyCashFund, type Disbursement, type ReconciliationResult, type PettyCashSummary } from "./petty-cash/index.js";
+export { MileageManager, type MileageClaimStatus, type MileageClaim, type MileageSummary } from "./mileage/index.js";

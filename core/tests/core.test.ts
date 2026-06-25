@@ -58,6 +58,8 @@ import { AssetReservationManager } from "../reservation/asset-reservation-manage
 import { ComplaintManager } from "../complaint/complaint-manager.js";
 import { BudgetTransferManager } from "../budget-transfer/budget-transfer-manager.js";
 import { AssetDisposalManager } from "../asset-disposal/asset-disposal-manager.js";
+import { PettyCashManager } from "../petty-cash/petty-cash-manager.js";
+import { MileageManager } from "../mileage/mileage-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -11911,5 +11913,135 @@ describe("AssetDisposalManager", () => {
     assert.equal(s.totalProceedsUsd, 600);
     assert.equal(s.totalGainLossUsd, -100); // +100 + (-200)
     assert.equal(s.byMethod.sale, 1);
+  });
+});
+
+describe("PettyCashManager", () => {
+  it("createFund publishes fund_created with float as balance", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pettycash.fund_created", (e) => { events.push(e.payload); });
+    const pc = new PettyCashManager(bus);
+    const f = pc.createFund("Office", "u1", 500);
+    assert.equal(f.balanceUsd, 500);
+    assert.equal(events.length, 1);
+  });
+
+  it("disburse decrements balance and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pettycash.disbursed", (e) => { events.push(e.payload); });
+    const pc = new PettyCashManager(bus);
+    const f = pc.createFund("Office", "u1", 500);
+    pc.disburse(f.id, 40, "supplies", "pens", "2026-06-01");
+    assert.equal(pc.getFund(f.id)!.balanceUsd, 460);
+    assert.equal(events.length, 1);
+  });
+
+  it("disburse rejects over-balance", () => {
+    const bus = new EventBus();
+    const pc = new PettyCashManager(bus);
+    const f = pc.createFund("Office", "u1", 100);
+    assert.equal(pc.disburse(f.id, 200, "misc", "x", "2026-06-01"), undefined);
+  });
+
+  it("replenish increases balance and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pettycash.replenished", (e) => { events.push(e.payload); });
+    const pc = new PettyCashManager(bus);
+    const f = pc.createFund("Office", "u1", 500);
+    pc.disburse(f.id, 100, "meals", "lunch", "2026-06-01");
+    pc.replenish(f.id, 100);
+    assert.equal(pc.getFund(f.id)!.balanceUsd, 500);
+    assert.equal(events.length, 1);
+  });
+
+  it("reconcile detects variance", () => {
+    const bus = new EventBus();
+    const pc = new PettyCashManager(bus);
+    const f = pc.createFund("Office", "u1", 500);
+    pc.disburse(f.id, 50, "postage", "stamps", "2026-06-01");
+    const r = pc.reconcile(f.id, 440)!;
+    assert.equal(r.expectedUsd, 450);
+    assert.equal(r.varianceUsd, -10);
+    assert.equal(r.balanced, false);
+  });
+
+  it("summary aggregates funds and disbursements", () => {
+    const bus = new EventBus();
+    const pc = new PettyCashManager(bus);
+    const f = pc.createFund("Office", "u1", 500);
+    pc.disburse(f.id, 40, "supplies", "x", "2026-06-01");
+    pc.disburse(f.id, 60, "meals", "y", "2026-06-02");
+    const s = pc.summary();
+    assert.equal(s.totalFunds, 1);
+    assert.equal(s.totalFloatUsd, 500);
+    assert.equal(s.totalBalanceUsd, 400);
+    assert.equal(s.totalDisbursedUsd, 100);
+    assert.equal(s.byCategory.supplies, 1);
+  });
+});
+
+describe("MileageManager", () => {
+  it("logTrip computes amount at default rate and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("mileage.logged", (e) => { events.push(e.payload); });
+    const mm = new MileageManager(bus, 0.5);
+    const c = mm.logTrip({ employeeId: "u1", date: "2026-06-01", origin: "A", destination: "B", miles: 100, purpose: "client" })!;
+    assert.equal(c.amountUsd, 50);
+    assert.equal(events.length, 1);
+  });
+
+  it("logTrip rejects non-positive miles", () => {
+    const bus = new EventBus();
+    const mm = new MileageManager(bus);
+    assert.equal(mm.logTrip({ employeeId: "u1", date: "2026-06-01", origin: "A", destination: "B", miles: 0, purpose: "x" }), undefined);
+  });
+
+  it("approve publishes approved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("mileage.approved", (e) => { events.push(e.payload); });
+    const mm = new MileageManager(bus);
+    const c = mm.logTrip({ employeeId: "u1", date: "2026-06-01", origin: "A", destination: "B", miles: 10, purpose: "x" })!;
+    mm.approve(c.id, "mgr1");
+    assert.equal(mm.getClaim(c.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("reimburse requires approval and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("mileage.reimbursed", (e) => { events.push(e.payload); });
+    const mm = new MileageManager(bus);
+    const c = mm.logTrip({ employeeId: "u1", date: "2026-06-01", origin: "A", destination: "B", miles: 10, purpose: "x" })!;
+    assert.equal(mm.reimburse(c.id, "2026-06-05"), undefined);
+    mm.approve(c.id, "mgr1");
+    mm.reimburse(c.id, "2026-06-05");
+    assert.equal(mm.getClaim(c.id)!.status, "reimbursed");
+    assert.equal(events.length, 1);
+  });
+
+  it("custom rate overrides default", () => {
+    const bus = new EventBus();
+    const mm = new MileageManager(bus, 0.5);
+    const c = mm.logTrip({ employeeId: "u1", date: "2026-06-01", origin: "A", destination: "B", miles: 100, purpose: "x", ratePerMileUsd: 1 })!;
+    assert.equal(c.amountUsd, 100);
+  });
+
+  it("summary aggregates miles and reimbursed amounts", () => {
+    const bus = new EventBus();
+    const mm = new MileageManager(bus, 1);
+    const c1 = mm.logTrip({ employeeId: "u1", date: "2026-06-01", origin: "A", destination: "B", miles: 50, purpose: "x" })!;
+    mm.approve(c1.id, "m1"); mm.reimburse(c1.id, "2026-06-05");
+    mm.logTrip({ employeeId: "u2", date: "2026-06-01", origin: "C", destination: "D", miles: 20, purpose: "y" });
+    const s = mm.summary();
+    assert.equal(s.totalClaims, 2);
+    assert.equal(s.totalMiles, 70);
+    assert.equal(s.reimbursed, 1);
+    assert.equal(s.totalReimbursedUsd, 50);
+    assert.equal(s.pendingAmountUsd, 20);
   });
 });
