@@ -50,6 +50,8 @@ import { LocalizationManager } from "../localization/localization-manager.js";
 import { AffiliateManager } from "../affiliate/affiliate-manager.js";
 import { WebhookDeliveryManager } from "../webhook-delivery/webhook-delivery-manager.js";
 import { ReleaseManager } from "../release/release-manager.js";
+import { EnergyUsageManager } from "../energy/energy-usage-manager.js";
+import { VisitorManager } from "../visitor/visitor-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -11382,5 +11384,138 @@ describe("ReleaseManager", () => {
     assert.equal(s.inProduction, 1);
     assert.equal(s.failedDeployments, 1);
     assert.equal(s.byStage.production, 1);
+  });
+});
+
+describe("EnergyUsageManager", () => {
+  it("registerMeter publishes meter_registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("energy.meter_registered", (e) => { events.push(e.payload); });
+    const em = new EnergyUsageManager(bus);
+    em.registerMeter({ name: "Main", utility: "electricity", unit: "kWh", location: "HQ", costPerUnitUsd: 0.12, co2KgPerUnit: 0.4 });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordReading computes cost and co2 and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("energy.reading_recorded", (e) => { events.push(e.payload); });
+    const em = new EnergyUsageManager(bus);
+    const m = em.registerMeter({ name: "Main", utility: "electricity", unit: "kWh", location: "HQ", costPerUnitUsd: 0.10, co2KgPerUnit: 0.5 });
+    const r = em.recordReading(m.id, "2026-06", 1000, "2026-06-30")!;
+    assert.equal(r.costUsd, 100);
+    assert.equal(r.co2Kg, 500);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordReading rejects unknown meter and negatives", () => {
+    const bus = new EventBus();
+    const em = new EnergyUsageManager(bus);
+    const m = em.registerMeter({ name: "M", utility: "gas", unit: "therm", location: "HQ", costPerUnitUsd: 1, co2KgPerUnit: 5 });
+    assert.equal(em.recordReading("nope", "2026-06", 10, "2026-06-30"), undefined);
+    assert.equal(em.recordReading(m.id, "2026-06", -5, "2026-06-30"), undefined);
+  });
+
+  it("spike detection fires above baseline factor", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("energy.spike_detected", (e) => { events.push(e.payload); });
+    const em = new EnergyUsageManager(bus, 1.5);
+    const m = em.registerMeter({ name: "M", utility: "water", unit: "gal", location: "HQ", costPerUnitUsd: 0.01, co2KgPerUnit: 0 });
+    em.recordReading(m.id, "2026-04", 100, "2026-04-30");
+    em.recordReading(m.id, "2026-05", 100, "2026-05-30");
+    em.recordReading(m.id, "2026-06", 300, "2026-06-30"); // well above 1.5x baseline
+    assert.equal(events.length, 1);
+  });
+
+  it("listReadings filters by meter", () => {
+    const bus = new EventBus();
+    const em = new EnergyUsageManager(bus);
+    const a = em.registerMeter({ name: "A", utility: "electricity", unit: "kWh", location: "HQ", costPerUnitUsd: 0.1, co2KgPerUnit: 0.4 });
+    const b = em.registerMeter({ name: "B", utility: "gas", unit: "therm", location: "HQ", costPerUnitUsd: 1, co2KgPerUnit: 5 });
+    em.recordReading(a.id, "2026-06", 10, "2026-06-30");
+    em.recordReading(b.id, "2026-06", 20, "2026-06-30");
+    assert.equal(em.listReadings(a.id).length, 1);
+  });
+
+  it("summary aggregates consumption, cost and co2", () => {
+    const bus = new EventBus();
+    const em = new EnergyUsageManager(bus);
+    const m = em.registerMeter({ name: "M", utility: "electricity", unit: "kWh", location: "HQ", costPerUnitUsd: 0.10, co2KgPerUnit: 0.5 });
+    em.recordReading(m.id, "2026-05", 100, "2026-05-30");
+    em.recordReading(m.id, "2026-06", 200, "2026-06-30");
+    const s = em.summary();
+    assert.equal(s.totalMeters, 1);
+    assert.equal(s.totalConsumption, 300);
+    assert.equal(s.totalCostUsd, 30);
+    assert.equal(s.totalCo2Kg, 150);
+    assert.equal(s.byUtility.electricity, 1);
+  });
+});
+
+describe("VisitorManager", () => {
+  it("preregister publishes preregistered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("visitor.preregistered", (e) => { events.push(e.payload); });
+    const vm = new VisitorManager(bus);
+    vm.preregister({ visitorName: "Jane", hostId: "h1", purpose: "meeting", expectedAt: "2026-06-26T10:00:00.000Z" });
+    assert.equal(events.length, 1);
+  });
+
+  it("checkIn assigns badge and publishes checked_in", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("visitor.checked_in", (e) => { events.push(e.payload); });
+    const vm = new VisitorManager(bus);
+    const v = vm.preregister({ visitorName: "Jane", hostId: "h1", purpose: "interview", expectedAt: "2026-06-26T10:00:00.000Z" });
+    const checked = vm.checkIn(v.id, "2026-06-26T10:05:00.000Z")!;
+    assert.equal(checked.badgeNumber, "V-0001");
+    assert.equal(events.length, 1);
+  });
+
+  it("checkOut computes duration and publishes checked_out", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("visitor.checked_out", (e) => { events.push(e.payload); });
+    const vm = new VisitorManager(bus);
+    const v = vm.preregister({ visitorName: "Jane", hostId: "h1", purpose: "tour", expectedAt: "2026-06-26T10:00:00.000Z" });
+    vm.checkIn(v.id, "2026-06-26T10:00:00.000Z");
+    vm.checkOut(v.id, "2026-06-26T11:00:00.000Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].durationMinutes, 60);
+  });
+
+  it("currentlyOnSite reflects checked-in visitors", () => {
+    const bus = new EventBus();
+    const vm = new VisitorManager(bus);
+    const v1 = vm.preregister({ visitorName: "A", hostId: "h1", purpose: "meeting", expectedAt: "2026-06-26T10:00:00.000Z" });
+    const v2 = vm.preregister({ visitorName: "B", hostId: "h1", purpose: "meeting", expectedAt: "2026-06-26T10:00:00.000Z" });
+    vm.checkIn(v1.id, "2026-06-26T10:00:00.000Z");
+    vm.checkIn(v2.id, "2026-06-26T10:00:00.000Z");
+    vm.checkOut(v1.id, "2026-06-26T11:00:00.000Z");
+    assert.equal(vm.currentlyOnSite().length, 1);
+  });
+
+  it("markNoShow only works on preregistered visits", () => {
+    const bus = new EventBus();
+    const vm = new VisitorManager(bus);
+    const v = vm.preregister({ visitorName: "A", hostId: "h1", purpose: "meeting", expectedAt: "2026-06-26T10:00:00.000Z" });
+    vm.checkIn(v.id, "2026-06-26T10:00:00.000Z");
+    assert.equal(vm.markNoShow(v.id), undefined);
+  });
+
+  it("summary aggregates statuses and purpose", () => {
+    const bus = new EventBus();
+    const vm = new VisitorManager(bus);
+    const v1 = vm.preregister({ visitorName: "A", hostId: "h1", purpose: "meeting", expectedAt: "2026-06-26T10:00:00.000Z" });
+    vm.preregister({ visitorName: "B", hostId: "h1", purpose: "delivery", expectedAt: "2026-06-26T10:00:00.000Z" });
+    vm.checkIn(v1.id, "2026-06-26T10:00:00.000Z");
+    const s = vm.summary();
+    assert.equal(s.totalVisits, 2);
+    assert.equal(s.onSite, 1);
+    assert.equal(s.preregistered, 1);
+    assert.equal(s.byPurpose.meeting, 1);
   });
 });

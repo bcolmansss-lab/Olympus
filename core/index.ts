@@ -147,6 +147,8 @@ import { LocalizationManager } from "./localization/localization-manager.js";
 import { AffiliateManager } from "./affiliate/affiliate-manager.js";
 import { WebhookDeliveryManager } from "./webhook-delivery/webhook-delivery-manager.js";
 import { ReleaseManager } from "./release/release-manager.js";
+import { EnergyUsageManager } from "./energy/energy-usage-manager.js";
+import { VisitorManager } from "./visitor/visitor-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -382,6 +384,8 @@ export class Olympus {
   readonly affiliate: AffiliateManager;
   readonly webhookDelivery: WebhookDeliveryManager;
   readonly release: ReleaseManager;
+  readonly energy: EnergyUsageManager;
+  readonly visitor: VisitorManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -521,6 +525,8 @@ export class Olympus {
     this.affiliate = new AffiliateManager(this.bus);
     this.webhookDelivery = new WebhookDeliveryManager(this.bus);
     this.release = new ReleaseManager(this.bus);
+    this.energy = new EnergyUsageManager(this.bus);
+    this.visitor = new VisitorManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -666,3 +672,5 @@ export { LocalizationManager, type TranslationState, type TranslationEntry, type
 export { AffiliateManager, type AffiliateStatus, type Affiliate, type AffiliateConversion, type AffiliateSummary } from "./affiliate/index.js";
 export { WebhookDeliveryManager, type DeliveryStatus, type WebhookEndpoint, type WebhookDelivery, type WebhookDeliverySummary } from "./webhook-delivery/index.js";
 export { ReleaseManager, type ReleaseStage, type DeploymentOutcome, type ReleaseChangeItem, type Deployment, type SoftwareRelease, type ReleaseSummary } from "./release/index.js";
+export { EnergyUsageManager, type UtilityType, type UtilityMeter, type MeterReading, type EnergySummary } from "./energy/index.js";
+export { VisitorManager, type VisitStatus, type VisitPurpose, type Visit, type VisitorSummary } from "./visitor/index.js";
