@@ -44,6 +44,8 @@ import { RevenueRecognitionManager } from "../rev-rec/revenue-recognition-manage
 import { SafetyIncidentManager } from "../safety/safety-incident-manager.js";
 import { EthicsCaseManager } from "../ethics/ethics-case-manager.js";
 import { CorporateTravelManager } from "../travel/corporate-travel-manager.js";
+import { DocumentSignatureManager } from "../e-signature/document-signature-manager.js";
+import { EquipmentCalibrationManager } from "../equipment-calibration/equipment-calibration-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10962,5 +10964,140 @@ describe("CorporateTravelManager", () => {
     assert.equal(s.totalActualUsd, 820);
     assert.equal(s.outOfPolicyCount, 1);
     assert.equal(s.byPurpose.sales, 1);
+  });
+});
+
+describe("DocumentSignatureManager", () => {
+  it("send publishes envelope_sent and requires signers", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("esign.envelope_sent", (e) => { events.push(e.payload); });
+    const ds = new DocumentSignatureManager(bus);
+    const env = ds.createEnvelope("NDA", "doc1", [{ name: "Alice", email: "a@x.com" }]);
+    ds.send(env.id);
+    assert.equal(ds.getEnvelope(env.id)!.status, "sent");
+    assert.equal(events.length, 1);
+  });
+
+  it("sequential signing enforces order", () => {
+    const bus = new EventBus();
+    const ds = new DocumentSignatureManager(bus);
+    const env = ds.createEnvelope("Contract", "doc1", [{ name: "A", email: "a@x.com" }, { name: "B", email: "b@x.com" }], "sequential");
+    ds.send(env.id);
+    const [s1, s2] = ds.getEnvelope(env.id)!.signers;
+    assert.equal(ds.sign(env.id, s2!.id, "2026-06-01"), undefined); // out of order
+    ds.sign(env.id, s1!.id, "2026-06-01");
+    assert.ok(ds.sign(env.id, s2!.id, "2026-06-02"));
+  });
+
+  it("parallel signing allows any order", () => {
+    const bus = new EventBus();
+    const ds = new DocumentSignatureManager(bus);
+    const env = ds.createEnvelope("C", "doc1", [{ name: "A", email: "a@x.com" }, { name: "B", email: "b@x.com" }], "parallel");
+    ds.send(env.id);
+    const [, s2] = ds.getEnvelope(env.id)!.signers;
+    assert.ok(ds.sign(env.id, s2!.id, "2026-06-01"));
+  });
+
+  it("envelope completes when all sign and publishes completed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("esign.envelope_completed", (e) => { events.push(e.payload); });
+    const ds = new DocumentSignatureManager(bus);
+    const env = ds.createEnvelope("C", "doc1", [{ name: "A", email: "a@x.com" }], "parallel");
+    ds.send(env.id);
+    ds.sign(env.id, ds.getEnvelope(env.id)!.signers[0]!.id, "2026-06-01");
+    assert.equal(ds.getEnvelope(env.id)!.status, "completed");
+    assert.equal(events.length, 1);
+  });
+
+  it("decline sets envelope declined", () => {
+    const bus = new EventBus();
+    const ds = new DocumentSignatureManager(bus);
+    const env = ds.createEnvelope("C", "doc1", [{ name: "A", email: "a@x.com" }], "parallel");
+    ds.send(env.id);
+    ds.decline(env.id, ds.getEnvelope(env.id)!.signers[0]!.id);
+    assert.equal(ds.getEnvelope(env.id)!.status, "declined");
+  });
+
+  it("summary computes completion rate", () => {
+    const bus = new EventBus();
+    const ds = new DocumentSignatureManager(bus);
+    const e1 = ds.createEnvelope("A", "d1", [{ name: "X", email: "x@x.com" }], "parallel");
+    ds.send(e1.id); ds.sign(e1.id, ds.getEnvelope(e1.id)!.signers[0]!.id, "2026-06-01");
+    const e2 = ds.createEnvelope("B", "d2", [{ name: "Y", email: "y@x.com" }], "parallel");
+    ds.send(e2.id); ds.decline(e2.id, ds.getEnvelope(e2.id)!.signers[0]!.id);
+    const s = ds.summary();
+    assert.equal(s.totalEnvelopes, 2);
+    assert.equal(s.completed, 1);
+    assert.equal(s.declined, 1);
+    assert.equal(s.completionRatePct, 50);
+  });
+});
+
+describe("EquipmentCalibrationManager", () => {
+  it("registerEquipment publishes equipment_registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("equipcal.equipment_registered", (e) => { events.push(e.payload); });
+    const ec = new EquipmentCalibrationManager(bus);
+    ec.registerEquipment({ name: "Scale A", assetTag: "EQ-1", location: "Lab", calibrationIntervalDays: 365 });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordCalibration computes next due date and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("equipcal.calibration_recorded", (e) => { events.push(e.payload); });
+    const ec = new EquipmentCalibrationManager(bus);
+    const item = ec.registerEquipment({ name: "Scale", assetTag: "EQ-1", location: "Lab", calibrationIntervalDays: 30 });
+    ec.recordCalibration(item.id, "pass", "tech1", "2026-06-01");
+    assert.equal(ec.getEquipment(item.id)!.nextDueDate, "2026-07-01T00:00:00.000Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("failed calibration takes equipment out of service", () => {
+    const bus = new EventBus();
+    const ec = new EquipmentCalibrationManager(bus);
+    const item = ec.registerEquipment({ name: "Scale", assetTag: "EQ-1", location: "Lab", calibrationIntervalDays: 30 });
+    ec.recordCalibration(item.id, "fail", "tech1", "2026-06-01");
+    assert.equal(ec.getEquipment(item.id)!.status, "out_of_service");
+    ec.returnToService(item.id);
+    assert.equal(ec.getEquipment(item.id)!.status, "in_service");
+  });
+
+  it("checkOverdue flags and publishes overdue equipment", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("equipcal.calibration_overdue", (e) => { events.push(e.payload); });
+    const ec = new EquipmentCalibrationManager(bus);
+    const item = ec.registerEquipment({ name: "Scale", assetTag: "EQ-1", location: "Lab", calibrationIntervalDays: 30 });
+    ec.recordCalibration(item.id, "pass", "tech1", "2026-01-01");
+    const overdue = ec.checkOverdue("2026-06-25");
+    assert.equal(overdue.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("retire removes equipment from service tracking", () => {
+    const bus = new EventBus();
+    const ec = new EquipmentCalibrationManager(bus);
+    const item = ec.registerEquipment({ name: "Scale", assetTag: "EQ-1", location: "Lab", calibrationIntervalDays: 30 });
+    ec.retire(item.id);
+    assert.equal(ec.getEquipment(item.id)!.status, "retired");
+    assert.equal(ec.returnToService(item.id), undefined);
+  });
+
+  it("summary computes due-soon, overdue and failures", () => {
+    const bus = new EventBus();
+    const ec = new EquipmentCalibrationManager(bus);
+    const a = ec.registerEquipment({ name: "A", assetTag: "EQ-1", location: "L", calibrationIntervalDays: 30 });
+    ec.recordCalibration(a.id, "pass", "t1", "2026-06-10"); // next 2026-07-10, due soon from 2026-06-25
+    const b = ec.registerEquipment({ name: "B", assetTag: "EQ-2", location: "L", calibrationIntervalDays: 30 });
+    ec.recordCalibration(b.id, "fail", "t1", "2026-01-01"); // overdue + fail + out of service
+    const s = ec.summary("2026-06-25");
+    assert.equal(s.totalEquipment, 2);
+    assert.equal(s.dueSoon, 1);
+    assert.equal(s.failureCount, 1);
+    assert.equal(s.totalCalibrations, 2);
   });
 });

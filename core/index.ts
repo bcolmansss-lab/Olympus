@@ -141,6 +141,8 @@ import { RevenueRecognitionManager } from "./rev-rec/revenue-recognition-manager
 import { SafetyIncidentManager } from "./safety/safety-incident-manager.js";
 import { EthicsCaseManager } from "./ethics/ethics-case-manager.js";
 import { CorporateTravelManager } from "./travel/corporate-travel-manager.js";
+import { DocumentSignatureManager } from "./e-signature/document-signature-manager.js";
+import { EquipmentCalibrationManager } from "./equipment-calibration/equipment-calibration-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -370,6 +372,8 @@ export class Olympus {
   readonly safety: SafetyIncidentManager;
   readonly ethics: EthicsCaseManager;
   readonly travel: CorporateTravelManager;
+  readonly eSignature: DocumentSignatureManager;
+  readonly equipmentCalibration: EquipmentCalibrationManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -503,6 +507,8 @@ export class Olympus {
     this.safety = new SafetyIncidentManager(this.bus);
     this.ethics = new EthicsCaseManager(this.bus);
     this.travel = new CorporateTravelManager(this.bus);
+    this.eSignature = new DocumentSignatureManager(this.bus);
+    this.equipmentCalibration = new EquipmentCalibrationManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -642,3 +648,5 @@ export { RevenueRecognitionManager, type RecognitionMethod, type ObligationStatu
 export { SafetyIncidentManager, type SafetySeverity, type IncidentState, type CorrectiveAction, type SafetyIncident, type SafetySummary } from "./safety/index.js";
 export { EthicsCaseManager, type EthicsCategory, type CaseSeverity, type EthicsCaseState, type CaseOutcome, type EthicsCaseNote, type EthicsCase, type EthicsSummary } from "./ethics/index.js";
 export { CorporateTravelManager, type TripStatus, type TripPurpose, type TravelSegment, type Trip, type TravelSummary } from "./travel/index.js";
+export { DocumentSignatureManager, type EnvelopeStatus, type SignerStatus, type SigningOrder, type Signer, type SignatureEnvelope, type SignatureSummary } from "./e-signature/index.js";
+export { EquipmentCalibrationManager, type CalibrationResult, type CalibratedEquipmentStatus, type CalibrationEvent, type EquipmentItem, type CalibrationSummary } from "./equipment-calibration/index.js";
