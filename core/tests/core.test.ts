@@ -26,6 +26,8 @@ import { HealthBenefitsManager } from "../health-benefits/health-benefits-manage
 import { CommissionEngine } from "../commission-engine/commission-engine.js";
 import { TimeTrackingManager } from "../time-tracking/time-tracking-manager.js";
 import { VendorRiskManager } from "../vendor-risk/vendor-risk-manager.js";
+import { WarrantyManager } from "../warranty/warranty-manager.js";
+import { ReferralProgramManager } from "../referral/referral-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -9721,5 +9723,145 @@ describe("VendorRiskManager", () => {
     assert.equal(s.byTier.low, 1);
     assert.equal(s.openRemediations, 1);
     assert.equal(s.overdueRemediations, 1);
+  });
+});
+
+describe("WarrantyManager", () => {
+  it("register creates active warranty and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("warranty.registered", (e) => { events.push(e.payload); });
+    const wm = new WarrantyManager(bus);
+    const w = wm.register({ productId: "p1", productName: "Widget", customerId: "c1", serialNumber: "SN1", purchaseDate: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(w.status, "active");
+    assert.equal(events.length, 1);
+  });
+
+  it("isCovered respects expiry and status", () => {
+    const bus = new EventBus();
+    const wm = new WarrantyManager(bus);
+    const w = wm.register({ productId: "p1", productName: "Widget", customerId: "c1", serialNumber: "SN1", purchaseDate: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(wm.isCovered(w.id, "2026-06-01"), true);
+    assert.equal(wm.isCovered(w.id, "2028-01-01"), false);
+  });
+
+  it("voidWarranty makes it not covered", () => {
+    const bus = new EventBus();
+    const wm = new WarrantyManager(bus);
+    const w = wm.register({ productId: "p1", productName: "Widget", customerId: "c1", serialNumber: "SN1", purchaseDate: "2026-01-01", expiresAt: "2027-01-01" });
+    wm.voidWarranty(w.id);
+    assert.equal(wm.isCovered(w.id, "2026-06-01"), false);
+  });
+
+  it("openRMA publishes rma_opened and returns undefined for unknown warranty", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("warranty.rma_opened", (e) => { events.push(e.payload); });
+    const wm = new WarrantyManager(bus);
+    const w = wm.register({ productId: "p1", productName: "Widget", customerId: "c1", serialNumber: "SN1", purchaseDate: "2026-01-01", expiresAt: "2027-01-01" });
+    const rma = wm.openRMA(w.id, "broken");
+    assert.ok(rma);
+    assert.equal(events.length, 1);
+    assert.equal(wm.openRMA("nope", "x"), undefined);
+  });
+
+  it("resolveRMA publishes claim_resolved with cost", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("warranty.claim_resolved", (e) => { events.push(e.payload); });
+    const wm = new WarrantyManager(bus);
+    const w = wm.register({ productId: "p1", productName: "Widget", customerId: "c1", serialNumber: "SN1", purchaseDate: "2026-01-01", expiresAt: "2027-01-01" });
+    const rma = wm.openRMA(w.id, "broken")!;
+    wm.resolveRMA(rma.id, "replace", 120);
+    assert.equal(wm.listRMAs()[0]!.status, "resolved");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].costUsd, 120);
+  });
+
+  it("summary aggregates warranties, RMAs and resolutions", () => {
+    const bus = new EventBus();
+    const wm = new WarrantyManager(bus);
+    const w = wm.register({ productId: "p1", productName: "Widget", customerId: "c1", serialNumber: "SN1", purchaseDate: "2026-01-01", expiresAt: "2027-01-01" });
+    const rma = wm.openRMA(w.id, "broken")!;
+    wm.resolveRMA(rma.id, "refund", 50);
+    const s = wm.summary();
+    assert.equal(s.totalWarranties, 1);
+    assert.equal(s.active, 1);
+    assert.equal(s.totalRMAs, 1);
+    assert.equal(s.totalClaimCostUsd, 50);
+    assert.equal(s.byResolution.refund, 1);
+  });
+});
+
+describe("ReferralProgramManager", () => {
+  it("createProgram defaults to active", () => {
+    const bus = new EventBus();
+    const rm = new ReferralProgramManager(bus);
+    const p = rm.createProgram({ name: "Refer-a-friend", rewardType: "cash", referrerRewardUsd: 50, refereeRewardUsd: 25 });
+    assert.equal(p.active, true);
+    assert.equal(rm.listPrograms(true).length, 1);
+  });
+
+  it("createReferral publishes created and rejects duplicate code", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("referral.created", (e) => { events.push(e.payload); });
+    const rm = new ReferralProgramManager(bus);
+    const p = rm.createProgram({ name: "P", rewardType: "cash", referrerRewardUsd: 50, refereeRewardUsd: 25 });
+    const r = rm.createReferral(p.id, "u1", "CODE1");
+    assert.ok(r);
+    assert.equal(events.length, 1);
+    assert.equal(rm.createReferral(p.id, "u2", "CODE1"), undefined);
+  });
+
+  it("createReferral returns undefined for inactive program", () => {
+    const bus = new EventBus();
+    const rm = new ReferralProgramManager(bus);
+    const p = rm.createProgram({ name: "P", rewardType: "cash", referrerRewardUsd: 50, refereeRewardUsd: 25, active: false });
+    assert.equal(rm.createReferral(p.id, "u1", "X"), undefined);
+  });
+
+  it("convert sets reward and publishes converted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("referral.converted", (e) => { events.push(e.payload); });
+    const rm = new ReferralProgramManager(bus);
+    const p = rm.createProgram({ name: "P", rewardType: "cash", referrerRewardUsd: 50, refereeRewardUsd: 25 });
+    rm.createReferral(p.id, "u1", "CODE1");
+    const r = rm.convert("CODE1", "u2")!;
+    assert.equal(r.status, "converted");
+    assert.equal(r.rewardUsd, 50);
+    assert.equal(events.length, 1);
+  });
+
+  it("issueReward only works on converted referrals", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("referral.reward_issued", (e) => { events.push(e.payload); });
+    const rm = new ReferralProgramManager(bus);
+    const p = rm.createProgram({ name: "P", rewardType: "cash", referrerRewardUsd: 50, refereeRewardUsd: 25 });
+    const ref = rm.createReferral(p.id, "u1", "CODE1")!;
+    assert.equal(rm.issueReward(ref.id), undefined); // still pending
+    rm.convert("CODE1", "u2");
+    const rewarded = rm.issueReward(ref.id)!;
+    assert.equal(rewarded.status, "rewarded");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes conversion rate and rewards issued", () => {
+    const bus = new EventBus();
+    const rm = new ReferralProgramManager(bus);
+    const p = rm.createProgram({ name: "P", rewardType: "cash", referrerRewardUsd: 50, refereeRewardUsd: 25 });
+    rm.createReferral(p.id, "u1", "C1");
+    rm.createReferral(p.id, "u1", "C2");
+    rm.convert("C1", "u2");
+    const ref = rm.listReferrals(undefined, "converted")[0]!;
+    rm.issueReward(ref.id);
+    const s = rm.summary();
+    assert.equal(s.totalReferrals, 2);
+    assert.equal(s.converted, 1);
+    assert.equal(s.rewarded, 1);
+    assert.equal(s.conversionRatePct, 50);
+    assert.equal(s.totalRewardsIssuedUsd, 50);
   });
 });

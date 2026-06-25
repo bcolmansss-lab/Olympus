@@ -123,6 +123,8 @@ import { HealthBenefitsManager } from "./health-benefits/health-benefits-manager
 import { CommissionEngine } from "./commission-engine/commission-engine.js";
 import { TimeTrackingManager } from "./time-tracking/time-tracking-manager.js";
 import { VendorRiskManager } from "./vendor-risk/vendor-risk-manager.js";
+import { WarrantyManager } from "./warranty/warranty-manager.js";
+import { ReferralProgramManager } from "./referral/referral-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -334,6 +336,8 @@ export class Olympus {
   readonly commissionEngine: CommissionEngine;
   readonly timeTracking: TimeTrackingManager;
   readonly vendorRisk: VendorRiskManager;
+  readonly warranty: WarrantyManager;
+  readonly referral: ReferralProgramManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -449,6 +453,8 @@ export class Olympus {
     this.commissionEngine = new CommissionEngine(this.bus);
     this.timeTracking = new TimeTrackingManager(this.bus);
     this.vendorRisk = new VendorRiskManager(this.bus);
+    this.warranty = new WarrantyManager(this.bus);
+    this.referral = new ReferralProgramManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -570,3 +576,5 @@ export { HealthBenefitsManager, type BenefitPlanType, type BenefitClaimType, typ
 export { CommissionEngine, type CommissionPlanStatus, type PayoutStatus, type DisputeStatus, type CommissionTier, type CommissionPlan, type CommissionDeal, type CommissionPayout, type CommissionDispute, type CommissionSummary } from "./commission-engine/index.js";
 export { TimeTrackingManager, type TimesheetStatus, type TimeEntry, type Timesheet, type TimeTrackingSummary } from "./time-tracking/index.js";
 export { VendorRiskManager, type VendorRiskTier, type RemediationStatus, type VendorRiskDomain, type VendorRiskAssessment, type RemediationItem, type VendorRiskSummary } from "./vendor-risk/index.js";
+export { WarrantyManager, type WarrantyStatus, type RMAStatus, type RMAResolution, type Warranty, type RMA, type WarrantySummary } from "./warranty/index.js";
+export { ReferralProgramManager, type ReferralStatus, type RewardType, type ReferralProgram, type Referral, type ReferralSummary } from "./referral/index.js";
