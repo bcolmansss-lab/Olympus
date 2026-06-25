@@ -36,6 +36,8 @@ import { PromotionManager } from "../promotion/promotion-manager.js";
 import { RebateManager } from "../rebate/rebate-manager.js";
 import { DataRetentionManager } from "../data-retention/data-retention-manager.js";
 import { AccessReviewManager } from "../access-review/access-review-manager.js";
+import { ChangeManagementManager } from "../change-mgmt/change-management-manager.js";
+import { OnCallScheduleManager } from "../on-call/on-call-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10418,5 +10420,140 @@ describe("AccessReviewManager", () => {
     assert.equal(s.totalItems, 2);
     assert.equal(s.approvedItems, 1);
     assert.equal(s.pendingItems, 1);
+  });
+});
+
+describe("ChangeManagementManager", () => {
+  it("submit publishes change.submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("change.submitted", (e) => { events.push(e.payload); });
+    const cm = new ChangeManagementManager(bus);
+    const c = cm.submit({ title: "DB upgrade", description: "v14->v16", risk: "high", requesterId: "u1", rollbackPlan: "restore snapshot" });
+    assert.equal(c.status, "submitted");
+    assert.equal(events.length, 1);
+  });
+
+  it("approve schedules and publishes change.approved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("change.approved", (e) => { events.push(e.payload); });
+    const cm = new ChangeManagementManager(bus);
+    const c = cm.submit({ title: "T", description: "d", risk: "low", requesterId: "u1", rollbackPlan: "x" });
+    cm.approve(c.id, "cab1", "2026-07-01");
+    assert.equal(cm.getChange(c.id)!.status, "scheduled");
+    assert.equal(events.length, 1);
+  });
+
+  it("reject only works on submitted changes", () => {
+    const bus = new EventBus();
+    const cm = new ChangeManagementManager(bus);
+    const c = cm.submit({ title: "T", description: "d", risk: "low", requesterId: "u1", rollbackPlan: "x" });
+    cm.approve(c.id, "cab1", "2026-07-01");
+    assert.equal(cm.reject(c.id, "cab1"), undefined);
+  });
+
+  it("implement success marks implemented", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("change.implemented", (e) => { events.push(e.payload); });
+    const cm = new ChangeManagementManager(bus);
+    const c = cm.submit({ title: "T", description: "d", risk: "low", requesterId: "u1", rollbackPlan: "x" });
+    cm.approve(c.id, "cab1", "2026-07-01");
+    cm.implement(c.id, "success", "2026-07-01");
+    assert.equal(cm.getChange(c.id)!.status, "implemented");
+    assert.equal(events.length, 1);
+  });
+
+  it("implement failure rolls back", () => {
+    const bus = new EventBus();
+    const cm = new ChangeManagementManager(bus);
+    const c = cm.submit({ title: "T", description: "d", risk: "high", requesterId: "u1", rollbackPlan: "x" });
+    cm.approve(c.id, "cab1", "2026-07-01");
+    cm.implement(c.id, "failed", "2026-07-01");
+    assert.equal(cm.getChange(c.id)!.status, "rolled_back");
+  });
+
+  it("summary computes success rate and pending", () => {
+    const bus = new EventBus();
+    const cm = new ChangeManagementManager(bus);
+    const c1 = cm.submit({ title: "A", description: "d", risk: "low", requesterId: "u1", rollbackPlan: "x" });
+    const c2 = cm.submit({ title: "B", description: "d", risk: "high", requesterId: "u1", rollbackPlan: "x" });
+    cm.submit({ title: "C", description: "d", risk: "medium", requesterId: "u1", rollbackPlan: "x" });
+    cm.approve(c1.id, "cab", "2026-07-01"); cm.implement(c1.id, "success", "2026-07-01");
+    cm.approve(c2.id, "cab", "2026-07-01"); cm.implement(c2.id, "failed", "2026-07-01");
+    const s = cm.summary();
+    assert.equal(s.totalChanges, 3);
+    assert.equal(s.successRatePct, 50);
+    assert.equal(s.pendingApproval, 1);
+    assert.equal(s.byRisk.low, 1);
+  });
+});
+
+describe("OnCallScheduleManager", () => {
+  it("createRotation publishes rotation_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("oncall.rotation_created", (e) => { events.push(e.payload); });
+    const oc = new OnCallScheduleManager(bus);
+    oc.createRotation("Primary", ["r1", "r2", "r3"]);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].memberCount, 3);
+  });
+
+  it("currentResponder resolves active shift", () => {
+    const bus = new EventBus();
+    const oc = new OnCallScheduleManager(bus);
+    const r = oc.createRotation("P", ["r1", "r2"]);
+    oc.addShift(r.id, { responderId: "r1", responderName: "Alice", startsAt: "2026-06-25T00:00:00.000Z", endsAt: "2026-06-26T00:00:00.000Z" });
+    const cur = oc.currentResponder(r.id, "2026-06-25T12:00:00.000Z");
+    assert.equal(cur!.responderId, "r1");
+  });
+
+  it("page targets current responder and publishes paged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("oncall.paged", (e) => { events.push(e.payload); });
+    const oc = new OnCallScheduleManager(bus);
+    const r = oc.createRotation("P", ["r1", "r2"]);
+    oc.addShift(r.id, { responderId: "r1", responderName: "Alice", startsAt: "2026-06-25T00:00:00.000Z", endsAt: "2026-06-26T00:00:00.000Z" });
+    const page = oc.page(r.id, "critical", "DB down", "2026-06-25T12:00:00.000Z");
+    assert.ok(page);
+    assert.equal(events.length, 1);
+    assert.equal(page!.responderId, "r1");
+  });
+
+  it("page returns undefined with no active shift", () => {
+    const bus = new EventBus();
+    const oc = new OnCallScheduleManager(bus);
+    const r = oc.createRotation("P", ["r1"]);
+    assert.equal(oc.page(r.id, "info", "x", "2026-06-25T12:00:00.000Z"), undefined);
+  });
+
+  it("escalate advances to next member and publishes escalated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("oncall.escalated", (e) => { events.push(e.payload); });
+    const oc = new OnCallScheduleManager(bus);
+    const r = oc.createRotation("P", ["r1", "r2"]);
+    oc.addShift(r.id, { responderId: "r1", responderName: "Alice", startsAt: "2026-06-25T00:00:00.000Z", endsAt: "2026-06-26T00:00:00.000Z" });
+    const page = oc.page(r.id, "critical", "x", "2026-06-25T12:00:00.000Z")!;
+    const escalated = oc.escalate(page.id)!;
+    assert.equal(escalated.responderId, "r2");
+    assert.equal(events.length, 1);
+  });
+
+  it("acknowledge stops escalation and summary tracks pages", () => {
+    const bus = new EventBus();
+    const oc = new OnCallScheduleManager(bus);
+    const r = oc.createRotation("P", ["r1", "r2"]);
+    oc.addShift(r.id, { responderId: "r1", responderName: "Alice", startsAt: "2026-06-25T00:00:00.000Z", endsAt: "2026-06-26T00:00:00.000Z" });
+    const page = oc.page(r.id, "warning", "x", "2026-06-25T12:00:00.000Z")!;
+    oc.acknowledge(page.id, "2026-06-25T12:05:00.000Z");
+    assert.equal(oc.escalate(page.id), undefined);
+    const s = oc.summary();
+    assert.equal(s.totalPages, 1);
+    assert.equal(s.acknowledgedPages, 1);
+    assert.equal(s.bySeverity.warning, 1);
   });
 });
