@@ -163,6 +163,8 @@ import { WaitlistManager } from "./waitlist/waitlist-manager.js";
 import { AppointmentManager } from "./appointment/appointment-manager.js";
 import { SupplierScorecardManager } from "./supplier-scorecard/supplier-scorecard-manager.js";
 import { NonconformanceManager } from "./nonconformance/nonconformance-manager.js";
+import { GrievanceManager } from "./grievance/grievance-manager.js";
+import { AssetCheckoutManager } from "./asset-checkout/asset-checkout-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -414,6 +416,8 @@ export class Olympus {
   readonly appointment: AppointmentManager;
   readonly supplierScorecard: SupplierScorecardManager;
   readonly nonconformance: NonconformanceManager;
+  readonly grievance: GrievanceManager;
+  readonly assetCheckout: AssetCheckoutManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -569,6 +573,8 @@ export class Olympus {
     this.appointment = new AppointmentManager(this.bus);
     this.supplierScorecard = new SupplierScorecardManager(this.bus);
     this.nonconformance = new NonconformanceManager(this.bus);
+    this.grievance = new GrievanceManager(this.bus);
+    this.assetCheckout = new AssetCheckoutManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -730,3 +736,5 @@ export { WaitlistManager, type EntryStatus, type WaitlistEntry, type Waitlist, t
 export { AppointmentManager, type AppointmentStatus, type Appointment, type AppointmentSummary } from "./appointment/index.js";
 export { SupplierScorecardManager, type SupplierTier, type ScoreDimension, type SupplierScorecard, type SupplierScorecardSummary } from "./supplier-scorecard/index.js";
 export { NonconformanceManager, type NCRSeverity, type NCRSource, type NCRStatus, type Disposition, type CAPAType, type CAPA, type NCR, type NonconformanceSummary } from "./nonconformance/index.js";
+export { GrievanceManager, type GrievanceCategory, type GrievanceStage, type GrievanceOutcome, type Grievance, type GrievanceSummary } from "./grievance/index.js";
+export { AssetCheckoutManager, type ItemAvailability, type LoanStatus, type CheckoutItem, type Loan, type CheckoutSummary } from "./asset-checkout/index.js";

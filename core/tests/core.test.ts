@@ -66,6 +66,8 @@ import { WaitlistManager } from "../waitlist/waitlist-manager.js";
 import { AppointmentManager } from "../appointment/appointment-manager.js";
 import { SupplierScorecardManager } from "../supplier-scorecard/supplier-scorecard-manager.js";
 import { NonconformanceManager } from "../nonconformance/nonconformance-manager.js";
+import { GrievanceManager } from "../grievance/grievance-manager.js";
+import { AssetCheckoutManager } from "../asset-checkout/asset-checkout-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12447,5 +12449,138 @@ describe("NonconformanceManager", () => {
     assert.equal(s.openCAPAs, 1);
     assert.equal(s.bySeverity.major, 1);
     assert.equal(s.bySource.audit, 1);
+  });
+});
+
+describe("GrievanceManager", () => {
+  it("file publishes grievance.filed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("grievance.filed", (e) => { events.push(e.payload); });
+    const gm = new GrievanceManager(bus);
+    gm.file({ employeeId: "e1", category: "compensation", description: "underpaid", filedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("advance moves through stage flow and publishes events", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("grievance.stage_changed", (e) => { events.push(e.payload); });
+    const gm = new GrievanceManager(bus);
+    const g = gm.file({ employeeId: "e1", category: "policy", description: "x", filedAt: "2026-06-01" });
+    gm.advance(g.id); // acknowledged
+    gm.advance(g.id); // investigating
+    assert.equal(gm.getGrievance(g.id)!.stage, "investigating");
+    assert.equal(events.length, 2);
+  });
+
+  it("resolve publishes resolved with upheld flag", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("grievance.resolved", (e) => { events.push(e.payload); });
+    const gm = new GrievanceManager(bus);
+    const g = gm.file({ employeeId: "e1", category: "management", description: "x", filedAt: "2026-06-01" });
+    gm.resolve(g.id, "upheld", "2026-06-10");
+    assert.equal(gm.getGrievance(g.id)!.stage, "resolved");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].upheld, true);
+  });
+
+  it("appeal requires resolved state", () => {
+    const bus = new EventBus();
+    const gm = new GrievanceManager(bus);
+    const g = gm.file({ employeeId: "e1", category: "other", description: "x", filedAt: "2026-06-01" });
+    assert.equal(gm.appeal(g.id, "2026-06-12"), undefined);
+    gm.resolve(g.id, "denied", "2026-06-10");
+    assert.ok(gm.appeal(g.id, "2026-06-12"));
+    assert.equal(gm.getGrievance(g.id)!.stage, "appealed");
+  });
+
+  it("assign sets handler", () => {
+    const bus = new EventBus();
+    const gm = new GrievanceManager(bus);
+    const g = gm.file({ employeeId: "e1", category: "discrimination", description: "x", filedAt: "2026-06-01" });
+    gm.assign(g.id, "hr1");
+    assert.equal(gm.getGrievance(g.id)!.assignedTo, "hr1");
+  });
+
+  it("summary aggregates categories and outcomes", () => {
+    const bus = new EventBus();
+    const gm = new GrievanceManager(bus);
+    const g1 = gm.file({ employeeId: "e1", category: "compensation", description: "x", filedAt: "2026-06-01" });
+    gm.resolve(g1.id, "upheld", "2026-06-10");
+    gm.file({ employeeId: "e2", category: "policy", description: "y", filedAt: "2026-06-01" });
+    const s = gm.summary();
+    assert.equal(s.totalGrievances, 2);
+    assert.equal(s.resolved, 1);
+    assert.equal(s.upheldCount, 1);
+    assert.equal(s.byCategory.compensation, 1);
+  });
+});
+
+describe("AssetCheckoutManager", () => {
+  it("addItem publishes item_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("checkout.item_added", (e) => { events.push(e.payload); });
+    const cm = new AssetCheckoutManager(bus);
+    cm.addItem({ name: "Drill", category: "tool", assetTag: "T-1" });
+    assert.equal(events.length, 1);
+  });
+
+  it("borrow marks item on_loan and publishes borrowed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("checkout.borrowed", (e) => { events.push(e.payload); });
+    const cm = new AssetCheckoutManager(bus);
+    const item = cm.addItem({ name: "Drill", category: "tool", assetTag: "T-1" });
+    cm.borrow(item.id, "u1", "2026-06-01", "2026-06-08");
+    assert.equal(cm.getItem(item.id)!.availability, "on_loan");
+    assert.equal(events.length, 1);
+  });
+
+  it("cannot borrow an item already on loan", () => {
+    const bus = new EventBus();
+    const cm = new AssetCheckoutManager(bus);
+    const item = cm.addItem({ name: "Drill", category: "tool", assetTag: "T-1" });
+    cm.borrow(item.id, "u1", "2026-06-01", "2026-06-08");
+    assert.equal(cm.borrow(item.id, "u2", "2026-06-02", "2026-06-09"), undefined);
+  });
+
+  it("returnItem computes late days and frees item", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("checkout.returned", (e) => { events.push(e.payload); });
+    const cm = new AssetCheckoutManager(bus);
+    const item = cm.addItem({ name: "Drill", category: "tool", assetTag: "T-1" });
+    const loan = cm.borrow(item.id, "u1", "2026-06-01", "2026-06-08")!;
+    cm.returnItem(loan.id, "2026-06-11");
+    assert.equal(cm.getItem(item.id)!.availability, "available");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].lateDays, 3);
+  });
+
+  it("flagOverdue marks active past-due loans", () => {
+    const bus = new EventBus();
+    const cm = new AssetCheckoutManager(bus);
+    const item = cm.addItem({ name: "Drill", category: "tool", assetTag: "T-1" });
+    const loan = cm.borrow(item.id, "u1", "2026-06-01", "2026-06-08")!;
+    const overdue = cm.flagOverdue("2026-06-25");
+    assert.equal(overdue.length, 1);
+    assert.equal(cm.getLoan(loan.id)!.status, "overdue");
+  });
+
+  it("summary aggregates items and loans", () => {
+    const bus = new EventBus();
+    const cm = new AssetCheckoutManager(bus);
+    const i1 = cm.addItem({ name: "Drill", category: "tool", assetTag: "T-1" });
+    cm.addItem({ name: "Laptop", category: "electronics", assetTag: "E-1" });
+    cm.borrow(i1.id, "u1", "2026-06-01", "2026-06-08");
+    const s = cm.summary();
+    assert.equal(s.totalItems, 2);
+    assert.equal(s.onLoan, 1);
+    assert.equal(s.available, 1);
+    assert.equal(s.activeLoans, 1);
+    assert.equal(s.byCategory.tool, 1);
   });
 });
