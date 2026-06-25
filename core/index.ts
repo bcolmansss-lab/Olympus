@@ -157,6 +157,8 @@ import { BudgetTransferManager } from "./budget-transfer/budget-transfer-manager
 import { AssetDisposalManager } from "./asset-disposal/asset-disposal-manager.js";
 import { PettyCashManager } from "./petty-cash/petty-cash-manager.js";
 import { MileageManager } from "./mileage/mileage-manager.js";
+import { DocumentTemplateManager } from "./doc-template/document-template-manager.js";
+import { AssetTransferManager } from "./asset-transfer/asset-transfer-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -402,6 +404,8 @@ export class Olympus {
   readonly assetDisposal: AssetDisposalManager;
   readonly pettyCash: PettyCashManager;
   readonly mileage: MileageManager;
+  readonly docTemplate: DocumentTemplateManager;
+  readonly assetTransfer: AssetTransferManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -551,6 +555,8 @@ export class Olympus {
     this.assetDisposal = new AssetDisposalManager(this.bus);
     this.pettyCash = new PettyCashManager(this.bus);
     this.mileage = new MileageManager(this.bus);
+    this.docTemplate = new DocumentTemplateManager(this.bus);
+    this.assetTransfer = new AssetTransferManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -706,3 +712,5 @@ export { BudgetTransferManager, type TransferStatus, type BudgetPool, type Budge
 export { AssetDisposalManager, type DisposalMethod, type DisposalStatus, type DisposalRequest, type DisposalSummary } from "./asset-disposal/index.js";
 export { PettyCashManager, type DisbursementCategory, type PettyCashFund, type Disbursement, type ReconciliationResult, type PettyCashSummary } from "./petty-cash/index.js";
 export { MileageManager, type MileageClaimStatus, type MileageClaim, type MileageSummary } from "./mileage/index.js";
+export { DocumentTemplateManager, type TemplateCategory, type DocumentTemplate, type RenderResult, type TemplateSummary } from "./doc-template/index.js";
+export { AssetTransferManager, type TransferState, type AssetCondition, type AssetTransfer, type AssetTransferSummary } from "./asset-transfer/index.js";

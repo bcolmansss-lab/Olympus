@@ -60,6 +60,8 @@ import { BudgetTransferManager } from "../budget-transfer/budget-transfer-manage
 import { AssetDisposalManager } from "../asset-disposal/asset-disposal-manager.js";
 import { PettyCashManager } from "../petty-cash/petty-cash-manager.js";
 import { MileageManager } from "../mileage/mileage-manager.js";
+import { DocumentTemplateManager } from "../doc-template/document-template-manager.js";
+import { AssetTransferManager } from "../asset-transfer/asset-transfer-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -12043,5 +12045,134 @@ describe("MileageManager", () => {
     assert.equal(s.reimbursed, 1);
     assert.equal(s.totalReimbursedUsd, 50);
     assert.equal(s.pendingAmountUsd, 20);
+  });
+});
+
+describe("DocumentTemplateManager", () => {
+  it("createTemplate extracts merge fields and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("doctemplate.created", (e) => { events.push(e.payload); });
+    const dt = new DocumentTemplateManager(bus);
+    const t = dt.createTemplate("Offer", "letter", "Dear {{name}}, your salary is {{salary}}.");
+    assert.deepEqual(t.fields.sort(), ["name", "salary"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("render substitutes provided values", () => {
+    const bus = new EventBus();
+    const dt = new DocumentTemplateManager(bus);
+    const t = dt.createTemplate("Hi", "email", "Hello {{name}}!");
+    const r = dt.render(t.id, { name: "Sam" })!;
+    assert.equal(r.output, "Hello Sam!");
+    assert.equal(r.complete, true);
+  });
+
+  it("render reports missing fields and keeps placeholder", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("doctemplate.rendered", (e) => { events.push(e.payload); });
+    const dt = new DocumentTemplateManager(bus);
+    const t = dt.createTemplate("Hi", "email", "Hello {{name}}, {{company}}!");
+    const r = dt.render(t.id, { name: "Sam" })!;
+    assert.deepEqual(r.missingFields, ["company"]);
+    assert.equal(r.complete, false);
+    assert.ok(r.output.includes("{{company}}"));
+    assert.equal(events.length, 1);
+  });
+
+  it("publishVersion bumps version and re-extracts fields", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("doctemplate.version_published", (e) => { events.push(e.payload); });
+    const dt = new DocumentTemplateManager(bus);
+    const t = dt.createTemplate("T", "contract", "{{a}}");
+    dt.publishVersion(t.id, "{{a}} and {{b}}");
+    assert.equal(dt.getTemplate(t.id)!.version, 2);
+    assert.deepEqual(dt.getTemplate(t.id)!.fields.sort(), ["a", "b"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("setActive toggles template availability", () => {
+    const bus = new EventBus();
+    const dt = new DocumentTemplateManager(bus);
+    const t = dt.createTemplate("T", "policy", "{{x}}");
+    dt.setActive(t.id, false);
+    assert.equal(dt.listTemplates(undefined, true).length, 0);
+  });
+
+  it("summary aggregates templates, categories and renders", () => {
+    const bus = new EventBus();
+    const dt = new DocumentTemplateManager(bus);
+    const t = dt.createTemplate("T", "invoice", "{{total}}");
+    dt.createTemplate("U", "invoice", "{{x}}");
+    dt.render(t.id, { total: "100" });
+    const s = dt.summary();
+    assert.equal(s.totalTemplates, 2);
+    assert.equal(s.byCategory.invoice, 2);
+    assert.equal(s.totalRenders, 1);
+  });
+});
+
+describe("AssetTransferManager", () => {
+  it("request publishes requested and rejects same-location", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assettransfer.requested", (e) => { events.push(e.payload); });
+    const at = new AssetTransferManager(bus);
+    assert.equal(at.request({ assetTag: "EQ-1", assetName: "Laptop", fromLocation: "HQ", toLocation: "HQ", requestedBy: "u1" }), undefined);
+    assert.ok(at.request({ assetTag: "EQ-1", assetName: "Laptop", fromLocation: "HQ", toLocation: "Branch", requestedBy: "u1" }));
+    assert.equal(events.length, 1);
+  });
+
+  it("dispatch moves to in_transit and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assettransfer.dispatched", (e) => { events.push(e.payload); });
+    const at = new AssetTransferManager(bus);
+    const t = at.request({ assetTag: "EQ-1", assetName: "X", fromLocation: "HQ", toLocation: "Branch", requestedBy: "u1" })!;
+    at.dispatch(t.id, "FedEx", "2026-06-01");
+    assert.equal(at.getTransfer(t.id)!.state, "in_transit");
+    assert.equal(events.length, 1);
+  });
+
+  it("receive updates location for good condition", () => {
+    const bus = new EventBus();
+    const at = new AssetTransferManager(bus);
+    const t = at.request({ assetTag: "EQ-1", assetName: "X", fromLocation: "HQ", toLocation: "Branch", requestedBy: "u1" })!;
+    at.dispatch(t.id, "FedEx", "2026-06-01");
+    at.receive(t.id, "good", "2026-06-03");
+    assert.equal(at.locationOf("EQ-1"), "Branch");
+  });
+
+  it("lost asset does not update location", () => {
+    const bus = new EventBus();
+    const at = new AssetTransferManager(bus);
+    const t = at.request({ assetTag: "EQ-1", assetName: "X", fromLocation: "HQ", toLocation: "Branch", requestedBy: "u1" })!;
+    at.dispatch(t.id, "FedEx", "2026-06-01");
+    at.receive(t.id, "lost", "2026-06-03");
+    assert.equal(at.locationOf("EQ-1"), "HQ");
+  });
+
+  it("receive requires in_transit state", () => {
+    const bus = new EventBus();
+    const at = new AssetTransferManager(bus);
+    const t = at.request({ assetTag: "EQ-1", assetName: "X", fromLocation: "HQ", toLocation: "Branch", requestedBy: "u1" })!;
+    assert.equal(at.receive(t.id, "good", "2026-06-03"), undefined);
+  });
+
+  it("summary aggregates states and conditions", () => {
+    const bus = new EventBus();
+    const at = new AssetTransferManager(bus);
+    const t1 = at.request({ assetTag: "EQ-1", assetName: "A", fromLocation: "HQ", toLocation: "Branch", requestedBy: "u1" })!;
+    at.dispatch(t1.id, "FedEx", "2026-06-01"); at.receive(t1.id, "damaged", "2026-06-03");
+    const t2 = at.request({ assetTag: "EQ-2", assetName: "B", fromLocation: "HQ", toLocation: "Branch", requestedBy: "u1" })!;
+    at.dispatch(t2.id, "UPS", "2026-06-01");
+    const s = at.summary();
+    assert.equal(s.totalTransfers, 2);
+    assert.equal(s.inTransit, 1);
+    assert.equal(s.received, 1);
+    assert.equal(s.damaged, 1);
+    assert.equal(s.byToLocation.Branch, 2);
   });
 });
