@@ -34,6 +34,8 @@ import { DunningManager } from "../dunning/dunning-manager.js";
 import { EventSchedulerManager } from "../event-scheduler/event-scheduler-manager.js";
 import { PromotionManager } from "../promotion/promotion-manager.js";
 import { RebateManager } from "../rebate/rebate-manager.js";
+import { DataRetentionManager } from "../data-retention/data-retention-manager.js";
+import { AccessReviewManager } from "../access-review/access-review-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10268,5 +10270,153 @@ describe("RebateManager", () => {
     assert.equal(s.totalVolumeUsd, 3000);
     assert.equal(s.totalAccruedUsd, 150);
     assert.equal(s.totalSettledUsd, 50);
+  });
+});
+
+describe("DataRetentionManager", () => {
+  it("setPolicy publishes policy_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("retention.policy_created", (e) => { events.push(e.payload); });
+    const dr = new DataRetentionManager(bus);
+    dr.setPolicy("pii", 365);
+    assert.equal(events.length, 1);
+    assert.equal(dr.listPolicies().length, 1);
+  });
+
+  it("registerRecord computes expiry and needs a policy", () => {
+    const bus = new EventBus();
+    const dr = new DataRetentionManager(bus);
+    assert.equal(dr.registerRecord("pii", "user1", "2026-01-01"), undefined);
+    dr.setPolicy("pii", 30);
+    const r = dr.registerRecord("pii", "user1", "2026-01-01")!;
+    assert.equal(r.expiresAt, "2026-01-31T00:00:00.000Z");
+  });
+
+  it("evaluate marks expired records and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("retention.record_expired", (e) => { events.push(e.payload); });
+    const dr = new DataRetentionManager(bus);
+    dr.setPolicy("logs", 7);
+    dr.registerRecord("logs", "log1", "2026-01-01");
+    const { expired } = dr.evaluate("2026-02-01");
+    assert.equal(expired.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("evaluate auto-purges when policy says so", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("retention.record_purged", (e) => { events.push(e.payload); });
+    const dr = new DataRetentionManager(bus);
+    dr.setPolicy("logs", 7, true);
+    dr.registerRecord("logs", "log1", "2026-01-01");
+    const { purged } = dr.evaluate("2026-02-01");
+    assert.equal(purged.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("legal hold blocks expiry and purge", () => {
+    const bus = new EventBus();
+    const dr = new DataRetentionManager(bus);
+    dr.setPolicy("legal", 1, true);
+    const r = dr.registerRecord("legal", "case1", "2026-01-01")!;
+    dr.placeLegalHold(r.id);
+    dr.evaluate("2026-06-01");
+    assert.equal(dr.getRecord(r.id)!.status, "legal_hold");
+    assert.equal(dr.purge(r.id, "2026-06-01"), undefined);
+  });
+
+  it("summary aggregates record lifecycle states", () => {
+    const bus = new EventBus();
+    const dr = new DataRetentionManager(bus);
+    dr.setPolicy("pii", 30);
+    const r1 = dr.registerRecord("pii", "u1", "2026-01-01")!;
+    dr.registerRecord("pii", "u2", "2026-06-20");
+    dr.evaluate("2026-06-25"); // r1 expired
+    dr.purge(r1.id, "2026-06-25");
+    const s = dr.summary();
+    assert.equal(s.totalRecords, 2);
+    assert.equal(s.purged, 1);
+    assert.equal(s.byDataClass.pii, 2);
+  });
+});
+
+describe("AccessReviewManager", () => {
+  it("createCampaign and addItem build the review set", () => {
+    const bus = new EventBus();
+    const ar = new AccessReviewManager(bus);
+    const c = ar.createCampaign("Q2 Access Review");
+    const item = ar.addItem(c.id, { userId: "u1", resource: "prod-db", entitlement: "admin", reviewerId: "mgr1" });
+    assert.ok(item);
+    assert.equal(ar.getCampaign(c.id)!.items.length, 1);
+  });
+
+  it("start publishes campaign_started and requires items", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("accessreview.campaign_started", (e) => { events.push(e.payload); });
+    const ar = new AccessReviewManager(bus);
+    const c = ar.createCampaign("C");
+    assert.equal(ar.start(c.id), undefined); // no items
+    ar.addItem(c.id, { userId: "u1", resource: "r", entitlement: "read", reviewerId: "m1" });
+    ar.start(c.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("decide records decision and publishes item_decided", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("accessreview.item_decided", (e) => { events.push(e.payload); });
+    const ar = new AccessReviewManager(bus);
+    const c = ar.createCampaign("C");
+    const item = ar.addItem(c.id, { userId: "u1", resource: "r", entitlement: "read", reviewerId: "m1" })!;
+    ar.start(c.id);
+    ar.decide(c.id, item.id, "m1", "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("decide rejects wrong reviewer", () => {
+    const bus = new EventBus();
+    const ar = new AccessReviewManager(bus);
+    const c = ar.createCampaign("C");
+    const item = ar.addItem(c.id, { userId: "u1", resource: "r", entitlement: "read", reviewerId: "m1" })!;
+    ar.start(c.id);
+    assert.equal(ar.decide(c.id, item.id, "wrong", "approved"), undefined);
+    assert.equal(ar.pendingForReviewer("m1").length, 1);
+  });
+
+  it("campaign completes when all items decided", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("accessreview.campaign_completed", (e) => { events.push(e.payload); });
+    const ar = new AccessReviewManager(bus);
+    const c = ar.createCampaign("C");
+    const i1 = ar.addItem(c.id, { userId: "u1", resource: "r", entitlement: "read", reviewerId: "m1" })!;
+    const i2 = ar.addItem(c.id, { userId: "u2", resource: "r", entitlement: "write", reviewerId: "m1" })!;
+    ar.start(c.id);
+    ar.decide(c.id, i1.id, "m1", "approved");
+    ar.decide(c.id, i2.id, "m1", "revoked");
+    assert.equal(ar.getCampaign(c.id)!.status, "completed");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].approved, 1);
+    assert.equal(events[0].revoked, 1);
+  });
+
+  it("summary aggregates campaign and item states", () => {
+    const bus = new EventBus();
+    const ar = new AccessReviewManager(bus);
+    const c = ar.createCampaign("C");
+    const i1 = ar.addItem(c.id, { userId: "u1", resource: "r", entitlement: "read", reviewerId: "m1" })!;
+    ar.addItem(c.id, { userId: "u2", resource: "r", entitlement: "write", reviewerId: "m1" });
+    ar.start(c.id);
+    ar.decide(c.id, i1.id, "m1", "approved");
+    const s = ar.summary();
+    assert.equal(s.totalCampaigns, 1);
+    assert.equal(s.inProgress, 1);
+    assert.equal(s.totalItems, 2);
+    assert.equal(s.approvedItems, 1);
+    assert.equal(s.pendingItems, 1);
   });
 });

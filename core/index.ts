@@ -131,6 +131,8 @@ import { DunningManager } from "./dunning/dunning-manager.js";
 import { EventSchedulerManager } from "./event-scheduler/event-scheduler-manager.js";
 import { PromotionManager } from "./promotion/promotion-manager.js";
 import { RebateManager } from "./rebate/rebate-manager.js";
+import { DataRetentionManager } from "./data-retention/data-retention-manager.js";
+import { AccessReviewManager } from "./access-review/access-review-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -350,6 +352,8 @@ export class Olympus {
   readonly eventScheduler: EventSchedulerManager;
   readonly promotion: PromotionManager;
   readonly rebate: RebateManager;
+  readonly dataRetention: DataRetentionManager;
+  readonly accessReview: AccessReviewManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -473,6 +477,8 @@ export class Olympus {
     this.eventScheduler = new EventSchedulerManager(this.bus);
     this.promotion = new PromotionManager(this.bus);
     this.rebate = new RebateManager(this.bus);
+    this.dataRetention = new DataRetentionManager(this.bus);
+    this.accessReview = new AccessReviewManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -602,3 +608,5 @@ export { DunningManager, type DunningStage, type ReceivableStatus, type Receivab
 export { EventSchedulerManager, type RecurrencePattern, type ScheduledEventStatus, type ScheduledEvent, type SchedulerSummary } from "./event-scheduler/index.js";
 export { PromotionManager, type DiscountKind, type PromotionStatus, type Promotion, type Redemption, type PromotionSummary } from "./promotion/index.js";
 export { RebateManager, type RebateProgramStatus, type RebateTier, type RebateProgram, type RebateAccrual, type RebateSummary } from "./rebate/index.js";
+export { DataRetentionManager, type DataClass, type RecordLifecycleStatus, type RetentionPolicy, type DataRecord, type RetentionSummary } from "./data-retention/index.js";
+export { AccessReviewManager, type AccessReviewCampaignStatus, type ReviewDecision, type AccessItem, type AccessReviewCampaign, type AccessReviewSummary } from "./access-review/index.js";
