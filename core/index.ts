@@ -153,6 +153,8 @@ import { PurchaseCardManager } from "./purchase-card/purchase-card-manager.js";
 import { CycleCountManager } from "./cycle-count/cycle-count-manager.js";
 import { AssetReservationManager } from "./reservation/asset-reservation-manager.js";
 import { ComplaintManager } from "./complaint/complaint-manager.js";
+import { BudgetTransferManager } from "./budget-transfer/budget-transfer-manager.js";
+import { AssetDisposalManager } from "./asset-disposal/asset-disposal-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -394,6 +396,8 @@ export class Olympus {
   readonly cycleCount: CycleCountManager;
   readonly reservation: AssetReservationManager;
   readonly complaint: ComplaintManager;
+  readonly budgetTransfer: BudgetTransferManager;
+  readonly assetDisposal: AssetDisposalManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -539,6 +543,8 @@ export class Olympus {
     this.cycleCount = new CycleCountManager(this.bus);
     this.reservation = new AssetReservationManager(this.bus);
     this.complaint = new ComplaintManager(this.bus);
+    this.budgetTransfer = new BudgetTransferManager(this.bus);
+    this.assetDisposal = new AssetDisposalManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -690,3 +696,5 @@ export { PurchaseCardManager, type CardStatus, type TransactionState, type Purch
 export { CycleCountManager, type CountStatus, type CountLine, type CycleCount, type CycleCountSummary } from "./cycle-count/index.js";
 export { AssetReservationManager, type ReservationStatus, type ReservableResource, type Reservation, type ReservationSummary } from "./reservation/index.js";
 export { ComplaintManager, type ComplaintCategory, type ComplaintSeverity, type ComplaintStatus, type ComplaintChannel, type Complaint, type ComplaintSummary } from "./complaint/index.js";
+export { BudgetTransferManager, type TransferStatus, type BudgetPool, type BudgetTransfer, type BudgetTransferSummary } from "./budget-transfer/index.js";
+export { AssetDisposalManager, type DisposalMethod, type DisposalStatus, type DisposalRequest, type DisposalSummary } from "./asset-disposal/index.js";

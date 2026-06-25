@@ -56,6 +56,8 @@ import { PurchaseCardManager } from "../purchase-card/purchase-card-manager.js";
 import { CycleCountManager } from "../cycle-count/cycle-count-manager.js";
 import { AssetReservationManager } from "../reservation/asset-reservation-manager.js";
 import { ComplaintManager } from "../complaint/complaint-manager.js";
+import { BudgetTransferManager } from "../budget-transfer/budget-transfer-manager.js";
+import { AssetDisposalManager } from "../asset-disposal/asset-disposal-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -11781,5 +11783,133 @@ describe("ComplaintManager", () => {
     assert.equal(s.resolved, 2);
     assert.equal(s.satisfactionRatePct, 50);
     assert.equal(s.byCategory.billing, 1);
+  });
+});
+
+describe("BudgetTransferManager", () => {
+  it("createPool publishes pool_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("budgettransfer.pool_created", (e) => { events.push(e.payload); });
+    const bt = new BudgetTransferManager(bus);
+    bt.createPool("Engineering", "2026", 100000);
+    assert.equal(events.length, 1);
+  });
+
+  it("available reflects spend", () => {
+    const bus = new EventBus();
+    const bt = new BudgetTransferManager(bus);
+    const p = bt.createPool("Eng", "2026", 100000);
+    bt.recordSpend(p.id, 30000);
+    assert.equal(bt.available(p.id), 70000);
+  });
+
+  it("recordSpend rejects over-available", () => {
+    const bus = new EventBus();
+    const bt = new BudgetTransferManager(bus);
+    const p = bt.createPool("Eng", "2026", 1000);
+    assert.equal(bt.recordSpend(p.id, 2000), undefined);
+  });
+
+  it("requestTransfer validates funds and distinct pools", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("budgettransfer.requested", (e) => { events.push(e.payload); });
+    const bt = new BudgetTransferManager(bus);
+    const a = bt.createPool("Eng", "2026", 100000);
+    const b = bt.createPool("Mktg", "2026", 50000);
+    assert.equal(bt.requestTransfer(a.id, a.id, 1000, "x", "u1"), undefined); // same pool
+    assert.equal(bt.requestTransfer(a.id, b.id, 999999, "x", "u1"), undefined); // insufficient
+    assert.ok(bt.requestTransfer(a.id, b.id, 20000, "reallocation", "u1"));
+    assert.equal(events.length, 1);
+  });
+
+  it("approveTransfer moves allocation and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("budgettransfer.approved", (e) => { events.push(e.payload); });
+    const bt = new BudgetTransferManager(bus);
+    const a = bt.createPool("Eng", "2026", 100000);
+    const b = bt.createPool("Mktg", "2026", 50000);
+    const t = bt.requestTransfer(a.id, b.id, 20000, "x", "u1")!;
+    bt.approveTransfer(t.id, "cfo");
+    assert.equal(bt.getPool(a.id)!.allocatedUsd, 80000);
+    assert.equal(bt.getPool(b.id)!.allocatedUsd, 70000);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates pools and transfers", () => {
+    const bus = new EventBus();
+    const bt = new BudgetTransferManager(bus);
+    const a = bt.createPool("Eng", "2026", 100000);
+    const b = bt.createPool("Mktg", "2026", 50000);
+    bt.recordSpend(a.id, 10000);
+    const t = bt.requestTransfer(a.id, b.id, 5000, "x", "u1")!;
+    bt.approveTransfer(t.id, "cfo");
+    const s = bt.summary();
+    assert.equal(s.totalPools, 2);
+    assert.equal(s.totalAllocatedUsd, 150000);
+    assert.equal(s.approvedTransfers, 1);
+  });
+});
+
+describe("AssetDisposalManager", () => {
+  it("request publishes requested", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assetdisposal.requested", (e) => { events.push(e.payload); });
+    const ad = new AssetDisposalManager(bus);
+    ad.request({ assetTag: "EQ-1", assetName: "Laptop", method: "sale", bookValueUsd: 500, reason: "EOL", requestedBy: "u1" });
+    assert.equal(events.length, 1);
+  });
+
+  it("approve then complete computes gain/loss", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assetdisposal.completed", (e) => { events.push(e.payload); });
+    const ad = new AssetDisposalManager(bus);
+    const d = ad.request({ assetTag: "EQ-1", assetName: "Laptop", method: "sale", bookValueUsd: 500, reason: "EOL", requestedBy: "u1" });
+    ad.approve(d.id, "mgr1");
+    ad.complete(d.id, 650, "2026-06-25");
+    assert.equal(ad.getDisposal(d.id)!.gainLossUsd, 150);
+    assert.equal(events.length, 1);
+  });
+
+  it("complete requires approval", () => {
+    const bus = new EventBus();
+    const ad = new AssetDisposalManager(bus);
+    const d = ad.request({ assetTag: "EQ-1", assetName: "X", method: "scrap", bookValueUsd: 100, reason: "broken", requestedBy: "u1" });
+    assert.equal(ad.complete(d.id, 0, "2026-06-25"), undefined);
+  });
+
+  it("loss recorded when proceeds below book value", () => {
+    const bus = new EventBus();
+    const ad = new AssetDisposalManager(bus);
+    const d = ad.request({ assetTag: "EQ-1", assetName: "X", method: "recycle", bookValueUsd: 300, reason: "EOL", requestedBy: "u1" });
+    ad.approve(d.id, "m1");
+    ad.complete(d.id, 50, "2026-06-25");
+    assert.equal(ad.getDisposal(d.id)!.gainLossUsd, -250);
+  });
+
+  it("reject blocks completion", () => {
+    const bus = new EventBus();
+    const ad = new AssetDisposalManager(bus);
+    const d = ad.request({ assetTag: "EQ-1", assetName: "X", method: "donation", bookValueUsd: 0, reason: "x", requestedBy: "u1" });
+    ad.reject(d.id, "m1");
+    assert.equal(ad.complete(d.id, 0, "2026-06-25"), undefined);
+  });
+
+  it("summary aggregates proceeds, gain/loss and methods", () => {
+    const bus = new EventBus();
+    const ad = new AssetDisposalManager(bus);
+    const d1 = ad.request({ assetTag: "EQ-1", assetName: "A", method: "sale", bookValueUsd: 500, reason: "x", requestedBy: "u1" });
+    ad.approve(d1.id, "m1"); ad.complete(d1.id, 600, "2026-06-25");
+    const d2 = ad.request({ assetTag: "EQ-2", assetName: "B", method: "scrap", bookValueUsd: 200, reason: "x", requestedBy: "u1" });
+    ad.approve(d2.id, "m1"); ad.complete(d2.id, 0, "2026-06-25");
+    const s = ad.summary();
+    assert.equal(s.completed, 2);
+    assert.equal(s.totalProceedsUsd, 600);
+    assert.equal(s.totalGainLossUsd, -100); // +100 + (-200)
+    assert.equal(s.byMethod.sale, 1);
   });
 });
