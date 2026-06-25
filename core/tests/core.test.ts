@@ -32,6 +32,8 @@ import { CapTableManager } from "../cap-table/cap-table-manager.js";
 import { ApprovalWorkflowManager } from "../approval-workflow/approval-workflow-manager.js";
 import { DunningManager } from "../dunning/dunning-manager.js";
 import { EventSchedulerManager } from "../event-scheduler/event-scheduler-manager.js";
+import { PromotionManager } from "../promotion/promotion-manager.js";
+import { RebateManager } from "../rebate/rebate-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -10134,5 +10136,137 @@ describe("EventSchedulerManager", () => {
     assert.equal(s.byCategory.compliance, 2);
     assert.equal(s.byRecurrence.annually, 1);
     assert.equal(s.byRecurrence.monthly, 1);
+  });
+});
+
+describe("PromotionManager", () => {
+  it("createPromotion publishes created and rejects duplicate code", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("promotion.created", (e) => { events.push(e.payload); });
+    const pm = new PromotionManager(bus);
+    const p = pm.createPromotion({ code: "SAVE10", description: "10% off", discountKind: "percentage", value: 10, maxRedemptions: 0, startsAt: "2026-01-01", endsAt: "2026-12-31" });
+    assert.ok(p);
+    assert.equal(events.length, 1);
+    assert.equal(pm.createPromotion({ code: "SAVE10", description: "dup", discountKind: "percentage", value: 5, maxRedemptions: 0, startsAt: "2026-01-01", endsAt: "2026-12-31" }), undefined);
+  });
+
+  it("redeem computes percentage discount and publishes redeemed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("promotion.redeemed", (e) => { events.push(e.payload); });
+    const pm = new PromotionManager(bus);
+    pm.createPromotion({ code: "SAVE10", description: "10% off", discountKind: "percentage", value: 10, maxRedemptions: 0, startsAt: "2026-01-01", endsAt: "2026-12-31" });
+    const r = pm.redeem("SAVE10", "c1", 200, "2026-06-01")!;
+    assert.equal(r.discountUsd, 20);
+    assert.equal(events.length, 1);
+  });
+
+  it("fixed amount discount caps at subtotal", () => {
+    const bus = new EventBus();
+    const pm = new PromotionManager(bus);
+    pm.createPromotion({ code: "FLAT50", description: "$50 off", discountKind: "fixed_amount", value: 50, maxRedemptions: 0, startsAt: "2026-01-01", endsAt: "2026-12-31" });
+    const r = pm.redeem("FLAT50", "c1", 30, "2026-06-01")!;
+    assert.equal(r.discountUsd, 30);
+  });
+
+  it("redeem rejects outside validity window", () => {
+    const bus = new EventBus();
+    const pm = new PromotionManager(bus);
+    pm.createPromotion({ code: "X", description: "x", discountKind: "percentage", value: 10, maxRedemptions: 0, startsAt: "2026-06-01", endsAt: "2026-06-30" });
+    assert.equal(pm.redeem("X", "c1", 100, "2026-07-15"), undefined);
+  });
+
+  it("redeem exhausts promotion at max redemptions", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("promotion.exhausted", (e) => { events.push(e.payload); });
+    const pm = new PromotionManager(bus);
+    pm.createPromotion({ code: "ONE", description: "one use", discountKind: "fixed_amount", value: 5, maxRedemptions: 1, startsAt: "2026-01-01", endsAt: "2026-12-31" });
+    pm.redeem("ONE", "c1", 100, "2026-06-01");
+    assert.equal(pm.findByCode("ONE")!.status, "exhausted");
+    assert.equal(events.length, 1);
+    assert.equal(pm.redeem("ONE", "c2", 100, "2026-06-02"), undefined);
+  });
+
+  it("summary aggregates redemptions and discount", () => {
+    const bus = new EventBus();
+    const pm = new PromotionManager(bus);
+    pm.createPromotion({ code: "P", description: "p", discountKind: "percentage", value: 10, maxRedemptions: 0, startsAt: "2026-01-01", endsAt: "2026-12-31" });
+    pm.redeem("P", "c1", 100, "2026-06-01");
+    pm.redeem("P", "c2", 200, "2026-06-02");
+    const s = pm.summary();
+    assert.equal(s.totalPromotions, 1);
+    assert.equal(s.totalRedemptions, 2);
+    assert.equal(s.totalDiscountUsd, 30);
+    assert.equal(s.byDiscountKind.percentage, 1);
+  });
+});
+
+describe("RebateManager", () => {
+  it("createProgram sorts tiers and publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rebate.program_created", (e) => { events.push(e.payload); });
+    const rm = new RebateManager(bus);
+    const p = rm.createProgram("Volume", [{ thresholdUsd: 100000, ratePct: 5 }, { thresholdUsd: 50000, ratePct: 3 }]);
+    assert.equal(p.tiers[0]!.thresholdUsd, 50000);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordPurchase accrues at base then escalates rate", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rebate.tier_reached", (e) => { events.push(e.payload); });
+    const rm = new RebateManager(bus);
+    const p = rm.createProgram("V", [{ thresholdUsd: 1000, ratePct: 2 }, { thresholdUsd: 5000, ratePct: 4 }]);
+    rm.recordPurchase(p.id, "buyer1", 2000); // crosses 1000 -> 2%
+    const a = rm.getAccrual(p.id, "buyer1")!;
+    assert.equal(a.currentRatePct, 2);
+    assert.equal(a.accruedRebateUsd, 40);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordPurchase returns undefined for closed program", () => {
+    const bus = new EventBus();
+    const rm = new RebateManager(bus);
+    const p = rm.createProgram("V", [{ thresholdUsd: 0, ratePct: 1 }]);
+    rm.closeProgram(p.id);
+    assert.equal(rm.recordPurchase(p.id, "b1", 100), undefined);
+  });
+
+  it("higher tier raises rate after threshold reached", () => {
+    const bus = new EventBus();
+    const rm = new RebateManager(bus);
+    const p = rm.createProgram("V", [{ thresholdUsd: 1000, ratePct: 2 }, { thresholdUsd: 5000, ratePct: 4 }]);
+    rm.recordPurchase(p.id, "b1", 6000);
+    assert.equal(rm.getAccrual(p.id, "b1")!.currentRatePct, 4);
+  });
+
+  it("settle publishes settled and marks settled amount", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rebate.settled", (e) => { events.push(e.payload); });
+    const rm = new RebateManager(bus);
+    const p = rm.createProgram("V", [{ thresholdUsd: 0, ratePct: 5 }]);
+    rm.recordPurchase(p.id, "b1", 1000);
+    const a = rm.settle(p.id, "b1")!;
+    assert.equal(a.settledRebateUsd, 50);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].rebateUsd, 50);
+  });
+
+  it("summary aggregates volume and rebate amounts", () => {
+    const bus = new EventBus();
+    const rm = new RebateManager(bus);
+    const p = rm.createProgram("V", [{ thresholdUsd: 0, ratePct: 5 }]);
+    rm.recordPurchase(p.id, "b1", 1000);
+    rm.recordPurchase(p.id, "b2", 2000);
+    rm.settle(p.id, "b1");
+    const s = rm.summary();
+    assert.equal(s.totalParticipants, 2);
+    assert.equal(s.totalVolumeUsd, 3000);
+    assert.equal(s.totalAccruedUsd, 150);
+    assert.equal(s.totalSettledUsd, 50);
   });
 });

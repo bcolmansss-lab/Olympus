@@ -129,6 +129,8 @@ import { CapTableManager } from "./cap-table/cap-table-manager.js";
 import { ApprovalWorkflowManager } from "./approval-workflow/approval-workflow-manager.js";
 import { DunningManager } from "./dunning/dunning-manager.js";
 import { EventSchedulerManager } from "./event-scheduler/event-scheduler-manager.js";
+import { PromotionManager } from "./promotion/promotion-manager.js";
+import { RebateManager } from "./rebate/rebate-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -346,6 +348,8 @@ export class Olympus {
   readonly approvalWorkflow: ApprovalWorkflowManager;
   readonly dunning: DunningManager;
   readonly eventScheduler: EventSchedulerManager;
+  readonly promotion: PromotionManager;
+  readonly rebate: RebateManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -467,6 +471,8 @@ export class Olympus {
     this.approvalWorkflow = new ApprovalWorkflowManager(this.bus);
     this.dunning = new DunningManager(this.bus);
     this.eventScheduler = new EventSchedulerManager(this.bus);
+    this.promotion = new PromotionManager(this.bus);
+    this.rebate = new RebateManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -594,3 +600,5 @@ export { CapTableManager, type ShareClassName, type ShareClass, type EquityGrant
 export { ApprovalWorkflowManager, type ApprovalRequestStatus, type StepDecision, type ApprovalStepDef, type ApprovalWorkflowDef, type ApprovalStepState, type ApprovalRequest, type ApprovalSummary } from "./approval-workflow/index.js";
 export { DunningManager, type DunningStage, type ReceivableStatus, type Receivable, type DunningSummary } from "./dunning/index.js";
 export { EventSchedulerManager, type RecurrencePattern, type ScheduledEventStatus, type ScheduledEvent, type SchedulerSummary } from "./event-scheduler/index.js";
+export { PromotionManager, type DiscountKind, type PromotionStatus, type Promotion, type Redemption, type PromotionSummary } from "./promotion/index.js";
+export { RebateManager, type RebateProgramStatus, type RebateTier, type RebateProgram, type RebateAccrual, type RebateSummary } from "./rebate/index.js";
