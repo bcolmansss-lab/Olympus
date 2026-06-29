@@ -199,6 +199,8 @@ import { TaxNexusManager } from "./tax-nexus/tax-nexus-manager.js";
 import { ResellerManager } from "./reseller/reseller-manager.js";
 import { PressMentionManager } from "./press-mention/press-mention-manager.js";
 import { InfluencerManager } from "./influencer/influencer-manager.js";
+import { RFPResponseManager } from "./rfp/rfp-response-manager.js";
+import { CaseStudyManager } from "./case-study/case-study-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -486,6 +488,8 @@ export class Olympus {
   readonly reseller: ResellerManager;
   readonly pressMention: PressMentionManager;
   readonly influencer: InfluencerManager;
+  readonly rfp: RFPResponseManager;
+  readonly caseStudy: CaseStudyManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -677,6 +681,8 @@ export class Olympus {
     this.reseller = new ResellerManager(this.bus);
     this.pressMention = new PressMentionManager(this.bus);
     this.influencer = new InfluencerManager(this.bus);
+    this.rfp = new RFPResponseManager(this.bus);
+    this.caseStudy = new CaseStudyManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -874,3 +880,5 @@ export { TaxNexusManager, type NexusStatus, type JurisdictionNexus, type TaxNexu
 export { ResellerManager, type ResellerTier, type ResellerDealStatus, type Reseller, type RegisteredDeal, type ResellerSummary } from "./reseller/index.js";
 export { PressMentionManager, type MentionSentiment, type SourceTier, type PressMention, type PressSummary } from "./press-mention/index.js";
 export { InfluencerManager, type Platform, type CollabStatus, type Influencer, type Collaboration, type InfluencerSummary } from "./influencer/index.js";
+export { RFPResponseManager, type RFPStatus, type RFPSection, type RFP, type RFPSummary } from "./rfp/index.js";
+export { CaseStudyManager, type CaseStudyStatus, type ReferenceType, type CaseStudy, type CaseStudySummary } from "./case-study/index.js";

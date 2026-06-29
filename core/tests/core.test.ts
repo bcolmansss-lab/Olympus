@@ -102,6 +102,8 @@ import { TaxNexusManager } from "../tax-nexus/tax-nexus-manager.js";
 import { ResellerManager } from "../reseller/reseller-manager.js";
 import { PressMentionManager } from "../press-mention/press-mention-manager.js";
 import { InfluencerManager } from "../influencer/influencer-manager.js";
+import { RFPResponseManager } from "../rfp/rfp-response-manager.js";
+import { CaseStudyManager } from "../case-study/case-study-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14787,5 +14789,147 @@ describe("InfluencerManager", () => {
     assert.equal(s.totalSpendUsd, 2000);
     assert.equal(s.totalConversions, 100);
     assert.equal(s.costPerConversionUsd, 20);
+  });
+});
+
+describe("RFPResponseManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rfp.created", (e) => { events.push(e.payload); });
+    const rm = new RFPResponseManager(bus);
+    rm.create({ prospect: "BigCo", title: "Platform RFP", valueUsd: 500000, dueDate: "2026-07-15" });
+    assert.equal(events.length, 1);
+  });
+
+  it("completing all sections moves to in_review", () => {
+    const bus = new EventBus();
+    const rm = new RFPResponseManager(bus);
+    const r = rm.create({ prospect: "BigCo", title: "X", valueUsd: 100000, dueDate: "2026-07-15" });
+    const s1 = rm.addSection(r.id, "Security", "u1")!;
+    rm.completeSection(r.id, s1.id);
+    assert.equal(rm.getRFP(r.id)!.status, "in_review");
+  });
+
+  it("completionPct tracks progress", () => {
+    const bus = new EventBus();
+    const rm = new RFPResponseManager(bus);
+    const r = rm.create({ prospect: "BigCo", title: "X", valueUsd: 100000, dueDate: "2026-07-15" });
+    const s1 = rm.addSection(r.id, "A", "u1")!;
+    rm.addSection(r.id, "B", "u2");
+    rm.completeSection(r.id, s1.id);
+    assert.equal(rm.completionPct(r.id), 50);
+  });
+
+  it("submit requires all sections complete and publishes submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rfp.submitted", (e) => { events.push(e.payload); });
+    const rm = new RFPResponseManager(bus);
+    const r = rm.create({ prospect: "BigCo", title: "X", valueUsd: 100000, dueDate: "2026-07-15" });
+    const s1 = rm.addSection(r.id, "A", "u1")!;
+    assert.equal(rm.submit(r.id, "2026-07-10"), undefined);
+    rm.completeSection(r.id, s1.id);
+    rm.submit(r.id, "2026-07-10");
+    assert.equal(rm.getRFP(r.id)!.status, "submitted");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordOutcome won requires submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rfp.outcome_recorded", (e) => { events.push(e.payload); });
+    const rm = new RFPResponseManager(bus);
+    const r = rm.create({ prospect: "BigCo", title: "X", valueUsd: 100000, dueDate: "2026-07-15" });
+    assert.equal(rm.recordOutcome(r.id, "won"), undefined);
+    const s1 = rm.addSection(r.id, "A", "u1")!;
+    rm.completeSection(r.id, s1.id);
+    rm.submit(r.id, "2026-07-10");
+    rm.recordOutcome(r.id, "won");
+    assert.equal(rm.getRFP(r.id)!.status, "won");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes win rate and values", () => {
+    const bus = new EventBus();
+    const rm = new RFPResponseManager(bus);
+    const r1 = rm.create({ prospect: "A", title: "X", valueUsd: 100000, dueDate: "2026-07-15" });
+    const a = rm.addSection(r1.id, "S", "u1")!; rm.completeSection(r1.id, a.id);
+    rm.submit(r1.id, "2026-07-10"); rm.recordOutcome(r1.id, "won");
+    const r2 = rm.create({ prospect: "B", title: "Y", valueUsd: 50000, dueDate: "2026-07-15" });
+    const b = rm.addSection(r2.id, "S", "u1")!; rm.completeSection(r2.id, b.id);
+    rm.submit(r2.id, "2026-07-10"); rm.recordOutcome(r2.id, "lost");
+    const s = rm.summary();
+    assert.equal(s.won, 1);
+    assert.equal(s.lost, 1);
+    assert.equal(s.winRatePct, 50);
+    assert.equal(s.wonValueUsd, 100000);
+  });
+});
+
+describe("CaseStudyManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("casestudy.created", (e) => { events.push(e.payload); });
+    const cm = new CaseStudyManager(bus);
+    cm.create({ customer: "Acme", industry: "fintech", title: "Acme scales", referenceTypes: ["written"] });
+    assert.equal(events.length, 1);
+  });
+
+  it("publish requires approval and publishes published", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("casestudy.published", (e) => { events.push(e.payload); });
+    const cm = new CaseStudyManager(bus);
+    const c = cm.create({ customer: "Acme", industry: "fintech", title: "X", referenceTypes: ["logo"] });
+    assert.equal(cm.publish(c.id, "2026-06-10"), undefined);
+    cm.submitForApproval(c.id);
+    cm.publish(c.id, "2026-06-10");
+    assert.equal(cm.getCaseStudy(c.id)!.status, "published");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordReference requires published and respects cap", () => {
+    const bus = new EventBus();
+    const cm = new CaseStudyManager(bus);
+    const c = cm.create({ customer: "Acme", industry: "x", title: "X", referenceTypes: ["written"], maxUsesPerQuarter: 1 });
+    assert.equal(cm.recordReference(c.id), undefined); // not published
+    cm.submitForApproval(c.id); cm.publish(c.id, "2026-06-10");
+    cm.recordReference(c.id);
+    assert.equal(cm.recordReference(c.id), undefined); // cap hit
+  });
+
+  it("resetQuarter restores availability", () => {
+    const bus = new EventBus();
+    const cm = new CaseStudyManager(bus);
+    const c = cm.create({ customer: "Acme", industry: "x", title: "X", referenceTypes: ["written"], maxUsesPerQuarter: 1 });
+    cm.submitForApproval(c.id); cm.publish(c.id, "2026-06-10");
+    cm.recordReference(c.id);
+    assert.equal(cm.isAvailable(c.id), false);
+    cm.resetQuarter();
+    assert.equal(cm.isAvailable(c.id), true);
+  });
+
+  it("archive removes from published", () => {
+    const bus = new EventBus();
+    const cm = new CaseStudyManager(bus);
+    const c = cm.create({ customer: "Acme", industry: "x", title: "X", referenceTypes: ["written"] });
+    cm.submitForApproval(c.id); cm.publish(c.id, "2026-06-10");
+    cm.archive(c.id);
+    assert.equal(cm.isAvailable(c.id), false);
+  });
+
+  it("summary aggregates industries and references", () => {
+    const bus = new EventBus();
+    const cm = new CaseStudyManager(bus);
+    const c = cm.create({ customer: "Acme", industry: "fintech", title: "X", referenceTypes: ["written"] });
+    cm.submitForApproval(c.id); cm.publish(c.id, "2026-06-10"); cm.recordReference(c.id);
+    cm.create({ customer: "Beta", industry: "fintech", title: "Y", referenceTypes: ["video"] });
+    const s = cm.summary();
+    assert.equal(s.totalCaseStudies, 2);
+    assert.equal(s.published, 1);
+    assert.equal(s.totalReferences, 1);
+    assert.equal(s.byIndustry.fintech, 2);
   });
 });
