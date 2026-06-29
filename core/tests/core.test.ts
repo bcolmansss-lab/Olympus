@@ -96,6 +96,8 @@ import { ApiKeyManager } from "../api-key/api-key-manager.js";
 import { QuotaUsageManager } from "../quota-usage/quota-usage-manager.js";
 import { ConsentManager } from "../consent/consent-manager.js";
 import { DataSubjectRequestManager } from "../dsar/data-subject-request-manager.js";
+import { CarbonCreditManager } from "../carbon-credit/carbon-credit-manager.js";
+import { WasteStreamManager } from "../waste-stream/waste-stream-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14403,5 +14405,124 @@ describe("DataSubjectRequestManager", () => {
     assert.equal(s.fulfilled, 1);
     assert.equal(s.overdue, 1);
     assert.equal(s.byType.access, 1);
+  });
+});
+
+describe("CarbonCreditManager", () => {
+  it("purchase publishes purchased", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("carboncredit.purchased", (e) => { events.push(e.payload); });
+    const cm = new CarbonCreditManager(bus);
+    cm.purchase({ projectType: "reforestation", vintage: "2025", tonnes: 100, costPerTonneUsd: 15, purchasedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].costUsd, 1500);
+  });
+
+  it("retire reduces available and publishes retired", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("carboncredit.retired", (e) => { events.push(e.payload); });
+    const cm = new CarbonCreditManager(bus);
+    const lot = cm.purchase({ projectType: "renewable_energy", vintage: "2025", tonnes: 100, costPerTonneUsd: 10, purchasedAt: "2026-06-01" });
+    cm.retire(lot.id, 40, "FY26 offset");
+    assert.equal(cm.availableTonnes(), 60);
+    assert.equal(events.length, 1);
+  });
+
+  it("retire rejects over-available", () => {
+    const bus = new EventBus();
+    const cm = new CarbonCreditManager(bus);
+    const lot = cm.purchase({ projectType: "soil_carbon", vintage: "2025", tonnes: 50, costPerTonneUsd: 20, purchasedAt: "2026-06-01" });
+    assert.equal(cm.retire(lot.id, 100, "x"), undefined);
+  });
+
+  it("recordEmissions publishes emissions_recorded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("carboncredit.emissions_recorded", (e) => { events.push(e.payload); });
+    const cm = new CarbonCreditManager(bus);
+    cm.recordEmissions("scope_1", "2026", 80, "2026-12-31");
+    assert.equal(events.length, 1);
+  });
+
+  it("net footprint = emissions - retired", () => {
+    const bus = new EventBus();
+    const cm = new CarbonCreditManager(bus);
+    const lot = cm.purchase({ projectType: "direct_air_capture", vintage: "2025", tonnes: 100, costPerTonneUsd: 100, purchasedAt: "2026-06-01" });
+    cm.retire(lot.id, 60, "offset");
+    cm.recordEmissions("scope_2", "2026", 80, "2026-12-31");
+    assert.equal(cm.summary().netFootprintTonnes, 20);
+  });
+
+  it("summary aggregates by project type", () => {
+    const bus = new EventBus();
+    const cm = new CarbonCreditManager(bus);
+    cm.purchase({ projectType: "reforestation", vintage: "2025", tonnes: 100, costPerTonneUsd: 15, purchasedAt: "2026-06-01" });
+    cm.purchase({ projectType: "methane_capture", vintage: "2025", tonnes: 50, costPerTonneUsd: 12, purchasedAt: "2026-06-01" });
+    const s = cm.summary();
+    assert.equal(s.totalCreditsTonnes, 150);
+    assert.equal(s.byProjectType.reforestation, 100);
+    assert.equal(s.totalSpendUsd, 2100);
+  });
+});
+
+describe("WasteStreamManager", () => {
+  it("record publishes collection_recorded and marks diverted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("waste.collection_recorded", (e) => { events.push(e.payload); });
+    const wm = new WasteStreamManager(bus);
+    wm.record({ stream: "recycling", weightKg: 100, period: "2026-06", location: "HQ", haulerCostUsd: 50, recordedAt: "2026-06-30" });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].diverted, true);
+  });
+
+  it("hazardous waste is flagged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("waste.hazardous_flagged", (e) => { events.push(e.payload); });
+    const wm = new WasteStreamManager(bus);
+    wm.record({ stream: "hazardous", weightKg: 20, period: "2026-06", location: "Lab", haulerCostUsd: 200, recordedAt: "2026-06-30" });
+    assert.equal(events.length, 1);
+  });
+
+  it("diversionRate computes diverted ratio", () => {
+    const bus = new EventBus();
+    const wm = new WasteStreamManager(bus);
+    wm.record({ stream: "recycling", weightKg: 75, period: "2026-06", location: "HQ", haulerCostUsd: 10, recordedAt: "2026-06-30" });
+    wm.record({ stream: "landfill", weightKg: 25, period: "2026-06", location: "HQ", haulerCostUsd: 10, recordedAt: "2026-06-30" });
+    assert.equal(wm.diversionRate("2026-06"), 75);
+  });
+
+  it("diversion milestone fires once at goal", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("waste.diversion_milestone", (e) => { events.push(e.payload); });
+    const wm = new WasteStreamManager(bus, 75);
+    wm.record({ stream: "recycling", weightKg: 80, period: "2026-06", location: "HQ", haulerCostUsd: 10, recordedAt: "2026-06-30" });
+    wm.record({ stream: "landfill", weightKg: 20, period: "2026-06", location: "HQ", haulerCostUsd: 10, recordedAt: "2026-06-30" });
+    wm.record({ stream: "compost", weightKg: 10, period: "2026-06", location: "HQ", haulerCostUsd: 5, recordedAt: "2026-06-30" });
+    assert.equal(events.length, 1);
+  });
+
+  it("landfill is not diverted", () => {
+    const bus = new EventBus();
+    const wm = new WasteStreamManager(bus);
+    const r = wm.record({ stream: "landfill", weightKg: 50, period: "2026-06", location: "HQ", haulerCostUsd: 10, recordedAt: "2026-06-30" });
+    assert.equal(r.diverted, false);
+  });
+
+  it("summary aggregates weights and diversion", () => {
+    const bus = new EventBus();
+    const wm = new WasteStreamManager(bus);
+    wm.record({ stream: "recycling", weightKg: 60, period: "2026-06", location: "HQ", haulerCostUsd: 20, recordedAt: "2026-06-30" });
+    wm.record({ stream: "landfill", weightKg: 40, period: "2026-06", location: "HQ", haulerCostUsd: 30, recordedAt: "2026-06-30" });
+    const s = wm.summary();
+    assert.equal(s.totalWeightKg, 100);
+    assert.equal(s.divertedKg, 60);
+    assert.equal(s.landfillKg, 40);
+    assert.equal(s.diversionRatePct, 60);
+    assert.equal(s.totalHaulerCostUsd, 50);
   });
 });

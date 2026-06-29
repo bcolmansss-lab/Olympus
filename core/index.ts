@@ -193,6 +193,8 @@ import { ApiKeyManager } from "./api-key/api-key-manager.js";
 import { QuotaUsageManager } from "./quota-usage/quota-usage-manager.js";
 import { ConsentManager } from "./consent/consent-manager.js";
 import { DataSubjectRequestManager } from "./dsar/data-subject-request-manager.js";
+import { CarbonCreditManager } from "./carbon-credit/carbon-credit-manager.js";
+import { WasteStreamManager } from "./waste-stream/waste-stream-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -474,6 +476,8 @@ export class Olympus {
   readonly quotaUsage: QuotaUsageManager;
   readonly consent: ConsentManager;
   readonly dsar: DataSubjectRequestManager;
+  readonly carbonCredit: CarbonCreditManager;
+  readonly wasteStream: WasteStreamManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -659,6 +663,8 @@ export class Olympus {
     this.quotaUsage = new QuotaUsageManager(this.bus);
     this.consent = new ConsentManager(this.bus);
     this.dsar = new DataSubjectRequestManager(this.bus);
+    this.carbonCredit = new CarbonCreditManager(this.bus);
+    this.wasteStream = new WasteStreamManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -850,3 +856,5 @@ export { ApiKeyManager, type ApiKeyStatus, type DeveloperApiKey, type ApiKeySumm
 export { QuotaUsageManager, type UsageQuota, type QuotaUsageSummary } from "./quota-usage/index.js";
 export { ConsentManager, type ConsentPurpose, type ConsentState, type ConsentRecord, type ConsentSummary } from "./consent/index.js";
 export { DataSubjectRequestManager, type DSARType, type DSARStatus, type DataSubjectRequest, type DSARSummary } from "./dsar/index.js";
+export { CarbonCreditManager, type CarbonProjectType, type EmissionScope, type CreditLot, type EmissionRecord, type CarbonSummary } from "./carbon-credit/index.js";
+export { WasteStreamManager, type WasteStream, type WasteRecord, type WasteSummary } from "./waste-stream/index.js";
