@@ -100,6 +100,8 @@ import { CarbonCreditManager } from "../carbon-credit/carbon-credit-manager.js";
 import { WasteStreamManager } from "../waste-stream/waste-stream-manager.js";
 import { TaxNexusManager } from "../tax-nexus/tax-nexus-manager.js";
 import { ResellerManager } from "../reseller/reseller-manager.js";
+import { PressMentionManager } from "../press-mention/press-mention-manager.js";
+import { InfluencerManager } from "../influencer/influencer-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14664,5 +14666,126 @@ describe("ResellerManager", () => {
     assert.equal(s.totalWonUsd, 100000);
     assert.equal(s.totalMarginUsd, 15000);
     assert.equal(s.totalPipelineUsd, 50000);
+  });
+});
+
+describe("PressMentionManager", () => {
+  it("log publishes mention_logged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("press.mention_logged", (e) => { events.push(e.payload); });
+    const pm = new PressMentionManager(bus);
+    pm.log({ source: "TechCrunch", tier: "tier1", url: "x", sentiment: "positive", reach: 500000, period: "2026-06", topics: ["launch"], loggedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("high reach mention fires high_reach", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("press.high_reach", (e) => { events.push(e.payload); });
+    const pm = new PressMentionManager(bus, 1000000);
+    pm.log({ source: "NYT", tier: "tier1", url: "x", sentiment: "neutral", reach: 2000000, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("negative spike fires at threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("press.negative_spike", (e) => { events.push(e.payload); });
+    const pm = new PressMentionManager(bus, 1e9, 2);
+    pm.log({ source: "A", tier: "blog", url: "x", sentiment: "negative", reach: 100, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    pm.log({ source: "B", tier: "blog", url: "x", sentiment: "negative", reach: 100, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("sentimentScore reflects mix", () => {
+    const bus = new EventBus();
+    const pm = new PressMentionManager(bus);
+    pm.log({ source: "A", tier: "blog", url: "x", sentiment: "positive", reach: 100, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    pm.log({ source: "B", tier: "blog", url: "x", sentiment: "negative", reach: 100, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    pm.log({ source: "C", tier: "blog", url: "x", sentiment: "positive", reach: 100, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    assert.equal(pm.sentimentScore("2026-06"), 33);
+  });
+
+  it("shareOfVoice computes topic prevalence", () => {
+    const bus = new EventBus();
+    const pm = new PressMentionManager(bus);
+    pm.log({ source: "A", tier: "blog", url: "x", sentiment: "positive", reach: 100, period: "2026-06", topics: ["ai"], loggedAt: "2026-06-01" });
+    pm.log({ source: "B", tier: "blog", url: "x", sentiment: "neutral", reach: 100, period: "2026-06", topics: ["cloud"], loggedAt: "2026-06-01" });
+    assert.equal(pm.shareOfVoice("ai"), 50);
+  });
+
+  it("summary aggregates sentiment and reach", () => {
+    const bus = new EventBus();
+    const pm = new PressMentionManager(bus);
+    pm.log({ source: "A", tier: "tier1", url: "x", sentiment: "positive", reach: 1000, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    pm.log({ source: "B", tier: "blog", url: "x", sentiment: "negative", reach: 500, period: "2026-06", topics: [], loggedAt: "2026-06-01" });
+    const s = pm.summary();
+    assert.equal(s.totalMentions, 2);
+    assert.equal(s.positive, 1);
+    assert.equal(s.negative, 1);
+    assert.equal(s.totalReach, 1500);
+    assert.equal(s.byTier.tier1, 1);
+  });
+});
+
+describe("InfluencerManager", () => {
+  it("onboard publishes onboarded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("influencer.onboarded", (e) => { events.push(e.payload); });
+    const im = new InfluencerManager(bus);
+    im.onboard({ handle: "@jane", platform: "instagram", followers: 100000, engagementRatePct: 3, niche: "fitness" });
+    assert.equal(events.length, 1);
+  });
+
+  it("startCollab publishes collab_started", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("influencer.collab_started", (e) => { events.push(e.payload); });
+    const im = new InfluencerManager(bus);
+    const inf = im.onboard({ handle: "@jane", platform: "youtube", followers: 500000, engagementRatePct: 5, niche: "tech" });
+    im.startCollab(inf.id, "Launch", 5000, ["video"], "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("startCollab requires existing influencer", () => {
+    const bus = new EventBus();
+    const im = new InfluencerManager(bus);
+    assert.equal(im.startCollab("nope", "X", 1000, [], "2026-06-01"), undefined);
+  });
+
+  it("recordPerformance accrues metrics", () => {
+    const bus = new EventBus();
+    const im = new InfluencerManager(bus);
+    const inf = im.onboard({ handle: "@jane", platform: "tiktok", followers: 200000, engagementRatePct: 8, niche: "food" });
+    const c = im.startCollab(inf.id, "Promo", 2000, ["post"], "2026-06-01")!;
+    im.recordPerformance(c.id, 100000, 5000, 200);
+    assert.equal(im.getCollab(c.id)!.conversions, 200);
+  });
+
+  it("completeCollab publishes collab_completed with engagement", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("influencer.collab_completed", (e) => { events.push(e.payload); });
+    const im = new InfluencerManager(bus);
+    const inf = im.onboard({ handle: "@jane", platform: "twitter", followers: 50000, engagementRatePct: 2, niche: "news" });
+    const c = im.startCollab(inf.id, "X", 1000, [], "2026-06-01")!;
+    im.recordPerformance(c.id, 10000, 500, 50);
+    im.completeCollab(c.id, "2026-06-30");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].engagementRate, 5);
+  });
+
+  it("summary computes cost per conversion", () => {
+    const bus = new EventBus();
+    const im = new InfluencerManager(bus);
+    const inf = im.onboard({ handle: "@jane", platform: "instagram", followers: 100000, engagementRatePct: 3, niche: "fitness" });
+    const c = im.startCollab(inf.id, "X", 2000, [], "2026-06-01")!;
+    im.recordPerformance(c.id, 50000, 2000, 100);
+    const s = im.summary();
+    assert.equal(s.totalSpendUsd, 2000);
+    assert.equal(s.totalConversions, 100);
+    assert.equal(s.costPerConversionUsd, 20);
   });
 });

@@ -197,6 +197,8 @@ import { CarbonCreditManager } from "./carbon-credit/carbon-credit-manager.js";
 import { WasteStreamManager } from "./waste-stream/waste-stream-manager.js";
 import { TaxNexusManager } from "./tax-nexus/tax-nexus-manager.js";
 import { ResellerManager } from "./reseller/reseller-manager.js";
+import { PressMentionManager } from "./press-mention/press-mention-manager.js";
+import { InfluencerManager } from "./influencer/influencer-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -482,6 +484,8 @@ export class Olympus {
   readonly wasteStream: WasteStreamManager;
   readonly taxNexus: TaxNexusManager;
   readonly reseller: ResellerManager;
+  readonly pressMention: PressMentionManager;
+  readonly influencer: InfluencerManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -671,6 +675,8 @@ export class Olympus {
     this.wasteStream = new WasteStreamManager(this.bus);
     this.taxNexus = new TaxNexusManager(this.bus);
     this.reseller = new ResellerManager(this.bus);
+    this.pressMention = new PressMentionManager(this.bus);
+    this.influencer = new InfluencerManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -866,3 +872,5 @@ export { CarbonCreditManager, type CarbonProjectType, type EmissionScope, type C
 export { WasteStreamManager, type WasteStream, type WasteRecord, type WasteSummary } from "./waste-stream/index.js";
 export { TaxNexusManager, type NexusStatus, type JurisdictionNexus, type TaxNexusSummary } from "./tax-nexus/index.js";
 export { ResellerManager, type ResellerTier, type ResellerDealStatus, type Reseller, type RegisteredDeal, type ResellerSummary } from "./reseller/index.js";
+export { PressMentionManager, type MentionSentiment, type SourceTier, type PressMention, type PressSummary } from "./press-mention/index.js";
+export { InfluencerManager, type Platform, type CollabStatus, type Influencer, type Collaboration, type InfluencerSummary } from "./influencer/index.js";
