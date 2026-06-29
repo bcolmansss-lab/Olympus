@@ -211,6 +211,8 @@ import { DeliveryRouteManager } from "./delivery-route/delivery-route-manager.js
 import { ColdChainManager } from "./cold-chain/cold-chain-manager.js";
 import { ReplenishmentManager } from "./replenishment/replenishment-manager.js";
 import { DropshipManager } from "./dropship/dropship-manager.js";
+import { CapexRequestManager } from "./capex/capex-request-manager.js";
+import { AssetFinancingManager } from "./asset-financing/asset-financing-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -510,6 +512,8 @@ export class Olympus {
   readonly coldChain: ColdChainManager;
   readonly replenishment: ReplenishmentManager;
   readonly dropship: DropshipManager;
+  readonly capex: CapexRequestManager;
+  readonly assetFinancing: AssetFinancingManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -713,6 +717,8 @@ export class Olympus {
     this.coldChain = new ColdChainManager(this.bus);
     this.replenishment = new ReplenishmentManager(this.bus);
     this.dropship = new DropshipManager(this.bus);
+    this.capex = new CapexRequestManager(this.bus);
+    this.assetFinancing = new AssetFinancingManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -922,3 +928,5 @@ export { DeliveryRouteManager, type RouteStatus, type StopStatus, type RouteStop
 export { ColdChainManager, type ColdChainState, type IntegrityVerdict, type TempReading, type ColdChainShipment, type ColdChainSummary } from "./cold-chain/index.js";
 export { ReplenishmentManager, type ReplenishmentPolicy, type ReorderSuggestion, type ReplenishmentSummary } from "./replenishment/index.js";
 export { DropshipManager, type DropshipStatus, type SupplierOffer, type DropshipOrder, type DropshipSummary } from "./dropship/index.js";
+export { CapexRequestManager, type CapexCategory, type CapexStatus, type CapexRequest, type CapexSummary } from "./capex/index.js";
+export { AssetFinancingManager, type FinancingType, type FinancingStatus, type FinancingAgreement, type FinancingSummary } from "./asset-financing/index.js";

@@ -114,6 +114,8 @@ import { DeliveryRouteManager } from "../delivery-route/delivery-route-manager.j
 import { ColdChainManager } from "../cold-chain/cold-chain-manager.js";
 import { ReplenishmentManager } from "../replenishment/replenishment-manager.js";
 import { DropshipManager } from "../dropship/dropship-manager.js";
+import { CapexRequestManager } from "../capex/capex-request-manager.js";
+import { AssetFinancingManager } from "../asset-financing/asset-financing-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15591,5 +15593,131 @@ describe("DropshipManager", () => {
     assert.equal(s.totalOrders, 2);
     assert.equal(s.totalCostUsd, 30);
     assert.equal(s.bySupplier.s1, 2);
+  });
+});
+
+describe("CapexRequestManager", () => {
+  it("submit publishes submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("capex.submitted", (e) => { events.push(e.payload); });
+    const cm = new CapexRequestManager(bus);
+    const r = cm.create({ requesterId: "u1", title: "CNC machine", category: "equipment", amountUsd: 100000, expectedAnnualSavingsUsd: 30000, usefulLifeYears: 5, fiscalYear: "2026" });
+    cm.submit(r.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("paybackYears and roiPct compute correctly", () => {
+    const bus = new EventBus();
+    const cm = new CapexRequestManager(bus);
+    const r = cm.create({ requesterId: "u1", title: "X", category: "equipment", amountUsd: 100000, expectedAnnualSavingsUsd: 25000, usefulLifeYears: 5, fiscalYear: "2026" });
+    assert.equal(cm.paybackYears(r.id), 4);
+    assert.equal(cm.roiPct(r.id), 25); // (125000-100000)/100000
+  });
+
+  it("approve commits to fiscal year budget", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("capex.approved", (e) => { events.push(e.payload); });
+    const cm = new CapexRequestManager(bus);
+    const r = cm.create({ requesterId: "u1", title: "X", category: "it_hardware", amountUsd: 50000, expectedAnnualSavingsUsd: 0, usefulLifeYears: 3, fiscalYear: "2026" });
+    cm.submit(r.id);
+    cm.approve(r.id, "cfo");
+    assert.equal(cm.committedFor("2026"), 50000);
+    assert.equal(events.length, 1);
+  });
+
+  it("budget exceeded fires event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("capex.budget_exceeded", (e) => { events.push(e.payload); });
+    const cm = new CapexRequestManager(bus);
+    cm.setBudget("2026", 60000);
+    const r1 = cm.create({ requesterId: "u1", title: "A", category: "equipment", amountUsd: 40000, expectedAnnualSavingsUsd: 0, usefulLifeYears: 3, fiscalYear: "2026" });
+    cm.submit(r1.id); cm.approve(r1.id, "cfo");
+    const r2 = cm.create({ requesterId: "u1", title: "B", category: "equipment", amountUsd: 30000, expectedAnnualSavingsUsd: 0, usefulLifeYears: 3, fiscalYear: "2026" });
+    cm.submit(r2.id); cm.approve(r2.id, "cfo");
+    assert.equal(events.length, 1);
+  });
+
+  it("fund requires approval", () => {
+    const bus = new EventBus();
+    const cm = new CapexRequestManager(bus);
+    const r = cm.create({ requesterId: "u1", title: "X", category: "software", amountUsd: 10000, expectedAnnualSavingsUsd: 0, usefulLifeYears: 3, fiscalYear: "2026" });
+    assert.equal(cm.fund(r.id), undefined);
+    cm.submit(r.id); cm.approve(r.id, "cfo");
+    assert.ok(cm.fund(r.id));
+  });
+
+  it("summary aggregates approved value and categories", () => {
+    const bus = new EventBus();
+    const cm = new CapexRequestManager(bus);
+    const r = cm.create({ requesterId: "u1", title: "X", category: "vehicles", amountUsd: 80000, expectedAnnualSavingsUsd: 0, usefulLifeYears: 5, fiscalYear: "2026" });
+    cm.submit(r.id); cm.approve(r.id, "cfo");
+    const s = cm.summary();
+    assert.equal(s.approved, 1);
+    assert.equal(s.totalApprovedUsd, 80000);
+    assert.equal(s.byCategory.vehicles, 1);
+  });
+});
+
+describe("AssetFinancingManager", () => {
+  it("originate computes monthly payment and publishes originated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assetfinancing.originated", (e) => { events.push(e.payload); });
+    const fm = new AssetFinancingManager(bus);
+    const a = fm.originate({ assetTag: "EQ-1", type: "loan", lender: "Bank", principalUsd: 12000, annualRatePct: 0, termMonths: 12, originatedAt: "2026-01-01" });
+    assert.equal(a.monthlyPaymentUsd, 1000); // zero interest
+    assert.equal(events.length, 1);
+  });
+
+  it("interest-bearing loan has payment above principal/term", () => {
+    const bus = new EventBus();
+    const fm = new AssetFinancingManager(bus);
+    const a = fm.originate({ assetTag: "EQ-1", type: "loan", lender: "Bank", principalUsd: 12000, annualRatePct: 12, termMonths: 12, originatedAt: "2026-01-01" });
+    assert.ok(a.monthlyPaymentUsd > 1000);
+  });
+
+  it("recordPayment reduces outstanding and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assetfinancing.payment_recorded", (e) => { events.push(e.payload); });
+    const fm = new AssetFinancingManager(bus);
+    const a = fm.originate({ assetTag: "EQ-1", type: "lease", lender: "L", principalUsd: 12000, annualRatePct: 0, termMonths: 12, originatedAt: "2026-01-01" });
+    fm.recordPayment(a.id, 1000);
+    assert.equal(fm.outstanding(a.id), 11000);
+    assert.equal(events.length, 1);
+  });
+
+  it("final payment pays off and publishes paid_off", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("assetfinancing.paid_off", (e) => { events.push(e.payload); });
+    const fm = new AssetFinancingManager(bus);
+    const a = fm.originate({ assetTag: "EQ-1", type: "loan", lender: "L", principalUsd: 2000, annualRatePct: 0, termMonths: 2, originatedAt: "2026-01-01" });
+    fm.recordPayment(a.id, 1000);
+    fm.recordPayment(a.id, 1000);
+    assert.equal(fm.getAgreement(a.id)!.status, "paid_off");
+    assert.equal(events.length, 1);
+  });
+
+  it("markDefaulted only on active", () => {
+    const bus = new EventBus();
+    const fm = new AssetFinancingManager(bus);
+    const a = fm.originate({ assetTag: "EQ-1", type: "loan", lender: "L", principalUsd: 1000, annualRatePct: 0, termMonths: 1, originatedAt: "2026-01-01" });
+    fm.recordPayment(a.id, 1000);
+    assert.equal(fm.markDefaulted(a.id), undefined);
+  });
+
+  it("summary aggregates outstanding and obligations", () => {
+    const bus = new EventBus();
+    const fm = new AssetFinancingManager(bus);
+    fm.originate({ assetTag: "A", type: "loan", lender: "L", principalUsd: 12000, annualRatePct: 0, termMonths: 12, originatedAt: "2026-01-01" });
+    fm.originate({ assetTag: "B", type: "lease", lender: "L", principalUsd: 6000, annualRatePct: 0, termMonths: 6, originatedAt: "2026-01-01" });
+    const s = fm.summary();
+    assert.equal(s.totalAgreements, 2);
+    assert.equal(s.totalPrincipalUsd, 18000);
+    assert.equal(s.monthlyObligationUsd, 2000); // 1000 + 1000
   });
 });
