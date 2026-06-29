@@ -177,6 +177,8 @@ import { PhysicalAccessManager } from "./physical-access/physical-access-manager
 import { AssetAuditManager } from "./asset-audit/asset-audit-manager.js";
 import { ProductRecallManager } from "./recall/product-recall-manager.js";
 import { ServiceContractManager } from "./service-contract/service-contract-manager.js";
+import { EscrowManager } from "./escrow/escrow-manager.js";
+import { TradeDeductionManager } from "./trade-deduction/trade-deduction-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -442,6 +444,8 @@ export class Olympus {
   readonly assetAudit: AssetAuditManager;
   readonly recall: ProductRecallManager;
   readonly serviceContract: ServiceContractManager;
+  readonly escrow: EscrowManager;
+  readonly tradeDeduction: TradeDeductionManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -611,6 +615,8 @@ export class Olympus {
     this.assetAudit = new AssetAuditManager(this.bus);
     this.recall = new ProductRecallManager(this.bus);
     this.serviceContract = new ServiceContractManager(this.bus);
+    this.escrow = new EscrowManager(this.bus);
+    this.tradeDeduction = new TradeDeductionManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -786,3 +792,5 @@ export { PhysicalAccessManager, type BadgeStatus, type Badge, type AccessEvent, 
 export { AssetAuditManager, type AuditStatus, type ScanOutcome, type AuditAssetLine, type AssetAudit, type AssetAuditSummary } from "./asset-audit/index.js";
 export { ProductRecallManager, type RecallSeverity, type RecallStatus, type Remedy, type RecallUnit, type Recall, type RecallSummary } from "./recall/index.js";
 export { ServiceContractManager, type ServiceContractTier, type ServiceContractStatus, type ServiceCall, type ServiceContract, type ServiceContractSummary } from "./service-contract/index.js";
+export { EscrowManager, type EscrowStatus, type EscrowCondition, type Escrow, type EscrowSummary } from "./escrow/index.js";
+export { TradeDeductionManager, type DeductionReason, type DeductionStatus, type DeductionOutcome, type TradeDeduction, type TradeDeductionSummary } from "./trade-deduction/index.js";

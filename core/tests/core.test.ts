@@ -80,6 +80,8 @@ import { PhysicalAccessManager } from "../physical-access/physical-access-manage
 import { AssetAuditManager } from "../asset-audit/asset-audit-manager.js";
 import { ProductRecallManager } from "../recall/product-recall-manager.js";
 import { ServiceContractManager } from "../service-contract/service-contract-manager.js";
+import { EscrowManager } from "../escrow/escrow-manager.js";
+import { TradeDeductionManager } from "../trade-deduction/trade-deduction-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -13362,5 +13364,135 @@ describe("ServiceContractManager", () => {
     assert.equal(s.slaCompliancePct, 50);
     assert.equal(s.totalAnnualValueUsd, 5000);
     assert.equal(s.byTier.premium, 1);
+  });
+});
+
+describe("EscrowManager", () => {
+  it("open publishes opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("escrow.opened", (e) => { events.push(e.payload); });
+    const em = new EscrowManager(bus);
+    em.open({ payerId: "p1", payeeId: "p2", totalAmountUsd: 10000, conditions: [{ description: "delivery", releaseAmountUsd: 10000 }] });
+    assert.equal(events.length, 1);
+  });
+
+  it("meetCondition releases funds and publishes released", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("escrow.released", (e) => { events.push(e.payload); });
+    const em = new EscrowManager(bus);
+    const e = em.open({ payerId: "p1", payeeId: "p2", totalAmountUsd: 10000, conditions: [{ description: "m1", releaseAmountUsd: 4000 }, { description: "m2", releaseAmountUsd: 6000 }] });
+    em.fund(e.id);
+    em.meetCondition(e.id, e.conditions[0]!.id);
+    assert.equal(em.getEscrow(e.id)!.releasedUsd, 4000);
+    assert.equal(events.length, 1);
+  });
+
+  it("all conditions met closes as released", () => {
+    const bus = new EventBus();
+    const em = new EscrowManager(bus);
+    const e = em.open({ payerId: "p1", payeeId: "p2", totalAmountUsd: 1000, conditions: [{ description: "m1", releaseAmountUsd: 1000 }] });
+    em.fund(e.id);
+    em.meetCondition(e.id, e.conditions[0]!.id);
+    assert.equal(em.getEscrow(e.id)!.status, "released");
+  });
+
+  it("meetCondition requires funded status", () => {
+    const bus = new EventBus();
+    const em = new EscrowManager(bus);
+    const e = em.open({ payerId: "p1", payeeId: "p2", totalAmountUsd: 1000, conditions: [{ description: "m1", releaseAmountUsd: 1000 }] });
+    assert.equal(em.meetCondition(e.id, e.conditions[0]!.id), undefined);
+  });
+
+  it("refund returns unreleased amount and publishes refunded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("escrow.refunded", (e) => { events.push(e.payload); });
+    const em = new EscrowManager(bus);
+    const e = em.open({ payerId: "p1", payeeId: "p2", totalAmountUsd: 10000, conditions: [{ description: "m1", releaseAmountUsd: 4000 }, { description: "m2", releaseAmountUsd: 6000 }] });
+    em.fund(e.id);
+    em.meetCondition(e.id, e.conditions[0]!.id);
+    em.refund(e.id);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].amountUsd, 6000);
+  });
+
+  it("summary aggregates held, released and refunded", () => {
+    const bus = new EventBus();
+    const em = new EscrowManager(bus);
+    const e1 = em.open({ payerId: "p1", payeeId: "p2", totalAmountUsd: 5000, conditions: [{ description: "m", releaseAmountUsd: 5000 }] });
+    em.fund(e1.id);
+    const e2 = em.open({ payerId: "p3", payeeId: "p4", totalAmountUsd: 3000, conditions: [{ description: "m", releaseAmountUsd: 3000 }] });
+    em.fund(e2.id);
+    em.meetCondition(e2.id, e2.conditions[0]!.id);
+    const s = em.summary();
+    assert.equal(s.totalEscrows, 2);
+    assert.equal(s.totalHeldUsd, 5000);
+    assert.equal(s.totalReleasedUsd, 3000);
+  });
+});
+
+describe("TradeDeductionManager", () => {
+  it("log publishes logged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("deduction.logged", (e) => { events.push(e.payload); });
+    const dm = new TradeDeductionManager(bus);
+    dm.log({ customerId: "c1", invoiceRef: "INV-1", amountUsd: 500, reasonCode: "shortage", loggedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("dispute publishes disputed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("deduction.disputed", (e) => { events.push(e.payload); });
+    const dm = new TradeDeductionManager(bus);
+    const d = dm.log({ customerId: "c1", invoiceRef: "INV-1", amountUsd: 500, reasonCode: "pricing", loggedAt: "2026-06-01" });
+    dm.dispute(d.id);
+    assert.equal(dm.getDeduction(d.id)!.status, "disputed");
+    assert.equal(events.length, 1);
+  });
+
+  it("resolve caps recovery at deduction amount", () => {
+    const bus = new EventBus();
+    const dm = new TradeDeductionManager(bus);
+    const d = dm.log({ customerId: "c1", invoiceRef: "INV-1", amountUsd: 500, reasonCode: "promotion", loggedAt: "2026-06-01" });
+    dm.resolve(d.id, "recovered", 999, "2026-06-10");
+    assert.equal(dm.getDeduction(d.id)!.recoveredUsd, 500);
+  });
+
+  it("resolve publishes resolved with outcome", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("deduction.resolved", (e) => { events.push(e.payload); });
+    const dm = new TradeDeductionManager(bus);
+    const d = dm.log({ customerId: "c1", invoiceRef: "INV-1", amountUsd: 500, reasonCode: "return", loggedAt: "2026-06-01" });
+    dm.resolve(d.id, "valid_write_off", 0, "2026-06-10");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].outcome, "valid_write_off");
+  });
+
+  it("research transitions status", () => {
+    const bus = new EventBus();
+    const dm = new TradeDeductionManager(bus);
+    const d = dm.log({ customerId: "c1", invoiceRef: "INV-1", amountUsd: 500, reasonCode: "unknown", loggedAt: "2026-06-01" });
+    dm.research(d.id);
+    assert.equal(dm.getDeduction(d.id)!.status, "researching");
+  });
+
+  it("summary computes recovery rate and reasons", () => {
+    const bus = new EventBus();
+    const dm = new TradeDeductionManager(bus);
+    const d1 = dm.log({ customerId: "c1", invoiceRef: "I1", amountUsd: 1000, reasonCode: "shortage", loggedAt: "2026-06-01" });
+    dm.resolve(d1.id, "recovered", 1000, "2026-06-10");
+    const d2 = dm.log({ customerId: "c2", invoiceRef: "I2", amountUsd: 1000, reasonCode: "pricing", loggedAt: "2026-06-01" });
+    dm.resolve(d2.id, "valid_write_off", 0, "2026-06-10");
+    const s = dm.summary();
+    assert.equal(s.totalDeductions, 2);
+    assert.equal(s.totalDeductedUsd, 2000);
+    assert.equal(s.totalRecoveredUsd, 1000);
+    assert.equal(s.recoveryRatePct, 50);
+    assert.equal(s.byReason.shortage, 1);
   });
 });
