@@ -98,6 +98,8 @@ import { ConsentManager } from "../consent/consent-manager.js";
 import { DataSubjectRequestManager } from "../dsar/data-subject-request-manager.js";
 import { CarbonCreditManager } from "../carbon-credit/carbon-credit-manager.js";
 import { WasteStreamManager } from "../waste-stream/waste-stream-manager.js";
+import { TaxNexusManager } from "../tax-nexus/tax-nexus-manager.js";
+import { ResellerManager } from "../reseller/reseller-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14524,5 +14526,143 @@ describe("WasteStreamManager", () => {
     assert.equal(s.landfillKg, 40);
     assert.equal(s.diversionRatePct, 60);
     assert.equal(s.totalHaulerCostUsd, 50);
+  });
+});
+
+describe("TaxNexusManager", () => {
+  it("recordSale accumulates and triggers at threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("taxnexus.threshold_crossed", (e) => { events.push(e.payload); });
+    const tm = new TaxNexusManager(bus);
+    tm.defineJurisdiction("CA", 500000, 200);
+    tm.recordSale("CA", 300000);
+    tm.recordSale("CA", 250000); // crosses 500k
+    assert.equal(tm.getNexus("CA")!.status, "triggered");
+    assert.equal(events.length, 1);
+  });
+
+  it("transaction threshold also triggers nexus", () => {
+    const bus = new EventBus();
+    const tm = new TaxNexusManager(bus);
+    tm.defineJurisdiction("TX", 1000000, 2);
+    tm.recordSale("TX", 100);
+    tm.recordSale("TX", 100); // 2 transactions
+    assert.equal(tm.getNexus("TX")!.status, "triggered");
+  });
+
+  it("approaching alert fires before trigger", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("taxnexus.approaching", (e) => { events.push(e.payload); });
+    const tm = new TaxNexusManager(bus, 80);
+    tm.defineJurisdiction("NY", 100000, 1000);
+    tm.recordSale("NY", 85000); // 85% of sales threshold
+    assert.equal(events.length, 1);
+  });
+
+  it("register publishes registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("taxnexus.registered", (e) => { events.push(e.payload); });
+    const tm = new TaxNexusManager(bus);
+    tm.defineJurisdiction("WA", 100000, 200);
+    tm.register("WA", "2026-07-01");
+    assert.equal(tm.getNexus("WA")!.status, "registered");
+    assert.equal(events.length, 1);
+  });
+
+  it("resetYear clears accumulation", () => {
+    const bus = new EventBus();
+    const tm = new TaxNexusManager(bus);
+    tm.defineJurisdiction("CA", 500000, 200);
+    tm.recordSale("CA", 600000);
+    tm.resetYear("CA");
+    assert.equal(tm.getNexus("CA")!.ytdSalesUsd, 0);
+    assert.equal(tm.getNexus("CA")!.status, "monitoring");
+  });
+
+  it("summary and obligations reflect triggered/registered", () => {
+    const bus = new EventBus();
+    const tm = new TaxNexusManager(bus);
+    tm.defineJurisdiction("CA", 100, 10);
+    tm.recordSale("CA", 200); // triggered
+    tm.defineJurisdiction("NY", 100000, 200);
+    tm.register("NY", "2026-07-01");
+    const s = tm.summary();
+    assert.equal(s.totalJurisdictions, 2);
+    assert.equal(s.triggered, 1);
+    assert.equal(s.registered, 1);
+    assert.equal(tm.obligations().length, 2);
+  });
+});
+
+describe("ResellerManager", () => {
+  it("onboard publishes onboarded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("reseller.onboarded", (e) => { events.push(e.payload); });
+    const rm = new ResellerManager(bus);
+    rm.onboard("Acme Resell", "gold", "EMEA");
+    assert.equal(events.length, 1);
+  });
+
+  it("registerDeal applies tier margin and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("reseller.deal_registered", (e) => { events.push(e.payload); });
+    const rm = new ResellerManager(bus);
+    const r = rm.onboard("Acme", "platinum", "NA");
+    const d = rm.registerDeal(r.id, "BigCo", 100000, "2026-06-01", "2026-09-01")!;
+    assert.equal(d.marginPct, 20);
+    assert.equal(d.marginUsd, 20000);
+    assert.equal(events.length, 1);
+  });
+
+  it("deal conflict protection blocks duplicate end customer", () => {
+    const bus = new EventBus();
+    const rm = new ResellerManager(bus);
+    const r1 = rm.onboard("A", "gold", "NA");
+    const r2 = rm.onboard("B", "silver", "NA");
+    rm.registerDeal(r1.id, "BigCo", 50000, "2026-06-01", "2026-09-01");
+    assert.equal(rm.registerDeal(r2.id, "BigCo", 60000, "2026-06-02", "2026-09-02"), undefined);
+  });
+
+  it("winDeal publishes deal_won", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("reseller.deal_won", (e) => { events.push(e.payload); });
+    const rm = new ResellerManager(bus);
+    const r = rm.onboard("A", "gold", "NA");
+    const d = rm.registerDeal(r.id, "BigCo", 100000, "2026-06-01", "2026-09-01")!;
+    rm.approveDeal(d.id);
+    rm.winDeal(d.id);
+    assert.equal(rm.getDeal(d.id)!.status, "won");
+    assert.equal(events.length, 1);
+  });
+
+  it("losing a deal frees the customer for re-registration", () => {
+    const bus = new EventBus();
+    const rm = new ResellerManager(bus);
+    const r1 = rm.onboard("A", "gold", "NA");
+    const d = rm.registerDeal(r1.id, "BigCo", 50000, "2026-06-01", "2026-09-01")!;
+    rm.loseDeal(d.id);
+    const r2 = rm.onboard("B", "silver", "NA");
+    assert.ok(rm.registerDeal(r2.id, "BigCo", 60000, "2026-06-02", "2026-09-02"));
+  });
+
+  it("summary aggregates pipeline, won and margin", () => {
+    const bus = new EventBus();
+    const rm = new ResellerManager(bus);
+    const r = rm.onboard("A", "gold", "NA");
+    const d1 = rm.registerDeal(r.id, "Co1", 100000, "2026-06-01", "2026-09-01")!;
+    rm.winDeal(d1.id);
+    rm.registerDeal(r.id, "Co2", 50000, "2026-06-01", "2026-09-01");
+    const s = rm.summary();
+    assert.equal(s.totalDeals, 2);
+    assert.equal(s.wonDeals, 1);
+    assert.equal(s.totalWonUsd, 100000);
+    assert.equal(s.totalMarginUsd, 15000);
+    assert.equal(s.totalPipelineUsd, 50000);
   });
 });

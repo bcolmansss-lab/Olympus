@@ -195,6 +195,8 @@ import { ConsentManager } from "./consent/consent-manager.js";
 import { DataSubjectRequestManager } from "./dsar/data-subject-request-manager.js";
 import { CarbonCreditManager } from "./carbon-credit/carbon-credit-manager.js";
 import { WasteStreamManager } from "./waste-stream/waste-stream-manager.js";
+import { TaxNexusManager } from "./tax-nexus/tax-nexus-manager.js";
+import { ResellerManager } from "./reseller/reseller-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -478,6 +480,8 @@ export class Olympus {
   readonly dsar: DataSubjectRequestManager;
   readonly carbonCredit: CarbonCreditManager;
   readonly wasteStream: WasteStreamManager;
+  readonly taxNexus: TaxNexusManager;
+  readonly reseller: ResellerManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -665,6 +669,8 @@ export class Olympus {
     this.dsar = new DataSubjectRequestManager(this.bus);
     this.carbonCredit = new CarbonCreditManager(this.bus);
     this.wasteStream = new WasteStreamManager(this.bus);
+    this.taxNexus = new TaxNexusManager(this.bus);
+    this.reseller = new ResellerManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -858,3 +864,5 @@ export { ConsentManager, type ConsentPurpose, type ConsentState, type ConsentRec
 export { DataSubjectRequestManager, type DSARType, type DSARStatus, type DataSubjectRequest, type DSARSummary } from "./dsar/index.js";
 export { CarbonCreditManager, type CarbonProjectType, type EmissionScope, type CreditLot, type EmissionRecord, type CarbonSummary } from "./carbon-credit/index.js";
 export { WasteStreamManager, type WasteStream, type WasteRecord, type WasteSummary } from "./waste-stream/index.js";
+export { TaxNexusManager, type NexusStatus, type JurisdictionNexus, type TaxNexusSummary } from "./tax-nexus/index.js";
+export { ResellerManager, type ResellerTier, type ResellerDealStatus, type Reseller, type RegisteredDeal, type ResellerSummary } from "./reseller/index.js";

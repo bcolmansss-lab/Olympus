@@ -300,6 +300,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/dsar", handler: (_req, res) => res.json(200, { summary: this.olympus.dsar.summary(), requests: this.olympus.dsar.listRequests() }) },
       { method: "GET", pattern: "/v1/carbon-credits", handler: (_req, res) => res.json(200, { summary: this.olympus.carbonCredit.summary(), lots: this.olympus.carbonCredit.listLots() }) },
       { method: "GET", pattern: "/v1/waste-streams", handler: (_req, res) => res.json(200, { summary: this.olympus.wasteStream.summary(), records: this.olympus.wasteStream.listRecords() }) },
+      { method: "GET", pattern: "/v1/tax-nexus", handler: (_req, res) => res.json(200, { summary: this.olympus.taxNexus.summary(), obligations: this.olympus.taxNexus.obligations() }) },
+      { method: "GET", pattern: "/v1/resellers", handler: (_req, res) => res.json(200, { summary: this.olympus.reseller.summary(), resellers: this.olympus.reseller.listResellers() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
