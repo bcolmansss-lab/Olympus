@@ -88,6 +88,8 @@ import { ServiceCreditManager } from "../service-credit/service-credit-manager.j
 import { StatusPageManager } from "../status-page/status-page-manager.js";
 import { WebinarManager } from "../webinar/webinar-manager.js";
 import { FormSubmissionManager } from "../form-submission/form-submission-manager.js";
+import { CashAdvanceManager } from "../cash-advance/cash-advance-manager.js";
+import { GarnishmentManager } from "../garnishment/garnishment-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -13884,5 +13886,135 @@ describe("FormSubmissionManager", () => {
     assert.equal(s.spamCount, 1);
     assert.equal(s.converted, 1);
     assert.equal(s.byFormType.lead, 2);
+  });
+});
+
+describe("CashAdvanceManager", () => {
+  it("request publishes requested and rejects non-positive", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cashadvance.requested", (e) => { events.push(e.payload); });
+    const cm = new CashAdvanceManager(bus);
+    assert.equal(cm.request("e1", "travel", 0, "2026-06-01"), undefined);
+    cm.request("e1", "travel", 1000, "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("disburse requires approval and publishes disbursed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cashadvance.disbursed", (e) => { events.push(e.payload); });
+    const cm = new CashAdvanceManager(bus);
+    const a = cm.request("e1", "travel", 1000, "2026-06-01")!;
+    assert.equal(cm.disburse(a.id, "2026-06-02"), undefined);
+    cm.approve(a.id);
+    cm.disburse(a.id, "2026-06-02");
+    assert.equal(cm.getAdvance(a.id)!.status, "disbursed");
+    assert.equal(events.length, 1);
+  });
+
+  it("reconcile with overspend reimburses employee", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cashadvance.reconciled", (e) => { events.push(e.payload); });
+    const cm = new CashAdvanceManager(bus);
+    const a = cm.request("e1", "travel", 1000, "2026-06-01")!;
+    cm.approve(a.id); cm.disburse(a.id, "2026-06-02");
+    cm.reconcile(a.id, 1200, "2026-06-10");
+    assert.equal(cm.getAdvance(a.id)!.balanceUsd, -200);
+    assert.equal(events.length, 1);
+  });
+
+  it("reconcile with underspend owes money back", () => {
+    const bus = new EventBus();
+    const cm = new CashAdvanceManager(bus);
+    const a = cm.request("e1", "travel", 1000, "2026-06-01")!;
+    cm.approve(a.id); cm.disburse(a.id, "2026-06-02");
+    cm.reconcile(a.id, 700, "2026-06-10");
+    assert.equal(cm.getAdvance(a.id)!.balanceUsd, 300);
+  });
+
+  it("reject blocks disbursement", () => {
+    const bus = new EventBus();
+    const cm = new CashAdvanceManager(bus);
+    const a = cm.request("e1", "travel", 1000, "2026-06-01")!;
+    cm.reject(a.id);
+    assert.equal(cm.approve(a.id), undefined);
+  });
+
+  it("summary aggregates owed-back and reimburse totals", () => {
+    const bus = new EventBus();
+    const cm = new CashAdvanceManager(bus);
+    const a1 = cm.request("e1", "t", 1000, "2026-06-01")!;
+    cm.approve(a1.id); cm.disburse(a1.id, "2026-06-02"); cm.reconcile(a1.id, 700, "2026-06-10");
+    const a2 = cm.request("e2", "t", 500, "2026-06-01")!;
+    cm.approve(a2.id); cm.disburse(a2.id, "2026-06-02"); cm.reconcile(a2.id, 600, "2026-06-10");
+    const s = cm.summary();
+    assert.equal(s.totalAdvances, 2);
+    assert.equal(s.totalOwedBackUsd, 300);
+    assert.equal(s.totalReimburseUsd, 100);
+  });
+});
+
+describe("GarnishmentManager", () => {
+  it("register publishes registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("garnishment.registered", (e) => { events.push(e.payload); });
+    const gm = new GarnishmentManager(bus);
+    gm.register({ employeeId: "e1", type: "child_support", caseNumber: "CS-1", fixedAmountUsd: 300, maxPercentOfDisposable: 60, priority: 1 });
+    assert.equal(events.length, 1);
+  });
+
+  it("computeWithholding respects disposable income cap", () => {
+    const bus = new EventBus();
+    const gm = new GarnishmentManager(bus);
+    const o = gm.register({ employeeId: "e1", type: "creditor", caseNumber: "C-1", percentOfDisposable: 25, maxPercentOfDisposable: 25, priority: 2 });
+    assert.equal(gm.computeWithholding(o.id, 1000), 250);
+  });
+
+  it("withhold accrues and publishes withheld", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("garnishment.withheld", (e) => { events.push(e.payload); });
+    const gm = new GarnishmentManager(bus);
+    const o = gm.register({ employeeId: "e1", type: "tax_levy", caseNumber: "T-1", fixedAmountUsd: 200, maxPercentOfDisposable: 60, priority: 1 });
+    gm.withhold(o.id, "2026-06", 2000);
+    assert.equal(gm.getOrder(o.id)!.totalWithheldUsd, 200);
+    assert.equal(events.length, 1);
+  });
+
+  it("withholding caps at total owed and completes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("garnishment.completed", (e) => { events.push(e.payload); });
+    const gm = new GarnishmentManager(bus);
+    const o = gm.register({ employeeId: "e1", type: "student_loan", caseNumber: "S-1", fixedAmountUsd: 500, maxPercentOfDisposable: 60, totalOwedUsd: 600, priority: 1 });
+    gm.withhold(o.id, "2026-06", 2000); // 500
+    gm.withhold(o.id, "2026-07", 2000); // capped at 100
+    assert.equal(gm.getOrder(o.id)!.totalWithheldUsd, 600);
+    assert.equal(gm.getOrder(o.id)!.status, "completed");
+    assert.equal(events.length, 1);
+  });
+
+  it("ordersForEmployee returns active orders by priority", () => {
+    const bus = new EventBus();
+    const gm = new GarnishmentManager(bus);
+    gm.register({ employeeId: "e1", type: "creditor", caseNumber: "C-1", fixedAmountUsd: 100, maxPercentOfDisposable: 25, priority: 3 });
+    gm.register({ employeeId: "e1", type: "child_support", caseNumber: "CS-1", fixedAmountUsd: 200, maxPercentOfDisposable: 60, priority: 1 });
+    const ordered = gm.ordersForEmployee("e1");
+    assert.equal(ordered[0]!.type, "child_support");
+  });
+
+  it("summary aggregates withheld and types", () => {
+    const bus = new EventBus();
+    const gm = new GarnishmentManager(bus);
+    const o = gm.register({ employeeId: "e1", type: "child_support", caseNumber: "CS-1", fixedAmountUsd: 200, maxPercentOfDisposable: 60, priority: 1 });
+    gm.withhold(o.id, "2026-06", 2000);
+    const s = gm.summary();
+    assert.equal(s.totalOrders, 1);
+    assert.equal(s.active, 1);
+    assert.equal(s.totalWithheldUsd, 200);
+    assert.equal(s.byType.child_support, 1);
   });
 });

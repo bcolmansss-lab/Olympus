@@ -185,6 +185,8 @@ import { ServiceCreditManager } from "./service-credit/service-credit-manager.js
 import { StatusPageManager } from "./status-page/status-page-manager.js";
 import { WebinarManager } from "./webinar/webinar-manager.js";
 import { FormSubmissionManager } from "./form-submission/form-submission-manager.js";
+import { CashAdvanceManager } from "./cash-advance/cash-advance-manager.js";
+import { GarnishmentManager } from "./garnishment/garnishment-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -458,6 +460,8 @@ export class Olympus {
   readonly statusPage: StatusPageManager;
   readonly webinar: WebinarManager;
   readonly formSubmission: FormSubmissionManager;
+  readonly cashAdvance: CashAdvanceManager;
+  readonly garnishment: GarnishmentManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -635,6 +639,8 @@ export class Olympus {
     this.statusPage = new StatusPageManager(this.bus);
     this.webinar = new WebinarManager(this.bus);
     this.formSubmission = new FormSubmissionManager(this.bus);
+    this.cashAdvance = new CashAdvanceManager(this.bus);
+    this.garnishment = new GarnishmentManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -818,3 +824,5 @@ export { ServiceCreditManager, type CreditStatus, type SLATier, type ServiceCred
 export { StatusPageManager, type ComponentStatus, type IncidentImpact, type IncidentPhase, type StatusComponent, type IncidentUpdate, type StatusIncident, type StatusPageSummary } from "./status-page/index.js";
 export { WebinarManager, type WebinarStatus, type Registration, type Webinar, type WebinarSummary } from "./webinar/index.js";
 export { FormSubmissionManager, type FormType, type FormSubmissionStatus, type ProcessOutcome, type FormDef, type FormSubmission, type FormSubmissionSummary } from "./form-submission/index.js";
+export { CashAdvanceManager, type AdvanceStatus, type CashAdvance, type CashAdvanceSummary } from "./cash-advance/index.js";
+export { GarnishmentManager, type GarnishmentType, type GarnishmentStatus, type GarnishmentOrder, type GarnishmentSummary } from "./garnishment/index.js";
