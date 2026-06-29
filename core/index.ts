@@ -191,6 +191,8 @@ import { RoyaltyManager } from "./royalty/royalty-manager.js";
 import { SeatLicenseManager } from "./seat-license/seat-license-manager.js";
 import { ApiKeyManager } from "./api-key/api-key-manager.js";
 import { QuotaUsageManager } from "./quota-usage/quota-usage-manager.js";
+import { ConsentManager } from "./consent/consent-manager.js";
+import { DataSubjectRequestManager } from "./dsar/data-subject-request-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -470,6 +472,8 @@ export class Olympus {
   readonly seatLicense: SeatLicenseManager;
   readonly apiKey: ApiKeyManager;
   readonly quotaUsage: QuotaUsageManager;
+  readonly consent: ConsentManager;
+  readonly dsar: DataSubjectRequestManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -653,6 +657,8 @@ export class Olympus {
     this.seatLicense = new SeatLicenseManager(this.bus);
     this.apiKey = new ApiKeyManager(this.bus);
     this.quotaUsage = new QuotaUsageManager(this.bus);
+    this.consent = new ConsentManager(this.bus);
+    this.dsar = new DataSubjectRequestManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -842,3 +848,5 @@ export { RoyaltyManager, type RoyaltyBasis, type RoyaltyAgreementStatus, type Ro
 export { SeatLicenseManager, type LicensePool, type SeatAssignment, type SeatLicenseSummary } from "./seat-license/index.js";
 export { ApiKeyManager, type ApiKeyStatus, type DeveloperApiKey, type ApiKeySummary } from "./api-key/index.js";
 export { QuotaUsageManager, type UsageQuota, type QuotaUsageSummary } from "./quota-usage/index.js";
+export { ConsentManager, type ConsentPurpose, type ConsentState, type ConsentRecord, type ConsentSummary } from "./consent/index.js";
+export { DataSubjectRequestManager, type DSARType, type DSARStatus, type DataSubjectRequest, type DSARSummary } from "./dsar/index.js";

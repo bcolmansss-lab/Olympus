@@ -94,6 +94,8 @@ import { RoyaltyManager } from "../royalty/royalty-manager.js";
 import { SeatLicenseManager } from "../seat-license/seat-license-manager.js";
 import { ApiKeyManager } from "../api-key/api-key-manager.js";
 import { QuotaUsageManager } from "../quota-usage/quota-usage-manager.js";
+import { ConsentManager } from "../consent/consent-manager.js";
+import { DataSubjectRequestManager } from "../dsar/data-subject-request-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14275,5 +14277,131 @@ describe("QuotaUsageManager", () => {
     assert.equal(s.overLimit, 1);
     assert.equal(s.nearLimit, 2); // both >= 80%
     assert.equal(s.byMetric.api_calls!.limit, 200);
+  });
+});
+
+describe("ConsentManager", () => {
+  it("grant publishes granted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("consent.granted", (e) => { events.push(e.payload); });
+    const cm = new ConsentManager(bus);
+    cm.grant("s1", "marketing", "v1", "web", "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("hasConsent reflects current grant", () => {
+    const bus = new EventBus();
+    const cm = new ConsentManager(bus);
+    cm.grant("s1", "analytics", "v1", "web", "2026-06-01");
+    assert.equal(cm.hasConsent("s1", "analytics", "2026-06-05"), true);
+    assert.equal(cm.hasConsent("s1", "marketing", "2026-06-05"), false);
+  });
+
+  it("withdraw revokes consent and publishes withdrawn", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("consent.withdrawn", (e) => { events.push(e.payload); });
+    const cm = new ConsentManager(bus);
+    cm.grant("s1", "marketing", "v1", "web", "2026-06-01");
+    cm.withdraw("s1", "marketing", "2026-06-10");
+    assert.equal(cm.hasConsent("s1", "marketing", "2026-06-11"), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("expired consent is not valid", () => {
+    const bus = new EventBus();
+    const cm = new ConsentManager(bus);
+    cm.grant("s1", "marketing", "v1", "web", "2026-06-01", "2026-06-30");
+    assert.equal(cm.hasConsent("s1", "marketing", "2026-07-15"), false);
+  });
+
+  it("checkExpiry publishes expired", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("consent.expired", (e) => { events.push(e.payload); });
+    const cm = new ConsentManager(bus);
+    cm.grant("s1", "marketing", "v1", "web", "2026-06-01", "2026-06-30");
+    const expired = cm.checkExpiry("2026-07-15");
+    assert.equal(expired.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates purposes and subjects", () => {
+    const bus = new EventBus();
+    const cm = new ConsentManager(bus);
+    cm.grant("s1", "marketing", "v1", "web", "2026-06-01");
+    cm.grant("s2", "analytics", "v1", "web", "2026-06-01");
+    const s = cm.summary();
+    assert.equal(s.totalRecords, 2);
+    assert.equal(s.granted, 2);
+    assert.equal(s.uniqueSubjects, 2);
+    assert.equal(s.byPurpose.marketing, 1);
+  });
+});
+
+describe("DataSubjectRequestManager", () => {
+  it("receive sets due date and publishes received", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dsar.received", (e) => { events.push(e.payload); });
+    const dm = new DataSubjectRequestManager(bus, 30);
+    const r = dm.receive("s1", "access", "2026-06-01");
+    assert.equal(r.dueBy, "2026-07-01T00:00:00.000Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("fulfill requires identity verification", () => {
+    const bus = new EventBus();
+    const dm = new DataSubjectRequestManager(bus);
+    const r = dm.receive("s1", "erasure", "2026-06-01");
+    assert.equal(dm.fulfill(r.id, "2026-06-10"), undefined);
+    dm.verifyIdentity(r.id);
+    assert.ok(dm.fulfill(r.id, "2026-06-10"));
+  });
+
+  it("fulfill publishes fulfilled with days", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dsar.fulfilled", (e) => { events.push(e.payload); });
+    const dm = new DataSubjectRequestManager(bus);
+    const r = dm.receive("s1", "portability", "2026-06-01");
+    dm.verifyIdentity(r.id);
+    dm.fulfill(r.id, "2026-06-11");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].daysToFulfill, 10);
+  });
+
+  it("checkOverdue publishes overdue for late open requests", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dsar.overdue", (e) => { events.push(e.payload); });
+    const dm = new DataSubjectRequestManager(bus, 30);
+    dm.receive("s1", "access", "2026-06-01");
+    const overdue = dm.checkOverdue("2026-08-01");
+    assert.equal(overdue.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("reject blocks fulfillment", () => {
+    const bus = new EventBus();
+    const dm = new DataSubjectRequestManager(bus);
+    const r = dm.receive("s1", "objection", "2026-06-01");
+    dm.reject(r.id, "not a data subject");
+    dm.verifyIdentity(r.id);
+    assert.equal(dm.fulfill(r.id, "2026-06-10"), undefined);
+  });
+
+  it("summary aggregates types, open and overdue", () => {
+    const bus = new EventBus();
+    const dm = new DataSubjectRequestManager(bus, 30);
+    const r1 = dm.receive("s1", "access", "2026-06-01");
+    dm.verifyIdentity(r1.id); dm.fulfill(r1.id, "2026-06-05");
+    dm.receive("s2", "erasure", "2026-01-01"); // overdue by ref
+    const s = dm.summary("2026-08-01");
+    assert.equal(s.totalRequests, 2);
+    assert.equal(s.fulfilled, 1);
+    assert.equal(s.overdue, 1);
+    assert.equal(s.byType.access, 1);
   });
 });
