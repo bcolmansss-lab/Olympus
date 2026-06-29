@@ -179,6 +179,8 @@ import { ProductRecallManager } from "./recall/product-recall-manager.js";
 import { ServiceContractManager } from "./service-contract/service-contract-manager.js";
 import { EscrowManager } from "./escrow/escrow-manager.js";
 import { TradeDeductionManager } from "./trade-deduction/trade-deduction-manager.js";
+import { DonationManager } from "./donation/donation-manager.js";
+import { VolunteerManager } from "./volunteer/volunteer-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -446,6 +448,8 @@ export class Olympus {
   readonly serviceContract: ServiceContractManager;
   readonly escrow: EscrowManager;
   readonly tradeDeduction: TradeDeductionManager;
+  readonly donation: DonationManager;
+  readonly volunteer: VolunteerManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -617,6 +621,8 @@ export class Olympus {
     this.serviceContract = new ServiceContractManager(this.bus);
     this.escrow = new EscrowManager(this.bus);
     this.tradeDeduction = new TradeDeductionManager(this.bus);
+    this.donation = new DonationManager(this.bus);
+    this.volunteer = new VolunteerManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -794,3 +800,5 @@ export { ProductRecallManager, type RecallSeverity, type RecallStatus, type Reme
 export { ServiceContractManager, type ServiceContractTier, type ServiceContractStatus, type ServiceCall, type ServiceContract, type ServiceContractSummary } from "./service-contract/index.js";
 export { EscrowManager, type EscrowStatus, type EscrowCondition, type Escrow, type EscrowSummary } from "./escrow/index.js";
 export { TradeDeductionManager, type DeductionReason, type DeductionStatus, type DeductionOutcome, type TradeDeduction, type TradeDeductionSummary } from "./trade-deduction/index.js";
+export { DonationManager, type DonationCause, type MatchStatus, type Donation, type DonationSummary } from "./donation/index.js";
+export { VolunteerManager, type VolunteerCause, type LogStatus, type VolunteerOpportunity, type VolunteerLog, type VolunteerSummary } from "./volunteer/index.js";

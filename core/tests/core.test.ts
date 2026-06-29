@@ -82,6 +82,8 @@ import { ProductRecallManager } from "../recall/product-recall-manager.js";
 import { ServiceContractManager } from "../service-contract/service-contract-manager.js";
 import { EscrowManager } from "../escrow/escrow-manager.js";
 import { TradeDeductionManager } from "../trade-deduction/trade-deduction-manager.js";
+import { DonationManager } from "../donation/donation-manager.js";
+import { VolunteerManager } from "../volunteer/volunteer-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -13494,5 +13496,132 @@ describe("TradeDeductionManager", () => {
     assert.equal(s.totalRecoveredUsd, 1000);
     assert.equal(s.recoveryRatePct, 50);
     assert.equal(s.byReason.shortage, 1);
+  });
+});
+
+describe("DonationManager", () => {
+  it("record publishes recorded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("donation.recorded", (e) => { events.push(e.payload); });
+    const dm = new DonationManager(bus);
+    dm.record({ charity: "Red Cross", cause: "disaster_relief", amountUsd: 1000 });
+    assert.equal(events.length, 1);
+  });
+
+  it("employee donation requests a match", () => {
+    const bus = new EventBus();
+    const dm = new DonationManager(bus);
+    const d = dm.record({ charity: "Food Bank", cause: "poverty", amountUsd: 500, donorEmployeeId: "e1" });
+    assert.equal(d.matchStatus, "requested");
+    assert.equal(d.matchRatio, 1);
+  });
+
+  it("approveMatch computes match amount and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("donation.match_approved", (e) => { events.push(e.payload); });
+    const dm = new DonationManager(bus);
+    const d = dm.record({ charity: "X", cause: "education", amountUsd: 500, donorEmployeeId: "e1", matchRatio: 2 });
+    dm.approveMatch(d.id);
+    assert.equal(dm.getDonation(d.id)!.matchUsd, 1000);
+    assert.equal(events.length, 1);
+  });
+
+  it("payMatch requires approval and publishes paid", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("donation.match_paid", (e) => { events.push(e.payload); });
+    const dm = new DonationManager(bus);
+    const d = dm.record({ charity: "X", cause: "health", amountUsd: 500, donorEmployeeId: "e1" });
+    assert.equal(dm.payMatch(d.id), undefined);
+    dm.approveMatch(d.id);
+    dm.payMatch(d.id);
+    assert.equal(dm.getDonation(d.id)!.matchStatus, "paid");
+    assert.equal(events.length, 1);
+  });
+
+  it("non-employee donation has no match", () => {
+    const bus = new EventBus();
+    const dm = new DonationManager(bus);
+    const d = dm.record({ charity: "X", cause: "arts", amountUsd: 200 });
+    assert.equal(d.matchStatus, "none");
+  });
+
+  it("summary aggregates giving and matched amounts", () => {
+    const bus = new EventBus();
+    const dm = new DonationManager(bus);
+    const d = dm.record({ charity: "X", cause: "education", amountUsd: 1000, donorEmployeeId: "e1" });
+    dm.approveMatch(d.id); dm.payMatch(d.id);
+    dm.record({ charity: "Y", cause: "education", amountUsd: 500 });
+    const s = dm.summary();
+    assert.equal(s.totalDonations, 2);
+    assert.equal(s.totalDonatedUsd, 1500);
+    assert.equal(s.totalMatchedUsd, 1000);
+    assert.equal(s.totalGivingUsd, 2500);
+    assert.equal(s.byCause.education, 2);
+  });
+});
+
+describe("VolunteerManager", () => {
+  it("addOpportunity publishes opportunity_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("volunteer.opportunity_added", (e) => { events.push(e.payload); });
+    const vm = new VolunteerManager(bus);
+    vm.addOpportunity({ title: "Beach cleanup", organization: "EcoOrg", cause: "environment", date: "2026-07-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("logHours publishes hours_logged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("volunteer.hours_logged", (e) => { events.push(e.payload); });
+    const vm = new VolunteerManager(bus);
+    const o = vm.addOpportunity({ title: "Tutoring", organization: "School", cause: "education", date: "2026-07-01" });
+    vm.logHours(o.id, "e1", 4, "2026-07-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("logHours rejects non-positive hours", () => {
+    const bus = new EventBus();
+    const vm = new VolunteerManager(bus);
+    const o = vm.addOpportunity({ title: "X", organization: "Y", cause: "community", date: "2026-07-01" });
+    assert.equal(vm.logHours(o.id, "e1", 0, "2026-07-01"), undefined);
+  });
+
+  it("verify publishes hours_verified and counts toward total", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("volunteer.hours_verified", (e) => { events.push(e.payload); });
+    const vm = new VolunteerManager(bus);
+    const o = vm.addOpportunity({ title: "X", organization: "Y", cause: "health", date: "2026-07-01" });
+    const log = vm.logHours(o.id, "e1", 5, "2026-07-01")!;
+    vm.verify(log.id, "2026-07-02");
+    assert.equal(vm.employeeHours("e1"), 5);
+    assert.equal(events.length, 1);
+  });
+
+  it("pending hours do not count until verified", () => {
+    const bus = new EventBus();
+    const vm = new VolunteerManager(bus);
+    const o = vm.addOpportunity({ title: "X", organization: "Y", cause: "community", date: "2026-07-01" });
+    vm.logHours(o.id, "e1", 5, "2026-07-01");
+    assert.equal(vm.employeeHours("e1"), 0);
+  });
+
+  it("summary aggregates hours and unique volunteers", () => {
+    const bus = new EventBus();
+    const vm = new VolunteerManager(bus);
+    const o = vm.addOpportunity({ title: "X", organization: "Y", cause: "environment", date: "2026-07-01" });
+    const l1 = vm.logHours(o.id, "e1", 4, "2026-07-01")!;
+    vm.verify(l1.id, "2026-07-02");
+    vm.logHours(o.id, "e2", 3, "2026-07-01");
+    const s = vm.summary();
+    assert.equal(s.totalOpportunities, 1);
+    assert.equal(s.verifiedHours, 4);
+    assert.equal(s.pendingLogs, 1);
+    assert.equal(s.uniqueVolunteers, 2);
+    assert.equal(s.byCause.environment, 1);
   });
 });
