@@ -104,6 +104,8 @@ import { PressMentionManager } from "../press-mention/press-mention-manager.js";
 import { InfluencerManager } from "../influencer/influencer-manager.js";
 import { RFPResponseManager } from "../rfp/rfp-response-manager.js";
 import { CaseStudyManager } from "../case-study/case-study-manager.js";
+import { PartnerCertificationManager } from "../partner-cert/partner-certification-manager.js";
+import { WinbackManager } from "../winback/winback-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14931,5 +14933,139 @@ describe("CaseStudyManager", () => {
     assert.equal(s.published, 1);
     assert.equal(s.totalReferences, 1);
     assert.equal(s.byIndustry.fintech, 2);
+  });
+});
+
+describe("PartnerCertificationManager", () => {
+  it("createTrack publishes track_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("partnercert.track_created", (e) => { events.push(e.payload); });
+    const pm = new PartnerCertificationManager(bus);
+    pm.createTrack("Sales Pro", "professional", [{ name: "Exam 1", passingScore: 70 }], 365);
+    assert.equal(events.length, 1);
+  });
+
+  it("submitExam rejects below passing score", () => {
+    const bus = new EventBus();
+    const pm = new PartnerCertificationManager(bus);
+    const t = pm.createTrack("T", "associate", [{ name: "E1", passingScore: 80 }], 365);
+    pm.enroll("p1", t.id, "2026-06-01");
+    assert.equal(pm.submitExam("p1", t.id, t.exams[0]!.id, 75, "2026-06-02"), undefined);
+  });
+
+  it("passing all exams certifies and publishes events", () => {
+    const bus = new EventBus();
+    const passed: any[] = [];
+    const certified: any[] = [];
+    bus.subscribe("partnercert.exam_passed", (e) => { passed.push(e.payload); });
+    bus.subscribe("partnercert.certified", (e) => { certified.push(e.payload); });
+    const pm = new PartnerCertificationManager(bus);
+    const t = pm.createTrack("T", "expert", [{ name: "E1", passingScore: 70 }, { name: "E2", passingScore: 70 }], 365);
+    pm.enroll("p1", t.id, "2026-06-01");
+    pm.submitExam("p1", t.id, t.exams[0]!.id, 85, "2026-06-02");
+    pm.submitExam("p1", t.id, t.exams[1]!.id, 90, "2026-06-03");
+    assert.equal(passed.length, 2);
+    assert.equal(certified.length, 1);
+  });
+
+  it("isCertified respects expiry", () => {
+    const bus = new EventBus();
+    const pm = new PartnerCertificationManager(bus);
+    const t = pm.createTrack("T", "associate", [{ name: "E1", passingScore: 70 }], 30);
+    pm.enroll("p1", t.id, "2026-06-01");
+    pm.submitExam("p1", t.id, t.exams[0]!.id, 80, "2026-06-01");
+    assert.equal(pm.isCertified("p1", t.id, "2026-06-15"), true);
+    assert.equal(pm.isCertified("p1", t.id, "2026-08-15"), false);
+  });
+
+  it("checkExpiry marks lapsed certifications", () => {
+    const bus = new EventBus();
+    const pm = new PartnerCertificationManager(bus);
+    const t = pm.createTrack("T", "associate", [{ name: "E1", passingScore: 70 }], 30);
+    pm.enroll("p1", t.id, "2026-06-01");
+    pm.submitExam("p1", t.id, t.exams[0]!.id, 80, "2026-06-01");
+    const expired = pm.checkExpiry("2026-08-15");
+    assert.equal(expired.length, 1);
+  });
+
+  it("summary aggregates certified by level", () => {
+    const bus = new EventBus();
+    const pm = new PartnerCertificationManager(bus);
+    const t = pm.createTrack("T", "professional", [{ name: "E1", passingScore: 70 }], 365);
+    pm.enroll("p1", t.id, "2026-06-01");
+    pm.submitExam("p1", t.id, t.exams[0]!.id, 80, "2026-06-01");
+    const s = pm.summary();
+    assert.equal(s.certified, 1);
+    assert.equal(s.byLevel.professional, 1);
+  });
+});
+
+describe("WinbackManager", () => {
+  it("launch publishes campaign_launched", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("winback.campaign_launched", (e) => { events.push(e.payload); });
+    const wm = new WinbackManager(bus);
+    wm.launch("Q3 Winback", "50% off 3 months", [{ customerId: "c1", lostMrrUsd: 100, churnReason: "price" }]);
+    assert.equal(events.length, 1);
+  });
+
+  it("sendOffer transitions to contacted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("winback.offer_sent", (e) => { events.push(e.payload); });
+    const wm = new WinbackManager(bus);
+    const c = wm.launch("X", "offer", [{ customerId: "c1", lostMrrUsd: 100, churnReason: "price" }]);
+    wm.sendOffer(c.id, "c1");
+    assert.equal(events.length, 1);
+  });
+
+  it("reactivate requires prior contact", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("winback.reactivated", (e) => { events.push(e.payload); });
+    const wm = new WinbackManager(bus);
+    const c = wm.launch("X", "offer", [{ customerId: "c1", lostMrrUsd: 100, churnReason: "price" }]);
+    assert.equal(wm.reactivate(c.id, "c1", 100), undefined);
+    wm.sendOffer(c.id, "c1");
+    wm.reactivate(c.id, "c1", 120);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].recoveredMrrUsd, 120);
+  });
+
+  it("reactivationRate computes per campaign", () => {
+    const bus = new EventBus();
+    const wm = new WinbackManager(bus);
+    const c = wm.launch("X", "offer", [
+      { customerId: "c1", lostMrrUsd: 100, churnReason: "price" },
+      { customerId: "c2", lostMrrUsd: 200, churnReason: "fit" },
+    ]);
+    wm.sendOffer(c.id, "c1"); wm.reactivate(c.id, "c1", 100);
+    assert.equal(wm.reactivationRate(c.id), 50);
+  });
+
+  it("decline blocks reactivation", () => {
+    const bus = new EventBus();
+    const wm = new WinbackManager(bus);
+    const c = wm.launch("X", "offer", [{ customerId: "c1", lostMrrUsd: 100, churnReason: "price" }]);
+    wm.sendOffer(c.id, "c1");
+    wm.decline(c.id, "c1");
+    assert.equal(wm.reactivate(c.id, "c1", 100), undefined);
+  });
+
+  it("summary aggregates recovered MRR", () => {
+    const bus = new EventBus();
+    const wm = new WinbackManager(bus);
+    const c = wm.launch("X", "offer", [
+      { customerId: "c1", lostMrrUsd: 100, churnReason: "price" },
+      { customerId: "c2", lostMrrUsd: 200, churnReason: "fit" },
+    ]);
+    wm.sendOffer(c.id, "c1"); wm.reactivate(c.id, "c1", 90);
+    const s = wm.summary();
+    assert.equal(s.totalTargets, 2);
+    assert.equal(s.reactivated, 1);
+    assert.equal(s.recoveredMrrUsd, 90);
+    assert.equal(s.reactivationRatePct, 50);
   });
 });

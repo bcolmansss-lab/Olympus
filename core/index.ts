@@ -201,6 +201,8 @@ import { PressMentionManager } from "./press-mention/press-mention-manager.js";
 import { InfluencerManager } from "./influencer/influencer-manager.js";
 import { RFPResponseManager } from "./rfp/rfp-response-manager.js";
 import { CaseStudyManager } from "./case-study/case-study-manager.js";
+import { PartnerCertificationManager } from "./partner-cert/partner-certification-manager.js";
+import { WinbackManager } from "./winback/winback-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -490,6 +492,8 @@ export class Olympus {
   readonly influencer: InfluencerManager;
   readonly rfp: RFPResponseManager;
   readonly caseStudy: CaseStudyManager;
+  readonly partnerCert: PartnerCertificationManager;
+  readonly winback: WinbackManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -683,6 +687,8 @@ export class Olympus {
     this.influencer = new InfluencerManager(this.bus);
     this.rfp = new RFPResponseManager(this.bus);
     this.caseStudy = new CaseStudyManager(this.bus);
+    this.partnerCert = new PartnerCertificationManager(this.bus);
+    this.winback = new WinbackManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -882,3 +888,5 @@ export { PressMentionManager, type MentionSentiment, type SourceTier, type Press
 export { InfluencerManager, type Platform, type CollabStatus, type Influencer, type Collaboration, type InfluencerSummary } from "./influencer/index.js";
 export { RFPResponseManager, type RFPStatus, type RFPSection, type RFP, type RFPSummary } from "./rfp/index.js";
 export { CaseStudyManager, type CaseStudyStatus, type ReferenceType, type CaseStudy, type CaseStudySummary } from "./case-study/index.js";
+export { PartnerCertificationManager, type CertLevel, type PartnerCertState, type CertExam, type CertTrack, type PartnerEnrollment, type PartnerCertSummary } from "./partner-cert/index.js";
+export { WinbackManager, type WinbackStatus, type TargetState, type WinbackTarget, type WinbackCampaign, type WinbackSummary } from "./winback/index.js";
