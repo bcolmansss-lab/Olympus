@@ -213,6 +213,8 @@ import { ReplenishmentManager } from "./replenishment/replenishment-manager.js";
 import { DropshipManager } from "./dropship/dropship-manager.js";
 import { CapexRequestManager } from "./capex/capex-request-manager.js";
 import { AssetFinancingManager } from "./asset-financing/asset-financing-manager.js";
+import { SalesSequenceManager } from "./sales-sequence/sales-sequence-manager.js";
+import { LeadScoringManager } from "./lead-scoring/lead-scoring-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -514,6 +516,8 @@ export class Olympus {
   readonly dropship: DropshipManager;
   readonly capex: CapexRequestManager;
   readonly assetFinancing: AssetFinancingManager;
+  readonly salesSequence: SalesSequenceManager;
+  readonly leadScoring: LeadScoringManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -719,6 +723,8 @@ export class Olympus {
     this.dropship = new DropshipManager(this.bus);
     this.capex = new CapexRequestManager(this.bus);
     this.assetFinancing = new AssetFinancingManager(this.bus);
+    this.salesSequence = new SalesSequenceManager(this.bus);
+    this.leadScoring = new LeadScoringManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -930,3 +936,5 @@ export { ReplenishmentManager, type ReplenishmentPolicy, type ReorderSuggestion,
 export { DropshipManager, type DropshipStatus, type SupplierOffer, type DropshipOrder, type DropshipSummary } from "./dropship/index.js";
 export { CapexRequestManager, type CapexCategory, type CapexStatus, type CapexRequest, type CapexSummary } from "./capex/index.js";
 export { AssetFinancingManager, type FinancingType, type FinancingStatus, type FinancingAgreement, type FinancingSummary } from "./asset-financing/index.js";
+export { SalesSequenceManager, type StepChannel, type SequenceEnrollmentStatus, type OutreachStep, type Sequence, type SequenceEnrollment, type SequenceSummary } from "./sales-sequence/index.js";
+export { LeadScoringManager, type LeadGrade, type RuleKind, type ScoringRule, type Lead, type LeadScoringSummary } from "./lead-scoring/index.js";

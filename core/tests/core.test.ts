@@ -116,6 +116,8 @@ import { ReplenishmentManager } from "../replenishment/replenishment-manager.js"
 import { DropshipManager } from "../dropship/dropship-manager.js";
 import { CapexRequestManager } from "../capex/capex-request-manager.js";
 import { AssetFinancingManager } from "../asset-financing/asset-financing-manager.js";
+import { SalesSequenceManager } from "../sales-sequence/sales-sequence-manager.js";
+import { LeadScoringManager } from "../lead-scoring/lead-scoring-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15719,5 +15721,139 @@ describe("AssetFinancingManager", () => {
     assert.equal(s.totalAgreements, 2);
     assert.equal(s.totalPrincipalUsd, 18000);
     assert.equal(s.monthlyObligationUsd, 2000); // 1000 + 1000
+  });
+});
+
+describe("SalesSequenceManager", () => {
+  it("enroll publishes enrolled and dedupes active", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sequence.enrolled", (e) => { events.push(e.payload); });
+    const sm = new SalesSequenceManager(bus);
+    const seq = sm.createSequence("Outbound", [{ channel: "email", delayDays: 0, template: "hi" }]);
+    sm.enroll(seq.id, "p1", "2026-06-01");
+    sm.enroll(seq.id, "p1", "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("executeNextStep advances and publishes step_executed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sequence.step_executed", (e) => { events.push(e.payload); });
+    const sm = new SalesSequenceManager(bus);
+    const seq = sm.createSequence("X", [{ channel: "email", delayDays: 0, template: "a" }, { channel: "call", delayDays: 2, template: "b" }]);
+    const en = sm.enroll(seq.id, "p1", "2026-06-01")!;
+    sm.executeNextStep(en.id);
+    assert.equal(sm.getEnrollment(en.id)!.currentStep, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("completing all steps marks completed", () => {
+    const bus = new EventBus();
+    const sm = new SalesSequenceManager(bus);
+    const seq = sm.createSequence("X", [{ channel: "email", delayDays: 0, template: "a" }]);
+    const en = sm.enroll(seq.id, "p1", "2026-06-01")!;
+    sm.executeNextStep(en.id);
+    assert.equal(sm.getEnrollment(en.id)!.status, "completed");
+  });
+
+  it("recordReply stops the sequence and publishes replied", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sequence.replied", (e) => { events.push(e.payload); });
+    const sm = new SalesSequenceManager(bus);
+    const seq = sm.createSequence("X", [{ channel: "email", delayDays: 0, template: "a" }, { channel: "call", delayDays: 2, template: "b" }]);
+    const en = sm.enroll(seq.id, "p1", "2026-06-01")!;
+    sm.recordReply(en.id);
+    assert.equal(sm.executeNextStep(en.id), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("paused sequence rejects enrollment", () => {
+    const bus = new EventBus();
+    const sm = new SalesSequenceManager(bus);
+    const seq = sm.createSequence("X", [{ channel: "email", delayDays: 0, template: "a" }]);
+    sm.pause(seq.id);
+    assert.equal(sm.enroll(seq.id, "p1", "2026-06-01"), undefined);
+  });
+
+  it("summary computes reply rate", () => {
+    const bus = new EventBus();
+    const sm = new SalesSequenceManager(bus);
+    const seq = sm.createSequence("X", [{ channel: "email", delayDays: 0, template: "a" }]);
+    const e1 = sm.enroll(seq.id, "p1", "2026-06-01")!; sm.recordReply(e1.id);
+    sm.enroll(seq.id, "p2", "2026-06-01");
+    const s = sm.summary();
+    assert.equal(s.totalEnrollments, 2);
+    assert.equal(s.replied, 1);
+    assert.equal(s.replyRatePct, 50);
+  });
+});
+
+describe("LeadScoringManager", () => {
+  it("addRule publishes rule_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("leadscoring.rule_added", (e) => { events.push(e.payload); });
+    const lm = new LeadScoringManager(bus);
+    lm.addRule("demographic", "title=VP", 40);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordSignal accumulates score and grades", () => {
+    const bus = new EventBus();
+    const lm = new LeadScoringManager(bus);
+    lm.addRule("demographic", "title=VP", 40);
+    lm.addRule("behavioral", "visited_pricing", 30);
+    const lead = lm.createLead("a@x.com");
+    lm.recordSignal(lead.id, "title=VP");
+    lm.recordSignal(lead.id, "visited_pricing");
+    assert.equal(lm.getLead(lead.id)!.score, 70);
+    assert.equal(lm.getLead(lead.id)!.grade, "B");
+  });
+
+  it("duplicate signals do not double-count", () => {
+    const bus = new EventBus();
+    const lm = new LeadScoringManager(bus);
+    lm.addRule("behavioral", "opened_email", 10);
+    const lead = lm.createLead("a@x.com");
+    lm.recordSignal(lead.id, "opened_email");
+    lm.recordSignal(lead.id, "opened_email");
+    assert.equal(lm.getLead(lead.id)!.score, 10);
+  });
+
+  it("MQL threshold fires mql_reached", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("leadscoring.mql_reached", (e) => { events.push(e.payload); });
+    const lm = new LeadScoringManager(bus, 100);
+    lm.addRule("demographic", "enterprise", 100);
+    const lead = lm.createLead("a@x.com");
+    lm.recordSignal(lead.id, "enterprise");
+    assert.equal(lm.getLead(lead.id)!.isMQL, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("decay reduces score and regrade", () => {
+    const bus = new EventBus();
+    const lm = new LeadScoringManager(bus);
+    lm.addRule("behavioral", "demo", 70);
+    const lead = lm.createLead("a@x.com");
+    lm.recordSignal(lead.id, "demo");
+    lm.decay(lead.id, 50);
+    assert.equal(lm.getLead(lead.id)!.score, 20);
+    assert.equal(lm.getLead(lead.id)!.grade, "D");
+  });
+
+  it("summary aggregates grades and MQLs", () => {
+    const bus = new EventBus();
+    const lm = new LeadScoringManager(bus, 50);
+    lm.addRule("demographic", "vp", 60);
+    const l1 = lm.createLead("a@x.com"); lm.recordSignal(l1.id, "vp");
+    lm.createLead("b@x.com");
+    const s = lm.summary();
+    assert.equal(s.totalLeads, 2);
+    assert.equal(s.mqls, 1);
+    assert.equal(s.byGrade.B, 1);
   });
 });
