@@ -90,6 +90,8 @@ import { WebinarManager } from "../webinar/webinar-manager.js";
 import { FormSubmissionManager } from "../form-submission/form-submission-manager.js";
 import { CashAdvanceManager } from "../cash-advance/cash-advance-manager.js";
 import { GarnishmentManager } from "../garnishment/garnishment-manager.js";
+import { RoyaltyManager } from "../royalty/royalty-manager.js";
+import { SeatLicenseManager } from "../seat-license/seat-license-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14016,5 +14018,134 @@ describe("GarnishmentManager", () => {
     assert.equal(s.active, 1);
     assert.equal(s.totalWithheldUsd, 200);
     assert.equal(s.byType.child_support, 1);
+  });
+});
+
+describe("RoyaltyManager", () => {
+  it("createAgreement publishes agreement_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("royalty.agreement_created", (e) => { events.push(e.payload); });
+    const rm = new RoyaltyManager(bus);
+    rm.createAgreement({ licensee: "Acme", ipAsset: "Logo", basis: "net_sales", ratePct: 5 });
+    assert.equal(events.length, 1);
+  });
+
+  it("reportSales accrues percentage royalty", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("royalty.accrued", (e) => { events.push(e.payload); });
+    const rm = new RoyaltyManager(bus);
+    const a = rm.createAgreement({ licensee: "Acme", ipAsset: "X", basis: "net_sales", ratePct: 10 });
+    rm.reportSales(a.id, "2026-Q1", 100000, 0, "2026-04-01");
+    assert.equal(rm.getAgreement(a.id)!.accruedUsd, 10000);
+    assert.equal(events.length, 1);
+  });
+
+  it("per_unit basis accrues by units", () => {
+    const bus = new EventBus();
+    const rm = new RoyaltyManager(bus);
+    const a = rm.createAgreement({ licensee: "Acme", ipAsset: "X", basis: "per_unit", perUnitUsd: 2 });
+    rm.reportSales(a.id, "2026-Q1", 0, 500, "2026-04-01");
+    assert.equal(rm.getAgreement(a.id)!.accruedUsd, 1000);
+  });
+
+  it("payable honors minimum guarantee", () => {
+    const bus = new EventBus();
+    const rm = new RoyaltyManager(bus);
+    const a = rm.createAgreement({ licensee: "Acme", ipAsset: "X", basis: "net_sales", ratePct: 5, minimumGuaranteeUsd: 10000 });
+    rm.reportSales(a.id, "2026-Q1", 100000, 0, "2026-04-01"); // 5000 accrued, but min 10000
+    assert.equal(rm.payable(a.id), 10000);
+  });
+
+  it("pay reduces outstanding and publishes paid", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("royalty.paid", (e) => { events.push(e.payload); });
+    const rm = new RoyaltyManager(bus);
+    const a = rm.createAgreement({ licensee: "Acme", ipAsset: "X", basis: "net_sales", ratePct: 10 });
+    rm.reportSales(a.id, "2026-Q1", 50000, 0, "2026-04-01"); // 5000
+    rm.pay(a.id);
+    assert.equal(rm.payable(a.id), 0);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates accrued, paid and outstanding", () => {
+    const bus = new EventBus();
+    const rm = new RoyaltyManager(bus);
+    const a = rm.createAgreement({ licensee: "Acme", ipAsset: "X", basis: "net_sales", ratePct: 10 });
+    rm.reportSales(a.id, "2026-Q1", 100000, 0, "2026-04-01"); // 10000
+    rm.pay(a.id);
+    rm.reportSales(a.id, "2026-Q2", 50000, 0, "2026-07-01"); // +5000
+    const s = rm.summary();
+    assert.equal(s.totalAccruedUsd, 15000);
+    assert.equal(s.totalPaidUsd, 10000);
+    assert.equal(s.outstandingUsd, 5000);
+  });
+});
+
+describe("SeatLicenseManager", () => {
+  it("createPool publishes pool_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("seatlicense.pool_created", (e) => { events.push(e.payload); });
+    const sm = new SeatLicenseManager(bus);
+    sm.createPool({ product: "IDE Pro", vendor: "JetBrains", totalSeats: 10, annualCostUsd: 5000, expiresAt: "2027-01-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("assign uses a seat and publishes assigned", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("seatlicense.assigned", (e) => { events.push(e.payload); });
+    const sm = new SeatLicenseManager(bus);
+    const p = sm.createPool({ product: "X", vendor: "Y", totalSeats: 2, annualCostUsd: 100, expiresAt: "2027-01-01" });
+    assert.equal(sm.assign(p.id, "u1", "2026-06-01"), true);
+    assert.equal(sm.availableSeats(p.id), 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("assign is idempotent and respects capacity", () => {
+    const bus = new EventBus();
+    const sm = new SeatLicenseManager(bus);
+    const p = sm.createPool({ product: "X", vendor: "Y", totalSeats: 1, annualCostUsd: 100, expiresAt: "2027-01-01" });
+    assert.equal(sm.assign(p.id, "u1", "2026-06-01"), true);
+    assert.equal(sm.assign(p.id, "u1", "2026-06-01"), true); // idempotent
+    assert.equal(sm.assign(p.id, "u2", "2026-06-01"), false); // full
+  });
+
+  it("reclaim frees a seat", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("seatlicense.reclaimed", (e) => { events.push(e.payload); });
+    const sm = new SeatLicenseManager(bus);
+    const p = sm.createPool({ product: "X", vendor: "Y", totalSeats: 1, annualCostUsd: 100, expiresAt: "2027-01-01" });
+    sm.assign(p.id, "u1", "2026-06-01");
+    sm.reclaim(p.id, "u1");
+    assert.equal(sm.availableSeats(p.id), 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("resize cannot go below assigned count", () => {
+    const bus = new EventBus();
+    const sm = new SeatLicenseManager(bus);
+    const p = sm.createPool({ product: "X", vendor: "Y", totalSeats: 3, annualCostUsd: 100, expiresAt: "2027-01-01" });
+    sm.assign(p.id, "u1", "2026-06-01");
+    sm.assign(p.id, "u2", "2026-06-01");
+    assert.equal(sm.resize(p.id, 1), undefined);
+    assert.ok(sm.resize(p.id, 5));
+  });
+
+  it("summary computes utilization", () => {
+    const bus = new EventBus();
+    const sm = new SeatLicenseManager(bus);
+    const p = sm.createPool({ product: "X", vendor: "Y", totalSeats: 4, annualCostUsd: 1000, expiresAt: "2026-07-10" });
+    sm.assign(p.id, "u1", "2026-06-01");
+    sm.assign(p.id, "u2", "2026-06-01");
+    const s = sm.summary("2026-06-25");
+    assert.equal(s.totalSeats, 4);
+    assert.equal(s.usedSeats, 2);
+    assert.equal(s.utilizationPct, 50);
+    assert.equal(s.expiringIn30Days, 1);
   });
 });

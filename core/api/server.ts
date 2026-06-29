@@ -292,6 +292,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/form-submissions", handler: (_req, res) => res.json(200, { summary: this.olympus.formSubmission.summary(), forms: this.olympus.formSubmission.listForms() }) },
       { method: "GET", pattern: "/v1/cash-advances", handler: (_req, res) => res.json(200, { summary: this.olympus.cashAdvance.summary(), advances: this.olympus.cashAdvance.listAdvances() }) },
       { method: "GET", pattern: "/v1/garnishments", handler: (_req, res) => res.json(200, { summary: this.olympus.garnishment.summary(), orders: this.olympus.garnishment.listOrders() }) },
+      { method: "GET", pattern: "/v1/royalties", handler: (_req, res) => res.json(200, { summary: this.olympus.royalty.summary(), agreements: this.olympus.royalty.listAgreements() }) },
+      { method: "GET", pattern: "/v1/seat-licenses", handler: (_req, res) => res.json(200, { summary: this.olympus.seatLicense.summary(), pools: this.olympus.seatLicense.listPools().map(p => ({ id: p.id, product: p.product, vendor: p.vendor, totalSeats: p.totalSeats, usedSeats: p.assignedTo.size, expiresAt: p.expiresAt })) }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
