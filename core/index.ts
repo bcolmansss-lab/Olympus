@@ -189,6 +189,8 @@ import { CashAdvanceManager } from "./cash-advance/cash-advance-manager.js";
 import { GarnishmentManager } from "./garnishment/garnishment-manager.js";
 import { RoyaltyManager } from "./royalty/royalty-manager.js";
 import { SeatLicenseManager } from "./seat-license/seat-license-manager.js";
+import { ApiKeyManager } from "./api-key/api-key-manager.js";
+import { QuotaUsageManager } from "./quota-usage/quota-usage-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -466,6 +468,8 @@ export class Olympus {
   readonly garnishment: GarnishmentManager;
   readonly royalty: RoyaltyManager;
   readonly seatLicense: SeatLicenseManager;
+  readonly apiKey: ApiKeyManager;
+  readonly quotaUsage: QuotaUsageManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -647,6 +651,8 @@ export class Olympus {
     this.garnishment = new GarnishmentManager(this.bus);
     this.royalty = new RoyaltyManager(this.bus);
     this.seatLicense = new SeatLicenseManager(this.bus);
+    this.apiKey = new ApiKeyManager(this.bus);
+    this.quotaUsage = new QuotaUsageManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -834,3 +840,5 @@ export { CashAdvanceManager, type AdvanceStatus, type CashAdvance, type CashAdva
 export { GarnishmentManager, type GarnishmentType, type GarnishmentStatus, type GarnishmentOrder, type GarnishmentSummary } from "./garnishment/index.js";
 export { RoyaltyManager, type RoyaltyBasis, type RoyaltyAgreementStatus, type RoyaltyAgreement, type RoyaltyReport, type RoyaltySummary } from "./royalty/index.js";
 export { SeatLicenseManager, type LicensePool, type SeatAssignment, type SeatLicenseSummary } from "./seat-license/index.js";
+export { ApiKeyManager, type ApiKeyStatus, type DeveloperApiKey, type ApiKeySummary } from "./api-key/index.js";
+export { QuotaUsageManager, type UsageQuota, type QuotaUsageSummary } from "./quota-usage/index.js";

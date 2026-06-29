@@ -294,6 +294,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/garnishments", handler: (_req, res) => res.json(200, { summary: this.olympus.garnishment.summary(), orders: this.olympus.garnishment.listOrders() }) },
       { method: "GET", pattern: "/v1/royalties", handler: (_req, res) => res.json(200, { summary: this.olympus.royalty.summary(), agreements: this.olympus.royalty.listAgreements() }) },
       { method: "GET", pattern: "/v1/seat-licenses", handler: (_req, res) => res.json(200, { summary: this.olympus.seatLicense.summary(), pools: this.olympus.seatLicense.listPools().map(p => ({ id: p.id, product: p.product, vendor: p.vendor, totalSeats: p.totalSeats, usedSeats: p.assignedTo.size, expiresAt: p.expiresAt })) }) },
+      { method: "GET", pattern: "/v1/api-keys", handler: (_req, res) => res.json(200, { summary: this.olympus.apiKey.summary(), keys: this.olympus.apiKey.listKeys().map(k => ({ id: k.id, ownerId: k.ownerId, label: k.label, prefix: k.prefix, scopes: k.scopes, status: k.status })) }) },
+      { method: "GET", pattern: "/v1/quotas", handler: (_req, res) => res.json(200, { summary: this.olympus.quotaUsage.summary(), quotas: this.olympus.quotaUsage.listQuotas() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

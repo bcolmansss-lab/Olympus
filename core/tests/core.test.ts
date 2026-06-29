@@ -92,6 +92,8 @@ import { CashAdvanceManager } from "../cash-advance/cash-advance-manager.js";
 import { GarnishmentManager } from "../garnishment/garnishment-manager.js";
 import { RoyaltyManager } from "../royalty/royalty-manager.js";
 import { SeatLicenseManager } from "../seat-license/seat-license-manager.js";
+import { ApiKeyManager } from "../api-key/api-key-manager.js";
+import { QuotaUsageManager } from "../quota-usage/quota-usage-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -14147,5 +14149,131 @@ describe("SeatLicenseManager", () => {
     assert.equal(s.usedSeats, 2);
     assert.equal(s.utilizationPct, 50);
     assert.equal(s.expiringIn30Days, 1);
+  });
+});
+
+describe("ApiKeyManager", () => {
+  it("issue publishes issued and assigns prefix", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("apikey.issued", (e) => { events.push(e.payload); });
+    const am = new ApiKeyManager(bus);
+    const k = am.issue("u1", "CI key", ["read", "write"]);
+    assert.ok(k.prefix.startsWith("ak_"));
+    assert.equal(events.length, 1);
+  });
+
+  it("authenticate resolves active key and records usage", () => {
+    const bus = new EventBus();
+    const am = new ApiKeyManager(bus);
+    const k = am.issue("u1", "k", ["read"]);
+    const auth = am.authenticate(k.prefix, "2026-06-01T00:00:00.000Z");
+    assert.ok(auth);
+    assert.equal(am.getKey(k.id)!.lastUsedAt, "2026-06-01T00:00:00.000Z");
+  });
+
+  it("authenticate fails for expired or revoked keys", () => {
+    const bus = new EventBus();
+    const am = new ApiKeyManager(bus);
+    const k = am.issue("u1", "k", ["read"], "2026-01-01T00:00:00.000Z");
+    assert.equal(am.authenticate(k.prefix, "2026-06-01T00:00:00.000Z"), undefined); // expired
+    const k2 = am.issue("u1", "k2", ["read"]);
+    am.revoke(k2.id);
+    assert.equal(am.authenticate(k2.prefix, "2026-06-01T00:00:00.000Z"), undefined);
+  });
+
+  it("hasScope honors wildcard", () => {
+    const bus = new EventBus();
+    const am = new ApiKeyManager(bus);
+    const k = am.issue("u1", "k", ["*"]);
+    assert.equal(am.hasScope(k.prefix, "anything"), true);
+  });
+
+  it("rotate changes prefix and invalidates old", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("apikey.rotated", (e) => { events.push(e.payload); });
+    const am = new ApiKeyManager(bus);
+    const k = am.issue("u1", "k", ["read"]);
+    const oldPrefix = k.prefix;
+    am.rotate(k.id);
+    assert.notEqual(am.getKey(k.id)!.prefix, oldPrefix);
+    assert.equal(am.authenticate(oldPrefix, "2026-06-01T00:00:00.000Z"), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates scopes and statuses", () => {
+    const bus = new EventBus();
+    const am = new ApiKeyManager(bus);
+    am.issue("u1", "a", ["read"]);
+    const k2 = am.issue("u2", "b", ["read", "write"]);
+    am.revoke(k2.id);
+    const s = am.summary();
+    assert.equal(s.totalKeys, 2);
+    assert.equal(s.revoked, 1);
+    assert.equal(s.byScope.read, 2);
+  });
+});
+
+describe("QuotaUsageManager", () => {
+  it("define publishes defined", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("quota.defined", (e) => { events.push(e.payload); });
+    const qm = new QuotaUsageManager(bus);
+    qm.define("acct1", "api_calls", 1000, "2026-06");
+    assert.equal(events.length, 1);
+  });
+
+  it("consume decrements remaining", () => {
+    const bus = new EventBus();
+    const qm = new QuotaUsageManager(bus);
+    const q = qm.define("acct1", "api_calls", 1000, "2026-06");
+    qm.consume(q.id, 300);
+    assert.equal(qm.remaining(q.id), 700);
+  });
+
+  it("threshold alert fires once at threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("quota.threshold_reached", (e) => { events.push(e.payload); });
+    const qm = new QuotaUsageManager(bus);
+    const q = qm.define("acct1", "api_calls", 100, "2026-06", 80);
+    qm.consume(q.id, 85);
+    qm.consume(q.id, 5); // already alerted
+    assert.equal(events.length, 1);
+  });
+
+  it("exceeding limit publishes exceeded and returns false", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("quota.exceeded", (e) => { events.push(e.payload); });
+    const qm = new QuotaUsageManager(bus);
+    const q = qm.define("acct1", "storage_gb", 10, "2026-06");
+    assert.equal(qm.consume(q.id, 15), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("reset clears usage and alert", () => {
+    const bus = new EventBus();
+    const qm = new QuotaUsageManager(bus);
+    const q = qm.define("acct1", "api_calls", 100, "2026-06");
+    qm.consume(q.id, 90);
+    qm.reset(q.id, "2026-07");
+    assert.equal(qm.remaining(q.id), 100);
+  });
+
+  it("summary aggregates over/near limit and metrics", () => {
+    const bus = new EventBus();
+    const qm = new QuotaUsageManager(bus);
+    const q1 = qm.define("acct1", "api_calls", 100, "2026-06");
+    qm.consume(q1.id, 90); // near
+    const q2 = qm.define("acct2", "api_calls", 100, "2026-06");
+    qm.consume(q2.id, 120); // over
+    const s = qm.summary();
+    assert.equal(s.totalQuotas, 2);
+    assert.equal(s.overLimit, 1);
+    assert.equal(s.nearLimit, 2); // both >= 80%
+    assert.equal(s.byMetric.api_calls!.limit, 200);
   });
 });
