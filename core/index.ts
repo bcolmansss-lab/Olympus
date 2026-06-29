@@ -175,6 +175,8 @@ import { PurchaseRequisitionManager } from "./requisition/purchase-requisition-m
 import { GoodsReceiptManager } from "./goods-receipt/goods-receipt-manager.js";
 import { PhysicalAccessManager } from "./physical-access/physical-access-manager.js";
 import { AssetAuditManager } from "./asset-audit/asset-audit-manager.js";
+import { ProductRecallManager } from "./recall/product-recall-manager.js";
+import { ServiceContractManager } from "./service-contract/service-contract-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -438,6 +440,8 @@ export class Olympus {
   readonly goodsReceipt: GoodsReceiptManager;
   readonly physicalAccess: PhysicalAccessManager;
   readonly assetAudit: AssetAuditManager;
+  readonly recall: ProductRecallManager;
+  readonly serviceContract: ServiceContractManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -605,6 +609,8 @@ export class Olympus {
     this.goodsReceipt = new GoodsReceiptManager(this.bus);
     this.physicalAccess = new PhysicalAccessManager(this.bus);
     this.assetAudit = new AssetAuditManager(this.bus);
+    this.recall = new ProductRecallManager(this.bus);
+    this.serviceContract = new ServiceContractManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -778,3 +784,5 @@ export { PurchaseRequisitionManager, type ReqStatus, type ReqLineItem, type Purc
 export { GoodsReceiptManager, type POReceiptStatus, type POLine, type ReceivablePO, type GoodsReceipt, type GoodsReceiptSummary } from "./goods-receipt/index.js";
 export { PhysicalAccessManager, type BadgeStatus, type Badge, type AccessEvent, type PhysicalAccessSummary } from "./physical-access/index.js";
 export { AssetAuditManager, type AuditStatus, type ScanOutcome, type AuditAssetLine, type AssetAudit, type AssetAuditSummary } from "./asset-audit/index.js";
+export { ProductRecallManager, type RecallSeverity, type RecallStatus, type Remedy, type RecallUnit, type Recall, type RecallSummary } from "./recall/index.js";
+export { ServiceContractManager, type ServiceContractTier, type ServiceContractStatus, type ServiceCall, type ServiceContract, type ServiceContractSummary } from "./service-contract/index.js";

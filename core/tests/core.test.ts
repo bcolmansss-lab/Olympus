@@ -78,6 +78,8 @@ import { PurchaseRequisitionManager } from "../requisition/purchase-requisition-
 import { GoodsReceiptManager } from "../goods-receipt/goods-receipt-manager.js";
 import { PhysicalAccessManager } from "../physical-access/physical-access-manager.js";
 import { AssetAuditManager } from "../asset-audit/asset-audit-manager.js";
+import { ProductRecallManager } from "../recall/product-recall-manager.js";
+import { ServiceContractManager } from "../service-contract/service-contract-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -13231,5 +13233,134 @@ describe("AssetAuditManager", () => {
     assert.equal(s.totalAssetsAudited, 2);
     assert.equal(s.totalMissing, 1);
     assert.equal(s.avgAccuracyPct, 50);
+  });
+});
+
+describe("ProductRecallManager", () => {
+  it("initiate publishes initiated with affected units", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("recall.initiated", (e) => { events.push(e.payload); });
+    const rm = new ProductRecallManager(bus);
+    rm.initiate({ product: "Widget X", reason: "fire hazard", severity: "critical", affectedUnits: [{ unitId: "SN-1" }, { unitId: "SN-2" }], initiatedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].affectedUnits, 2);
+  });
+
+  it("remediate publishes unit_remediated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("recall.unit_remediated", (e) => { events.push(e.payload); });
+    const rm = new ProductRecallManager(bus);
+    const r = rm.initiate({ product: "X", reason: "y", severity: "high", affectedUnits: [{ unitId: "SN-1" }], initiatedAt: "2026-06-01" });
+    rm.remediate(r.id, "SN-1", "replace");
+    assert.equal(events.length, 1);
+  });
+
+  it("completionPct reflects remediated ratio", () => {
+    const bus = new EventBus();
+    const rm = new ProductRecallManager(bus);
+    const r = rm.initiate({ product: "X", reason: "y", severity: "medium", affectedUnits: [{ unitId: "A" }, { unitId: "B" }, { unitId: "C" }, { unitId: "D" }], initiatedAt: "2026-06-01" });
+    rm.remediate(r.id, "A", "repair");
+    assert.equal(rm.completionPct(r.id), 25);
+  });
+
+  it("double remediation is rejected", () => {
+    const bus = new EventBus();
+    const rm = new ProductRecallManager(bus);
+    const r = rm.initiate({ product: "X", reason: "y", severity: "low", affectedUnits: [{ unitId: "A" }], initiatedAt: "2026-06-01" });
+    rm.remediate(r.id, "A", "refund");
+    assert.equal(rm.remediate(r.id, "A", "repair"), undefined);
+  });
+
+  it("close publishes closed with completion", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("recall.closed", (e) => { events.push(e.payload); });
+    const rm = new ProductRecallManager(bus);
+    const r = rm.initiate({ product: "X", reason: "y", severity: "high", affectedUnits: [{ unitId: "A" }, { unitId: "B" }], initiatedAt: "2026-06-01" });
+    rm.remediate(r.id, "A", "replace");
+    rm.close(r.id, "2026-06-30");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].completionPct, 50);
+  });
+
+  it("summary aggregates units and severity", () => {
+    const bus = new EventBus();
+    const rm = new ProductRecallManager(bus);
+    const r = rm.initiate({ product: "X", reason: "y", severity: "critical", affectedUnits: [{ unitId: "A" }, { unitId: "B" }], initiatedAt: "2026-06-01" });
+    rm.remediate(r.id, "A", "repair");
+    const s = rm.summary();
+    assert.equal(s.totalRecalls, 1);
+    assert.equal(s.totalAffectedUnits, 2);
+    assert.equal(s.remediatedUnits, 1);
+    assert.equal(s.overallCompletionPct, 50);
+    assert.equal(s.bySeverity.critical, 1);
+  });
+});
+
+describe("ServiceContractManager", () => {
+  it("activate publishes activated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("servicecontract.activated", (e) => { events.push(e.payload); });
+    const sm = new ServiceContractManager(bus);
+    sm.activate({ customerId: "c1", tier: "premium", slaResponseHours: 4, annualFeeUsd: 5000, includedCalls: 0, startDate: "2026-01-01", expiresAt: "2027-01-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("logCall computes SLA compliance", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("servicecontract.call_logged", (e) => { events.push(e.payload); });
+    const sm = new ServiceContractManager(bus);
+    const c = sm.activate({ customerId: "c1", tier: "standard", slaResponseHours: 4, annualFeeUsd: 2000, includedCalls: 0, startDate: "2026-01-01", expiresAt: "2027-01-01" });
+    const call = sm.logCall(c.id, "broken", "2026-06-01T09:00:00.000Z", "2026-06-01T11:00:00.000Z")!;
+    assert.equal(call.withinSla, true);
+    assert.equal(call.responseHours, 2);
+    assert.equal(events.length, 1);
+  });
+
+  it("logCall flags SLA breach", () => {
+    const bus = new EventBus();
+    const sm = new ServiceContractManager(bus);
+    const c = sm.activate({ customerId: "c1", tier: "basic", slaResponseHours: 4, annualFeeUsd: 1000, includedCalls: 0, startDate: "2026-01-01", expiresAt: "2027-01-01" });
+    const call = sm.logCall(c.id, "x", "2026-06-01T09:00:00.000Z", "2026-06-01T15:00:00.000Z")!;
+    assert.equal(call.withinSla, false);
+  });
+
+  it("included call limit is enforced", () => {
+    const bus = new EventBus();
+    const sm = new ServiceContractManager(bus);
+    const c = sm.activate({ customerId: "c1", tier: "basic", slaResponseHours: 8, annualFeeUsd: 500, includedCalls: 1, startDate: "2026-01-01", expiresAt: "2027-01-01" });
+    sm.logCall(c.id, "first", "2026-06-01T09:00:00.000Z");
+    assert.equal(sm.logCall(c.id, "second", "2026-06-02T09:00:00.000Z"), undefined);
+    assert.equal(sm.remainingCalls(c.id), 0);
+  });
+
+  it("renew reactivates and extends", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("servicecontract.renewed", (e) => { events.push(e.payload); });
+    const sm = new ServiceContractManager(bus);
+    const c = sm.activate({ customerId: "c1", tier: "standard", slaResponseHours: 4, annualFeeUsd: 2000, includedCalls: 0, startDate: "2026-01-01", expiresAt: "2027-01-01" });
+    sm.renew(c.id, "2028-01-01");
+    assert.equal(sm.getContract(c.id)!.expiresAt, "2028-01-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes SLA compliance and value", () => {
+    const bus = new EventBus();
+    const sm = new ServiceContractManager(bus);
+    const c = sm.activate({ customerId: "c1", tier: "premium", slaResponseHours: 4, annualFeeUsd: 5000, includedCalls: 0, startDate: "2026-01-01", expiresAt: "2027-01-01" });
+    sm.logCall(c.id, "a", "2026-06-01T09:00:00.000Z", "2026-06-01T10:00:00.000Z"); // within
+    sm.logCall(c.id, "b", "2026-06-02T09:00:00.000Z", "2026-06-02T18:00:00.000Z"); // breach
+    const s = sm.summary();
+    assert.equal(s.totalContracts, 1);
+    assert.equal(s.totalCalls, 2);
+    assert.equal(s.slaBreaches, 1);
+    assert.equal(s.slaCompliancePct, 50);
+    assert.equal(s.totalAnnualValueUsd, 5000);
+    assert.equal(s.byTier.premium, 1);
   });
 });
