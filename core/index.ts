@@ -205,6 +205,8 @@ import { PartnerCertificationManager } from "./partner-cert/partner-certificatio
 import { WinbackManager } from "./winback/winback-manager.js";
 import { ProductBundleManager } from "./bundle/product-bundle-manager.js";
 import { UpsellManager } from "./upsell/upsell-manager.js";
+import { ExperimentManager } from "./experiment/experiment-manager.js";
+import { NPSSurveyManager } from "./nps-survey/nps-survey-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -498,6 +500,8 @@ export class Olympus {
   readonly winback: WinbackManager;
   readonly bundle: ProductBundleManager;
   readonly upsell: UpsellManager;
+  readonly experiment: ExperimentManager;
+  readonly npsSurvey: NPSSurveyManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -695,6 +699,8 @@ export class Olympus {
     this.winback = new WinbackManager(this.bus);
     this.bundle = new ProductBundleManager(this.bus);
     this.upsell = new UpsellManager(this.bus);
+    this.experiment = new ExperimentManager(this.bus);
+    this.npsSurvey = new NPSSurveyManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -898,3 +904,5 @@ export { PartnerCertificationManager, type CertLevel, type PartnerCertState, typ
 export { WinbackManager, type WinbackStatus, type TargetState, type WinbackTarget, type WinbackCampaign, type WinbackSummary } from "./winback/index.js";
 export { ProductBundleManager, type BundleStatus, type BundleComponent, type ProductBundle, type BundleSummary } from "./bundle/index.js";
 export { UpsellManager, type RecommendationType, type RecState, type UpsellRule, type Recommendation, type UpsellSummary } from "./upsell/index.js";
+export { ExperimentManager, type ExperimentStatus, type Variant, type ABExperiment, type ExperimentSummary } from "./experiment/index.js";
+export { NPSSurveyManager, type NPSBucket, type NPSSurveyState, type NPSResponse, type NPSSurvey, type NPSSummary } from "./nps-survey/index.js";

@@ -108,6 +108,8 @@ import { PartnerCertificationManager } from "../partner-cert/partner-certificati
 import { WinbackManager } from "../winback/winback-manager.js";
 import { ProductBundleManager } from "../bundle/product-bundle-manager.js";
 import { UpsellManager } from "../upsell/upsell-manager.js";
+import { ExperimentManager } from "../experiment/experiment-manager.js";
+import { NPSSurveyManager } from "../nps-survey/nps-survey-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15189,5 +15191,132 @@ describe("UpsellManager", () => {
     assert.equal(s.acceptanceRatePct, 50);
     assert.equal(s.attributedRevenueUsd, 50);
     assert.equal(s.byType.upsell, 2);
+  });
+});
+
+describe("ExperimentManager", () => {
+  it("create requires control among variants", () => {
+    const bus = new EventBus();
+    const em = new ExperimentManager(bus);
+    assert.equal(em.create({ name: "X", hypothesis: "h", metric: "cvr", variants: [{ key: "a", weight: 1 }], controlKey: "a" }), undefined);
+    assert.ok(em.create({ name: "X", hypothesis: "h", metric: "cvr", variants: [{ key: "a", weight: 1 }, { key: "b", weight: 1 }], controlKey: "a" }));
+  });
+
+  it("start publishes started", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("experiment.started", (e) => { events.push(e.payload); });
+    const em = new ExperimentManager(bus);
+    const e = em.create({ name: "X", hypothesis: "h", metric: "cvr", variants: [{ key: "a", weight: 1 }, { key: "b", weight: 1 }], controlKey: "a" })!;
+    em.start(e.id, "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("assign is deterministic per subject", () => {
+    const bus = new EventBus();
+    const em = new ExperimentManager(bus);
+    const e = em.create({ name: "X", hypothesis: "h", metric: "cvr", variants: [{ key: "a", weight: 1 }, { key: "b", weight: 1 }], controlKey: "a" })!;
+    em.start(e.id, "2026-06-01");
+    assert.equal(em.assign(e.id, "user-123"), em.assign(e.id, "user-123"));
+  });
+
+  it("conversionRate computes per variant", () => {
+    const bus = new EventBus();
+    const em = new ExperimentManager(bus);
+    const e = em.create({ name: "X", hypothesis: "h", metric: "cvr", variants: [{ key: "a", weight: 1 }, { key: "b", weight: 1 }], controlKey: "a" })!;
+    em.start(e.id, "2026-06-01");
+    em.recordExposure(e.id, "a"); em.recordExposure(e.id, "a");
+    em.recordConversion(e.id, "a");
+    assert.equal(em.conversionRate(e.id, "a"), 50);
+  });
+
+  it("conclude picks winner and publishes lift", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("experiment.concluded", (e) => { events.push(e.payload); });
+    const em = new ExperimentManager(bus);
+    const e = em.create({ name: "X", hypothesis: "h", metric: "cvr", variants: [{ key: "a", weight: 1 }, { key: "b", weight: 1 }], controlKey: "a" })!;
+    em.start(e.id, "2026-06-01");
+    em.recordExposure(e.id, "a"); em.recordExposure(e.id, "a"); em.recordConversion(e.id, "a"); // 50%
+    em.recordExposure(e.id, "b"); em.recordExposure(e.id, "b"); em.recordConversion(e.id, "b"); em.recordConversion(e.id, "b"); // 100%
+    em.conclude(e.id, "2026-06-30");
+    assert.equal(em.getExperiment(e.id)!.winner, "b");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].liftPct, 100);
+  });
+
+  it("summary aggregates exposures and conversions", () => {
+    const bus = new EventBus();
+    const em = new ExperimentManager(bus);
+    const e = em.create({ name: "X", hypothesis: "h", metric: "cvr", variants: [{ key: "a", weight: 1 }, { key: "b", weight: 1 }], controlKey: "a" })!;
+    em.start(e.id, "2026-06-01");
+    em.recordExposure(e.id, "a"); em.recordConversion(e.id, "a");
+    const s = em.summary();
+    assert.equal(s.totalExperiments, 1);
+    assert.equal(s.running, 1);
+    assert.equal(s.totalExposures, 1);
+    assert.equal(s.totalConversions, 1);
+  });
+});
+
+describe("NPSSurveyManager", () => {
+  it("launch publishes launched", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("npssurvey.launched", (e) => { events.push(e.payload); });
+    const nm = new NPSSurveyManager(bus);
+    nm.launch("Q2 NPS", 1000);
+    assert.equal(events.length, 1);
+  });
+
+  it("respond classifies buckets", () => {
+    const bus = new EventBus();
+    const nm = new NPSSurveyManager(bus);
+    const s = nm.launch("X", 100);
+    assert.equal(nm.respond(s.id, "r1", 10, "2026-06-01")!.bucket, "promoter");
+    assert.equal(nm.respond(s.id, "r2", 8, "2026-06-01")!.bucket, "passive");
+    assert.equal(nm.respond(s.id, "r3", 3, "2026-06-01")!.bucket, "detractor");
+  });
+
+  it("detractor responses fire flagged event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("npssurvey.detractor_flagged", (e) => { events.push(e.payload); });
+    const nm = new NPSSurveyManager(bus);
+    const s = nm.launch("X", 100);
+    nm.respond(s.id, "r1", 2, "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("npsScore computes promoters minus detractors", () => {
+    const bus = new EventBus();
+    const nm = new NPSSurveyManager(bus);
+    const s = nm.launch("X", 100);
+    nm.respond(s.id, "r1", 10, "2026-06-01"); // promoter
+    nm.respond(s.id, "r2", 10, "2026-06-01"); // promoter
+    nm.respond(s.id, "r3", 2, "2026-06-01");  // detractor
+    nm.respond(s.id, "r4", 8, "2026-06-01");  // passive
+    assert.equal(nm.npsScore(s.id), 25); // (2-1)/4 * 100
+  });
+
+  it("topThemes ranks verbatim tags", () => {
+    const bus = new EventBus();
+    const nm = new NPSSurveyManager(bus);
+    const s = nm.launch("X", 100);
+    nm.respond(s.id, "r1", 9, "2026-06-01", "great", ["support"]);
+    nm.respond(s.id, "r2", 3, "2026-06-01", "slow", ["support", "speed"]);
+    assert.equal(nm.topThemes(s.id)[0]!.theme, "support");
+  });
+
+  it("summary computes overall NPS and response rate", () => {
+    const bus = new EventBus();
+    const nm = new NPSSurveyManager(bus);
+    const s = nm.launch("X", 10);
+    nm.respond(s.id, "r1", 10, "2026-06-01");
+    nm.respond(s.id, "r2", 2, "2026-06-01");
+    const sm = nm.summary();
+    assert.equal(sm.totalResponses, 2);
+    assert.equal(sm.npsScore, 0); // (1-1)/2
+    assert.equal(sm.responseRatePct, 20);
   });
 });

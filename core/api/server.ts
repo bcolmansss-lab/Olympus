@@ -310,6 +310,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/winback", handler: (_req, res) => res.json(200, { summary: this.olympus.winback.summary(), campaigns: this.olympus.winback.listCampaigns() }) },
       { method: "GET", pattern: "/v1/bundles", handler: (_req, res) => res.json(200, { summary: this.olympus.bundle.summary(), bundles: this.olympus.bundle.listBundles() }) },
       { method: "GET", pattern: "/v1/upsell", handler: (_req, res) => res.json(200, { summary: this.olympus.upsell.summary(), rules: this.olympus.upsell.listRules() }) },
+      { method: "GET", pattern: "/v1/experiments", handler: (_req, res) => res.json(200, { summary: this.olympus.experiment.summary(), experiments: this.olympus.experiment.listExperiments() }) },
+      { method: "GET", pattern: "/v1/nps-surveys", handler: (_req, res) => res.json(200, { summary: this.olympus.npsSurvey.summary(), surveys: this.olympus.npsSurvey.listSurveys().map(s => ({ id: s.id, name: s.name, state: s.state, responses: s.responses.length })) }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
