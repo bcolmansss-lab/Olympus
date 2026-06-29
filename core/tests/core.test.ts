@@ -112,6 +112,8 @@ import { ExperimentManager } from "../experiment/experiment-manager.js";
 import { NPSSurveyManager } from "../nps-survey/nps-survey-manager.js";
 import { DeliveryRouteManager } from "../delivery-route/delivery-route-manager.js";
 import { ColdChainManager } from "../cold-chain/cold-chain-manager.js";
+import { ReplenishmentManager } from "../replenishment/replenishment-manager.js";
+import { DropshipManager } from "../dropship/dropship-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15458,5 +15460,136 @@ describe("ColdChainManager", () => {
     assert.equal(sm.delivered, 2);
     assert.equal(sm.compromised, 1);
     assert.equal(sm.integrityRatePct, 50);
+  });
+});
+
+describe("ReplenishmentManager", () => {
+  it("setPolicy publishes policy_set", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("replenishment.policy_set", (e) => { events.push(e.payload); });
+    const rm = new ReplenishmentManager(bus);
+    rm.setPolicy({ sku: "A", reorderPoint: 10, orderUpToLevel: 50, onHand: 40 });
+    assert.equal(events.length, 1);
+  });
+
+  it("consume triggers reorder at reorder point", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("replenishment.reorder_triggered", (e) => { events.push(e.payload); });
+    const rm = new ReplenishmentManager(bus);
+    rm.setPolicy({ sku: "A", reorderPoint: 10, orderUpToLevel: 50, onHand: 12 });
+    const sug = rm.consume("A", 5)!; // onHand 7 <= 10
+    assert.equal(sug.suggestedQty, 43); // up to 50 from 7
+    assert.equal(events.length, 1);
+  });
+
+  it("stockout risk fires at zero", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("replenishment.stockout_risk", (e) => { events.push(e.payload); });
+    const rm = new ReplenishmentManager(bus);
+    rm.setPolicy({ sku: "A", reorderPoint: 10, orderUpToLevel: 50, onHand: 5 });
+    rm.consume("A", 5);
+    assert.equal(events.length, 1);
+  });
+
+  it("only one open suggestion per sku", () => {
+    const bus = new EventBus();
+    const rm = new ReplenishmentManager(bus);
+    rm.setPolicy({ sku: "A", reorderPoint: 10, orderUpToLevel: 50, onHand: 12 });
+    rm.consume("A", 3);
+    rm.consume("A", 2);
+    assert.equal(rm.listSuggestions("open").length, 1);
+  });
+
+  it("placeOrder increases onOrder and receive reduces it", () => {
+    const bus = new EventBus();
+    const rm = new ReplenishmentManager(bus);
+    rm.setPolicy({ sku: "A", reorderPoint: 10, orderUpToLevel: 50, onHand: 8 });
+    rm.consume("A", 1); // onHand 7 -> triggers suggestion
+    const open = rm.listSuggestions("open")[0]!;
+    rm.placeOrder(open.id);
+    assert.equal(rm.getPolicy("A")!.onOrder, open.suggestedQty);
+    rm.receive("A", 10);
+    assert.equal(rm.getPolicy("A")!.onHand, 17);
+  });
+
+  it("summary aggregates below-reorder and open suggestions", () => {
+    const bus = new EventBus();
+    const rm = new ReplenishmentManager(bus);
+    rm.setPolicy({ sku: "A", reorderPoint: 10, orderUpToLevel: 50, onHand: 5 });
+    rm.consume("A", 1);
+    const s = rm.summary();
+    assert.equal(s.totalSkus, 1);
+    assert.equal(s.belowReorderPoint, 1);
+    assert.equal(s.openSuggestions, 1);
+  });
+});
+
+describe("DropshipManager", () => {
+  it("routeOrder picks cheapest in-stock supplier and publishes routed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dropship.routed", (e) => { events.push(e.payload); });
+    const dm = new DropshipManager(bus);
+    dm.addOffer({ supplierId: "s1", sku: "A", costUsd: 10, leadTimeDays: 3, inStock: true });
+    dm.addOffer({ supplierId: "s2", sku: "A", costUsd: 8, leadTimeDays: 5, inStock: true });
+    const o = dm.routeOrder("ORD-1", "A", 2, "123 St");
+    assert.equal(o.supplierId, "s2");
+    assert.equal(o.costUsd, 16);
+    assert.equal(events.length, 1);
+  });
+
+  it("out-of-stock suppliers are skipped", () => {
+    const bus = new EventBus();
+    const dm = new DropshipManager(bus);
+    dm.addOffer({ supplierId: "s1", sku: "A", costUsd: 10, leadTimeDays: 3, inStock: true });
+    dm.addOffer({ supplierId: "s2", sku: "A", costUsd: 8, leadTimeDays: 5, inStock: false });
+    const o = dm.routeOrder("ORD-1", "A", 1, "123 St");
+    assert.equal(o.supplierId, "s1");
+  });
+
+  it("no supplier yields unfulfillable", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dropship.unfulfillable", (e) => { events.push(e.payload); });
+    const dm = new DropshipManager(bus);
+    const o = dm.routeOrder("ORD-1", "NOPE", 1, "123 St");
+    assert.equal(o.status, "unfulfillable");
+    assert.equal(events.length, 1);
+  });
+
+  it("ship publishes shipped with tracking", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dropship.shipped", (e) => { events.push(e.payload); });
+    const dm = new DropshipManager(bus);
+    dm.addOffer({ supplierId: "s1", sku: "A", costUsd: 10, leadTimeDays: 3, inStock: true });
+    const o = dm.routeOrder("ORD-1", "A", 1, "123 St");
+    dm.accept(o.id);
+    dm.ship(o.id, "TRACK123");
+    assert.equal(dm.getOrder(o.id)!.trackingNumber, "TRACK123");
+    assert.equal(events.length, 1);
+  });
+
+  it("setStock toggles availability", () => {
+    const bus = new EventBus();
+    const dm = new DropshipManager(bus);
+    dm.addOffer({ supplierId: "s1", sku: "A", costUsd: 10, leadTimeDays: 3, inStock: true });
+    dm.setStock("s1", "A", false);
+    assert.equal(dm.routeOrder("ORD-1", "A", 1, "x").status, "unfulfillable");
+  });
+
+  it("summary aggregates by supplier and cost", () => {
+    const bus = new EventBus();
+    const dm = new DropshipManager(bus);
+    dm.addOffer({ supplierId: "s1", sku: "A", costUsd: 10, leadTimeDays: 3, inStock: true });
+    dm.routeOrder("ORD-1", "A", 2, "x");
+    dm.routeOrder("ORD-2", "A", 1, "y");
+    const s = dm.summary();
+    assert.equal(s.totalOrders, 2);
+    assert.equal(s.totalCostUsd, 30);
+    assert.equal(s.bySupplier.s1, 2);
   });
 });

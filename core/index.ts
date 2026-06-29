@@ -209,6 +209,8 @@ import { ExperimentManager } from "./experiment/experiment-manager.js";
 import { NPSSurveyManager } from "./nps-survey/nps-survey-manager.js";
 import { DeliveryRouteManager } from "./delivery-route/delivery-route-manager.js";
 import { ColdChainManager } from "./cold-chain/cold-chain-manager.js";
+import { ReplenishmentManager } from "./replenishment/replenishment-manager.js";
+import { DropshipManager } from "./dropship/dropship-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -506,6 +508,8 @@ export class Olympus {
   readonly npsSurvey: NPSSurveyManager;
   readonly deliveryRoute: DeliveryRouteManager;
   readonly coldChain: ColdChainManager;
+  readonly replenishment: ReplenishmentManager;
+  readonly dropship: DropshipManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -707,6 +711,8 @@ export class Olympus {
     this.npsSurvey = new NPSSurveyManager(this.bus);
     this.deliveryRoute = new DeliveryRouteManager(this.bus);
     this.coldChain = new ColdChainManager(this.bus);
+    this.replenishment = new ReplenishmentManager(this.bus);
+    this.dropship = new DropshipManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -914,3 +920,5 @@ export { ExperimentManager, type ExperimentStatus, type Variant, type ABExperime
 export { NPSSurveyManager, type NPSBucket, type NPSSurveyState, type NPSResponse, type NPSSurvey, type NPSSummary } from "./nps-survey/index.js";
 export { DeliveryRouteManager, type RouteStatus, type StopStatus, type RouteStop, type DeliveryRoute, type DeliveryRouteSummary } from "./delivery-route/index.js";
 export { ColdChainManager, type ColdChainState, type IntegrityVerdict, type TempReading, type ColdChainShipment, type ColdChainSummary } from "./cold-chain/index.js";
+export { ReplenishmentManager, type ReplenishmentPolicy, type ReorderSuggestion, type ReplenishmentSummary } from "./replenishment/index.js";
+export { DropshipManager, type DropshipStatus, type SupplierOffer, type DropshipOrder, type DropshipSummary } from "./dropship/index.js";
