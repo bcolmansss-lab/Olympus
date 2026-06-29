@@ -215,6 +215,8 @@ import { CapexRequestManager } from "./capex/capex-request-manager.js";
 import { AssetFinancingManager } from "./asset-financing/asset-financing-manager.js";
 import { SalesSequenceManager } from "./sales-sequence/sales-sequence-manager.js";
 import { LeadScoringManager } from "./lead-scoring/lead-scoring-manager.js";
+import { AccountPlanManager } from "./account-plan/account-plan-manager.js";
+import { QBRManager } from "./qbr/qbr-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -518,6 +520,8 @@ export class Olympus {
   readonly assetFinancing: AssetFinancingManager;
   readonly salesSequence: SalesSequenceManager;
   readonly leadScoring: LeadScoringManager;
+  readonly accountPlan: AccountPlanManager;
+  readonly qbr: QBRManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -725,6 +729,8 @@ export class Olympus {
     this.assetFinancing = new AssetFinancingManager(this.bus);
     this.salesSequence = new SalesSequenceManager(this.bus);
     this.leadScoring = new LeadScoringManager(this.bus);
+    this.accountPlan = new AccountPlanManager(this.bus);
+    this.qbr = new QBRManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -938,3 +944,5 @@ export { CapexRequestManager, type CapexCategory, type CapexStatus, type CapexRe
 export { AssetFinancingManager, type FinancingType, type FinancingStatus, type FinancingAgreement, type FinancingSummary } from "./asset-financing/index.js";
 export { SalesSequenceManager, type StepChannel, type SequenceEnrollmentStatus, type OutreachStep, type Sequence, type SequenceEnrollment, type SequenceSummary } from "./sales-sequence/index.js";
 export { LeadScoringManager, type LeadGrade, type RuleKind, type ScoringRule, type Lead, type LeadScoringSummary } from "./lead-scoring/index.js";
+export { AccountPlanManager, type StakeholderRole, type AccountOpportunityStatus, type Stakeholder, type AccountGoal, type WhitespaceOpportunity, type AccountPlan, type AccountPlanSummary } from "./account-plan/index.js";
+export { QBRManager, type QBRStatus, type QBRSentiment, type QBRMetric, type QBRActionItem, type QBR, type QBRSummary } from "./qbr/index.js";

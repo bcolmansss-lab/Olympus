@@ -1,0 +1,1 @@
+export { AccountPlanManager, type StakeholderRole, type OpportunityStatus as AccountOpportunityStatus, type Stakeholder, type AccountGoal, type WhitespaceOpportunity, type AccountPlan, type AccountPlanSummary } from "./account-plan-manager.js";

@@ -118,6 +118,8 @@ import { CapexRequestManager } from "../capex/capex-request-manager.js";
 import { AssetFinancingManager } from "../asset-financing/asset-financing-manager.js";
 import { SalesSequenceManager } from "../sales-sequence/sales-sequence-manager.js";
 import { LeadScoringManager } from "../lead-scoring/lead-scoring-manager.js";
+import { AccountPlanManager } from "../account-plan/account-plan-manager.js";
+import { QBRManager } from "../qbr/qbr-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15855,5 +15857,135 @@ describe("LeadScoringManager", () => {
     assert.equal(s.totalLeads, 2);
     assert.equal(s.mqls, 1);
     assert.equal(s.byGrade.B, 1);
+  });
+});
+
+describe("AccountPlanManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("accountplan.created", (e) => { events.push(e.payload); });
+    const am = new AccountPlanManager(bus);
+    am.create({ accountId: "a1", accountName: "Acme", ownerId: "ae1", currentArrUsd: 100000, targetRevenueUsd: 200000, fiscalYear: "2026" });
+    assert.equal(events.length, 1);
+  });
+
+  it("addOpportunity publishes opportunity_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("accountplan.opportunity_added", (e) => { events.push(e.payload); });
+    const am = new AccountPlanManager(bus);
+    const p = am.create({ accountId: "a1", accountName: "Acme", ownerId: "ae1", currentArrUsd: 100000, targetRevenueUsd: 200000, fiscalYear: "2026" });
+    am.addOpportunity(p.id, "Module X", 50000);
+    assert.equal(events.length, 1);
+  });
+
+  it("achieveGoal publishes goal_achieved once", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("accountplan.goal_achieved", (e) => { events.push(e.payload); });
+    const am = new AccountPlanManager(bus);
+    const p = am.create({ accountId: "a1", accountName: "Acme", ownerId: "ae1", currentArrUsd: 100000, targetRevenueUsd: 200000, fiscalYear: "2026" });
+    const g = am.addGoal(p.id, "Expand to EU", "2026-12-31")!;
+    am.achieveGoal(p.id, g.id);
+    assert.equal(am.achieveGoal(p.id, g.id), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("healthScore rewards champion and pipeline", () => {
+    const bus = new EventBus();
+    const am = new AccountPlanManager(bus);
+    const p = am.create({ accountId: "a1", accountName: "Acme", ownerId: "ae1", currentArrUsd: 100000, targetRevenueUsd: 100000, fiscalYear: "2026" });
+    assert.equal(am.healthScore(p.id), 0);
+    am.addStakeholder(p.id, { name: "Jane", title: "VP", role: "champion", sentiment: "positive" });
+    am.addOpportunity(p.id, "X", 100000);
+    assert.ok(am.healthScore(p.id) >= 70); // 0.4 champion + 0.3 pipeline
+  });
+
+  it("updateOpportunity changes status", () => {
+    const bus = new EventBus();
+    const am = new AccountPlanManager(bus);
+    const p = am.create({ accountId: "a1", accountName: "Acme", ownerId: "ae1", currentArrUsd: 100000, targetRevenueUsd: 200000, fiscalYear: "2026" });
+    const o = am.addOpportunity(p.id, "X", 50000)!;
+    am.updateOpportunity(p.id, o.id, "won");
+    assert.equal(am.getPlan(p.id)!.opportunities[0]!.status, "won");
+  });
+
+  it("summary aggregates ARR, pipeline and goals", () => {
+    const bus = new EventBus();
+    const am = new AccountPlanManager(bus);
+    const p = am.create({ accountId: "a1", accountName: "Acme", ownerId: "ae1", currentArrUsd: 100000, targetRevenueUsd: 200000, fiscalYear: "2026" });
+    am.addOpportunity(p.id, "X", 50000);
+    const g = am.addGoal(p.id, "G", "2026-12-31")!; am.achieveGoal(p.id, g.id);
+    const s = am.summary();
+    assert.equal(s.totalCurrentArrUsd, 100000);
+    assert.equal(s.totalPipelineUsd, 50000);
+    assert.equal(s.goalsAchieved, 1);
+  });
+});
+
+describe("QBRManager", () => {
+  it("schedule publishes scheduled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("qbr.scheduled", (e) => { events.push(e.payload); });
+    const qm = new QBRManager(bus);
+    qm.schedule({ accountId: "a1", accountName: "Acme", period: "2026-Q2", scheduledFor: "2026-07-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("addMetric and addActionItem populate the QBR", () => {
+    const bus = new EventBus();
+    const qm = new QBRManager(bus);
+    const q = qm.schedule({ accountId: "a1", accountName: "Acme", period: "2026-Q2", scheduledFor: "2026-07-01" });
+    qm.addMetric(q.id, "adoption", 80, 70);
+    qm.addActionItem(q.id, "enable SSO", "csm1", "2026-08-01");
+    assert.equal(qm.getQBR(q.id)!.metrics.length, 1);
+    assert.equal(qm.getQBR(q.id)!.actionItems.length, 1);
+  });
+
+  it("closeActionItem publishes action_item_closed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("qbr.action_item_closed", (e) => { events.push(e.payload); });
+    const qm = new QBRManager(bus);
+    const q = qm.schedule({ accountId: "a1", accountName: "Acme", period: "2026-Q2", scheduledFor: "2026-07-01" });
+    const item = qm.addActionItem(q.id, "x", "csm1", "2026-08-01")!;
+    qm.closeActionItem(q.id, item.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("complete publishes completed with sentiment", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("qbr.completed", (e) => { events.push(e.payload); });
+    const qm = new QBRManager(bus);
+    const q = qm.schedule({ accountId: "a1", accountName: "Acme", period: "2026-Q2", scheduledFor: "2026-07-01" });
+    qm.complete(q.id, "positive", "2026-07-01");
+    assert.equal(qm.getQBR(q.id)!.status, "completed");
+    assert.equal(events.length, 1);
+  });
+
+  it("cancel blocks completed QBRs", () => {
+    const bus = new EventBus();
+    const qm = new QBRManager(bus);
+    const q = qm.schedule({ accountId: "a1", accountName: "Acme", period: "2026-Q2", scheduledFor: "2026-07-01" });
+    qm.complete(q.id, "neutral", "2026-07-01");
+    assert.equal(qm.cancel(q.id), undefined);
+  });
+
+  it("summary computes metrics-on-target and at-risk", () => {
+    const bus = new EventBus();
+    const qm = new QBRManager(bus);
+    const q = qm.schedule({ accountId: "a1", accountName: "Acme", period: "2026-Q2", scheduledFor: "2026-07-01" });
+    qm.addMetric(q.id, "a", 80, 70); // on target
+    qm.addMetric(q.id, "b", 50, 70); // miss
+    qm.addActionItem(q.id, "x", "c", "2026-08-01");
+    qm.complete(q.id, "at_risk", "2026-07-01");
+    const s = qm.summary();
+    assert.equal(s.completed, 1);
+    assert.equal(s.atRisk, 1);
+    assert.equal(s.openActionItems, 1);
+    assert.equal(s.metricsOnTargetPct, 50);
   });
 });
