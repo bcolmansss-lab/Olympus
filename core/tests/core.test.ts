@@ -110,6 +110,8 @@ import { ProductBundleManager } from "../bundle/product-bundle-manager.js";
 import { UpsellManager } from "../upsell/upsell-manager.js";
 import { ExperimentManager } from "../experiment/experiment-manager.js";
 import { NPSSurveyManager } from "../nps-survey/nps-survey-manager.js";
+import { DeliveryRouteManager } from "../delivery-route/delivery-route-manager.js";
+import { ColdChainManager } from "../cold-chain/cold-chain-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15318,5 +15320,143 @@ describe("NPSSurveyManager", () => {
     assert.equal(sm.totalResponses, 2);
     assert.equal(sm.npsScore, 0); // (1-1)/2
     assert.equal(sm.responseRatePct, 20);
+  });
+});
+
+describe("DeliveryRouteManager", () => {
+  it("plan publishes planned with stops sequenced", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("route.planned", (e) => { events.push(e.payload); });
+    const dm = new DeliveryRouteManager(bus);
+    const r = dm.plan({ driverId: "d1", vehicleId: "v1", date: "2026-06-26", stops: [{ address: "A", orderRef: "O1", windowEnd: "2026-06-26T12:00:00.000Z" }] });
+    assert.equal(r.stops[0]!.sequence, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("completeStop on time publishes stop_completed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("route.stop_completed", (e) => { events.push(e.payload); });
+    const dm = new DeliveryRouteManager(bus);
+    const r = dm.plan({ driverId: "d1", vehicleId: "v1", date: "2026-06-26", stops: [{ address: "A", orderRef: "O1", windowEnd: "2026-06-26T12:00:00.000Z" }] });
+    dm.completeStop(r.id, r.stops[0]!.id, "2026-06-26T11:00:00.000Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].onTime, true);
+  });
+
+  it("late delivery flagged not on time", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("route.stop_completed", (e) => { events.push(e.payload); });
+    const dm = new DeliveryRouteManager(bus);
+    const r = dm.plan({ driverId: "d1", vehicleId: "v1", date: "2026-06-26", stops: [{ address: "A", orderRef: "O1", windowEnd: "2026-06-26T12:00:00.000Z" }] });
+    dm.completeStop(r.id, r.stops[0]!.id, "2026-06-26T13:00:00.000Z");
+    assert.equal(events[0].onTime, false);
+  });
+
+  it("route completes when all stops resolved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("route.completed", (e) => { events.push(e.payload); });
+    const dm = new DeliveryRouteManager(bus);
+    const r = dm.plan({ driverId: "d1", vehicleId: "v1", date: "2026-06-26", stops: [
+      { address: "A", orderRef: "O1", windowEnd: "2026-06-26T12:00:00.000Z" },
+      { address: "B", orderRef: "O2", windowEnd: "2026-06-26T13:00:00.000Z" },
+    ] });
+    dm.completeStop(r.id, r.stops[0]!.id, "2026-06-26T11:00:00.000Z");
+    dm.failStop(r.id, r.stops[1]!.id, "customer absent");
+    assert.equal(dm.getRoute(r.id)!.status, "completed");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].failedStops, 1);
+  });
+
+  it("completing a non-pending stop is rejected", () => {
+    const bus = new EventBus();
+    const dm = new DeliveryRouteManager(bus);
+    const r = dm.plan({ driverId: "d1", vehicleId: "v1", date: "2026-06-26", stops: [{ address: "A", orderRef: "O1", windowEnd: "2026-06-26T12:00:00.000Z" }] });
+    dm.completeStop(r.id, r.stops[0]!.id, "2026-06-26T11:00:00.000Z");
+    assert.equal(dm.completeStop(r.id, r.stops[0]!.id, "2026-06-26T11:30:00.000Z"), undefined);
+  });
+
+  it("summary computes on-time rate", () => {
+    const bus = new EventBus();
+    const dm = new DeliveryRouteManager(bus);
+    const r = dm.plan({ driverId: "d1", vehicleId: "v1", date: "2026-06-26", stops: [
+      { address: "A", orderRef: "O1", windowEnd: "2026-06-26T12:00:00.000Z" },
+      { address: "B", orderRef: "O2", windowEnd: "2026-06-26T12:00:00.000Z" },
+    ] });
+    dm.completeStop(r.id, r.stops[0]!.id, "2026-06-26T11:00:00.000Z"); // on time
+    dm.completeStop(r.id, r.stops[1]!.id, "2026-06-26T13:00:00.000Z"); // late
+    const s = dm.summary();
+    assert.equal(s.delivered, 2);
+    assert.equal(s.onTimeRatePct, 50);
+  });
+});
+
+describe("ColdChainManager", () => {
+  it("start publishes shipment_started", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("coldchain.shipment_started", (e) => { events.push(e.payload); });
+    const cm = new ColdChainManager(bus);
+    cm.start({ product: "Vaccine", minC: 2, maxC: 8, maxExcursionMinutes: 30, startedAt: "2026-06-01T00:00:00.000Z" });
+    assert.equal(events.length, 1);
+  });
+
+  it("in-range reading does not fire excursion", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("coldchain.excursion", (e) => { events.push(e.payload); });
+    const cm = new ColdChainManager(bus);
+    const s = cm.start({ product: "X", minC: 2, maxC: 8, maxExcursionMinutes: 30, startedAt: "2026-06-01T00:00:00.000Z" });
+    cm.recordReading(s.id, 5, "2026-06-01T01:00:00.000Z", 60);
+    assert.equal(events.length, 0);
+  });
+
+  it("out-of-range reading fires excursion and accrues minutes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("coldchain.excursion", (e) => { events.push(e.payload); });
+    const cm = new ColdChainManager(bus);
+    const s = cm.start({ product: "X", minC: 2, maxC: 8, maxExcursionMinutes: 30, startedAt: "2026-06-01T00:00:00.000Z" });
+    cm.recordReading(s.id, 12, "2026-06-01T01:00:00.000Z", 20);
+    assert.equal(events.length, 1);
+    assert.equal(cm.getShipment(s.id)!.excursionMinutes, 20);
+  });
+
+  it("delivery with excessive excursion is compromised", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("coldchain.delivered", (e) => { events.push(e.payload); });
+    const cm = new ColdChainManager(bus);
+    const s = cm.start({ product: "X", minC: 2, maxC: 8, maxExcursionMinutes: 30, startedAt: "2026-06-01T00:00:00.000Z" });
+    cm.recordReading(s.id, 12, "2026-06-01T01:00:00.000Z", 45);
+    cm.deliver(s.id, "2026-06-01T05:00:00.000Z");
+    assert.equal(cm.getShipment(s.id)!.integrity, "compromised");
+    assert.equal(events[0].integrity, "compromised");
+  });
+
+  it("delivery within tolerance is intact", () => {
+    const bus = new EventBus();
+    const cm = new ColdChainManager(bus);
+    const s = cm.start({ product: "X", minC: 2, maxC: 8, maxExcursionMinutes: 30, startedAt: "2026-06-01T00:00:00.000Z" });
+    cm.recordReading(s.id, 10, "2026-06-01T01:00:00.000Z", 10);
+    cm.deliver(s.id, "2026-06-01T05:00:00.000Z");
+    assert.equal(cm.getShipment(s.id)!.integrity, "intact");
+  });
+
+  it("summary computes integrity rate", () => {
+    const bus = new EventBus();
+    const cm = new ColdChainManager(bus);
+    const s1 = cm.start({ product: "X", minC: 2, maxC: 8, maxExcursionMinutes: 30, startedAt: "2026-06-01T00:00:00.000Z" });
+    cm.deliver(s1.id, "2026-06-01T05:00:00.000Z"); // intact
+    const s2 = cm.start({ product: "Y", minC: 2, maxC: 8, maxExcursionMinutes: 10, startedAt: "2026-06-01T00:00:00.000Z" });
+    cm.recordReading(s2.id, 15, "2026-06-01T01:00:00.000Z", 60);
+    cm.deliver(s2.id, "2026-06-01T05:00:00.000Z"); // compromised
+    const sm = cm.summary();
+    assert.equal(sm.delivered, 2);
+    assert.equal(sm.compromised, 1);
+    assert.equal(sm.integrityRatePct, 50);
   });
 });

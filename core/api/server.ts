@@ -312,6 +312,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/upsell", handler: (_req, res) => res.json(200, { summary: this.olympus.upsell.summary(), rules: this.olympus.upsell.listRules() }) },
       { method: "GET", pattern: "/v1/experiments", handler: (_req, res) => res.json(200, { summary: this.olympus.experiment.summary(), experiments: this.olympus.experiment.listExperiments() }) },
       { method: "GET", pattern: "/v1/nps-surveys", handler: (_req, res) => res.json(200, { summary: this.olympus.npsSurvey.summary(), surveys: this.olympus.npsSurvey.listSurveys().map(s => ({ id: s.id, name: s.name, state: s.state, responses: s.responses.length })) }) },
+      { method: "GET", pattern: "/v1/delivery-routes", handler: (_req, res) => res.json(200, { summary: this.olympus.deliveryRoute.summary(), routes: this.olympus.deliveryRoute.listRoutes() }) },
+      { method: "GET", pattern: "/v1/cold-chain", handler: (_req, res) => res.json(200, { summary: this.olympus.coldChain.summary(), shipments: this.olympus.coldChain.listShipments() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

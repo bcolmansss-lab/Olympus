@@ -207,6 +207,8 @@ import { ProductBundleManager } from "./bundle/product-bundle-manager.js";
 import { UpsellManager } from "./upsell/upsell-manager.js";
 import { ExperimentManager } from "./experiment/experiment-manager.js";
 import { NPSSurveyManager } from "./nps-survey/nps-survey-manager.js";
+import { DeliveryRouteManager } from "./delivery-route/delivery-route-manager.js";
+import { ColdChainManager } from "./cold-chain/cold-chain-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -502,6 +504,8 @@ export class Olympus {
   readonly upsell: UpsellManager;
   readonly experiment: ExperimentManager;
   readonly npsSurvey: NPSSurveyManager;
+  readonly deliveryRoute: DeliveryRouteManager;
+  readonly coldChain: ColdChainManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -701,6 +705,8 @@ export class Olympus {
     this.upsell = new UpsellManager(this.bus);
     this.experiment = new ExperimentManager(this.bus);
     this.npsSurvey = new NPSSurveyManager(this.bus);
+    this.deliveryRoute = new DeliveryRouteManager(this.bus);
+    this.coldChain = new ColdChainManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -906,3 +912,5 @@ export { ProductBundleManager, type BundleStatus, type BundleComponent, type Pro
 export { UpsellManager, type RecommendationType, type RecState, type UpsellRule, type Recommendation, type UpsellSummary } from "./upsell/index.js";
 export { ExperimentManager, type ExperimentStatus, type Variant, type ABExperiment, type ExperimentSummary } from "./experiment/index.js";
 export { NPSSurveyManager, type NPSBucket, type NPSSurveyState, type NPSResponse, type NPSSurvey, type NPSSummary } from "./nps-survey/index.js";
+export { DeliveryRouteManager, type RouteStatus, type StopStatus, type RouteStop, type DeliveryRoute, type DeliveryRouteSummary } from "./delivery-route/index.js";
+export { ColdChainManager, type ColdChainState, type IntegrityVerdict, type TempReading, type ColdChainShipment, type ColdChainSummary } from "./cold-chain/index.js";
