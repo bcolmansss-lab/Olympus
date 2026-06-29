@@ -203,6 +203,8 @@ import { RFPResponseManager } from "./rfp/rfp-response-manager.js";
 import { CaseStudyManager } from "./case-study/case-study-manager.js";
 import { PartnerCertificationManager } from "./partner-cert/partner-certification-manager.js";
 import { WinbackManager } from "./winback/winback-manager.js";
+import { ProductBundleManager } from "./bundle/product-bundle-manager.js";
+import { UpsellManager } from "./upsell/upsell-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -494,6 +496,8 @@ export class Olympus {
   readonly caseStudy: CaseStudyManager;
   readonly partnerCert: PartnerCertificationManager;
   readonly winback: WinbackManager;
+  readonly bundle: ProductBundleManager;
+  readonly upsell: UpsellManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -689,6 +693,8 @@ export class Olympus {
     this.caseStudy = new CaseStudyManager(this.bus);
     this.partnerCert = new PartnerCertificationManager(this.bus);
     this.winback = new WinbackManager(this.bus);
+    this.bundle = new ProductBundleManager(this.bus);
+    this.upsell = new UpsellManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -890,3 +896,5 @@ export { RFPResponseManager, type RFPStatus, type RFPSection, type RFP, type RFP
 export { CaseStudyManager, type CaseStudyStatus, type ReferenceType, type CaseStudy, type CaseStudySummary } from "./case-study/index.js";
 export { PartnerCertificationManager, type CertLevel, type PartnerCertState, type CertExam, type CertTrack, type PartnerEnrollment, type PartnerCertSummary } from "./partner-cert/index.js";
 export { WinbackManager, type WinbackStatus, type TargetState, type WinbackTarget, type WinbackCampaign, type WinbackSummary } from "./winback/index.js";
+export { ProductBundleManager, type BundleStatus, type BundleComponent, type ProductBundle, type BundleSummary } from "./bundle/index.js";
+export { UpsellManager, type RecommendationType, type RecState, type UpsellRule, type Recommendation, type UpsellSummary } from "./upsell/index.js";

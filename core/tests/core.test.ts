@@ -106,6 +106,8 @@ import { RFPResponseManager } from "../rfp/rfp-response-manager.js";
 import { CaseStudyManager } from "../case-study/case-study-manager.js";
 import { PartnerCertificationManager } from "../partner-cert/partner-certification-manager.js";
 import { WinbackManager } from "../winback/winback-manager.js";
+import { ProductBundleManager } from "../bundle/product-bundle-manager.js";
+import { UpsellManager } from "../upsell/upsell-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15067,5 +15069,125 @@ describe("WinbackManager", () => {
     assert.equal(s.reactivated, 1);
     assert.equal(s.recoveredMrrUsd, 90);
     assert.equal(s.reactivationRatePct, 50);
+  });
+});
+
+describe("ProductBundleManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("bundle.created", (e) => { events.push(e.payload); });
+    const bm = new ProductBundleManager(bus);
+    bm.create({ name: "Starter Kit", sku: "KIT-1", components: [{ sku: "A", quantity: 1, unitPriceUsd: 50 }], bundlePriceUsd: 45 });
+    assert.equal(events.length, 1);
+  });
+
+  it("discountPct compares bundle price to sum of parts", () => {
+    const bus = new EventBus();
+    const bm = new ProductBundleManager(bus);
+    const b = bm.create({ name: "Kit", sku: "KIT-1", components: [{ sku: "A", quantity: 1, unitPriceUsd: 60 }, { sku: "B", quantity: 1, unitPriceUsd: 40 }], bundlePriceUsd: 80 });
+    assert.equal(bm.sumOfParts(b.id), 100);
+    assert.equal(bm.discountPct(b.id), 20);
+  });
+
+  it("buildableUnits limited by scarcest component", () => {
+    const bus = new EventBus();
+    const bm = new ProductBundleManager(bus);
+    const b = bm.create({ name: "Kit", sku: "KIT-1", components: [{ sku: "A", quantity: 2, unitPriceUsd: 10 }, { sku: "B", quantity: 1, unitPriceUsd: 5 }], bundlePriceUsd: 20 });
+    assert.equal(bm.buildableUnits(b.id, { A: 10, B: 3 }), 3); // A->5, B->3
+  });
+
+  it("sell publishes sold when stock sufficient", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("bundle.sold", (e) => { events.push(e.payload); });
+    const bm = new ProductBundleManager(bus);
+    const b = bm.create({ name: "Kit", sku: "KIT-1", components: [{ sku: "A", quantity: 1, unitPriceUsd: 10 }], bundlePriceUsd: 9 });
+    assert.equal(bm.sell(b.id, 5, { A: 10 }), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("sell fails and emits out_of_stock when short", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("bundle.out_of_stock", (e) => { events.push(e.payload); });
+    const bm = new ProductBundleManager(bus);
+    const b = bm.create({ name: "Kit", sku: "KIT-1", components: [{ sku: "A", quantity: 1, unitPriceUsd: 10 }], bundlePriceUsd: 9 });
+    assert.equal(bm.sell(b.id, 5, { A: 2 }), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates revenue and avg discount", () => {
+    const bus = new EventBus();
+    const bm = new ProductBundleManager(bus);
+    const b = bm.create({ name: "Kit", sku: "KIT-1", components: [{ sku: "A", quantity: 1, unitPriceUsd: 100 }], bundlePriceUsd: 80 });
+    bm.sell(b.id, 3, { A: 10 });
+    const s = bm.summary();
+    assert.equal(s.totalUnitsSold, 3);
+    assert.equal(s.totalRevenueUsd, 240);
+    assert.equal(s.avgDiscountPct, 20);
+  });
+});
+
+describe("UpsellManager", () => {
+  it("createRule publishes rule_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("upsell.rule_created", (e) => { events.push(e.payload); });
+    const um = new UpsellManager(bus);
+    um.createRule({ triggerSku: "LAPTOP", recommendedSku: "WARRANTY", type: "add_on", priceUsd: 99 });
+    assert.equal(events.length, 1);
+  });
+
+  it("recommendationsFor matches cart and excludes owned, ranks by confidence", () => {
+    const bus = new EventBus();
+    const um = new UpsellManager(bus);
+    um.createRule({ triggerSku: "LAPTOP", recommendedSku: "MOUSE", type: "cross_sell", priceUsd: 25, confidencePct: 40 });
+    um.createRule({ triggerSku: "LAPTOP", recommendedSku: "WARRANTY", type: "add_on", priceUsd: 99, confidencePct: 80 });
+    const recs = um.recommendationsFor(["LAPTOP"]);
+    assert.equal(recs[0]!.recommendedSku, "WARRANTY");
+    assert.equal(recs.length, 2);
+  });
+
+  it("excludes recommendations already in cart", () => {
+    const bus = new EventBus();
+    const um = new UpsellManager(bus);
+    um.createRule({ triggerSku: "LAPTOP", recommendedSku: "MOUSE", type: "cross_sell", priceUsd: 25 });
+    assert.equal(um.recommendationsFor(["LAPTOP", "MOUSE"]).length, 0);
+  });
+
+  it("present then accept publishes accepted with revenue", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("upsell.accepted", (e) => { events.push(e.payload); });
+    const um = new UpsellManager(bus);
+    const r = um.createRule({ triggerSku: "LAPTOP", recommendedSku: "WARRANTY", type: "add_on", priceUsd: 99 });
+    const rec = um.present(r.id, "c1", "2026-06-01")!;
+    um.accept(rec.id, "2026-06-01");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].revenueUsd, 99);
+  });
+
+  it("dismiss blocks acceptance", () => {
+    const bus = new EventBus();
+    const um = new UpsellManager(bus);
+    const r = um.createRule({ triggerSku: "LAPTOP", recommendedSku: "WARRANTY", type: "add_on", priceUsd: 99 });
+    const rec = um.present(r.id, "c1", "2026-06-01")!;
+    um.dismiss(rec.id, "2026-06-01");
+    assert.equal(um.accept(rec.id, "2026-06-02"), undefined);
+  });
+
+  it("summary computes acceptance rate and revenue", () => {
+    const bus = new EventBus();
+    const um = new UpsellManager(bus);
+    const r = um.createRule({ triggerSku: "L", recommendedSku: "W", type: "upsell", priceUsd: 50 });
+    const rec1 = um.present(r.id, "c1", "2026-06-01")!; um.accept(rec1.id, "2026-06-01");
+    const rec2 = um.present(r.id, "c2", "2026-06-01")!; um.dismiss(rec2.id, "2026-06-01");
+    const s = um.summary();
+    assert.equal(s.totalRecommendations, 2);
+    assert.equal(s.accepted, 1);
+    assert.equal(s.acceptanceRatePct, 50);
+    assert.equal(s.attributedRevenueUsd, 50);
+    assert.equal(s.byType.upsell, 2);
   });
 });
