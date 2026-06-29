@@ -84,6 +84,8 @@ import { EscrowManager } from "../escrow/escrow-manager.js";
 import { TradeDeductionManager } from "../trade-deduction/trade-deduction-manager.js";
 import { DonationManager } from "../donation/donation-manager.js";
 import { VolunteerManager } from "../volunteer/volunteer-manager.js";
+import { ServiceCreditManager } from "../service-credit/service-credit-manager.js";
+import { StatusPageManager } from "../status-page/status-page-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -13623,5 +13625,131 @@ describe("VolunteerManager", () => {
     assert.equal(s.pendingLogs, 1);
     assert.equal(s.uniqueVolunteers, 2);
     assert.equal(s.byCause.environment, 1);
+  });
+});
+
+describe("ServiceCreditManager", () => {
+  it("calculate applies tiered credit and publishes calculated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("servicecredit.calculated", (e) => { events.push(e.payload); });
+    const sm = new ServiceCreditManager(bus);
+    const c = sm.calculate("c1", "2026-06", 98.5, 1000); // 99.0 tier? 98.5 < 99 -> 95 tier 25%
+    assert.equal(c.creditPct, 25);
+    assert.equal(c.amountUsd, 250);
+    assert.equal(events.length, 1);
+  });
+
+  it("high uptime yields no credit", () => {
+    const bus = new EventBus();
+    const sm = new ServiceCreditManager(bus);
+    const c = sm.calculate("c1", "2026-06", 99.95, 1000);
+    assert.equal(c.creditPct, 0);
+    assert.equal(c.amountUsd, 0);
+  });
+
+  it("approve then apply publishes events", () => {
+    const bus = new EventBus();
+    const approved: any[] = [];
+    const applied: any[] = [];
+    bus.subscribe("servicecredit.approved", (e) => { approved.push(e.payload); });
+    bus.subscribe("servicecredit.applied", (e) => { applied.push(e.payload); });
+    const sm = new ServiceCreditManager(bus);
+    const c = sm.calculate("c1", "2026-06", 99.5, 1000); // 99.0 tier 10%
+    sm.approve(c.id);
+    sm.apply(c.id, "2026-07-01");
+    assert.equal(sm.getCredit(c.id)!.status, "applied");
+    assert.equal(approved.length, 1);
+    assert.equal(applied.length, 1);
+  });
+
+  it("apply requires approval", () => {
+    const bus = new EventBus();
+    const sm = new ServiceCreditManager(bus);
+    const c = sm.calculate("c1", "2026-06", 90, 1000);
+    assert.equal(sm.apply(c.id, "2026-07-01"), undefined);
+  });
+
+  it("reject blocks approval", () => {
+    const bus = new EventBus();
+    const sm = new ServiceCreditManager(bus);
+    const c = sm.calculate("c1", "2026-06", 90, 1000);
+    sm.reject(c.id);
+    assert.equal(sm.approve(c.id), undefined);
+  });
+
+  it("summary aggregates applied credits and avg uptime", () => {
+    const bus = new EventBus();
+    const sm = new ServiceCreditManager(bus);
+    const c = sm.calculate("c1", "2026-06", 98, 1000); // 25%
+    sm.approve(c.id); sm.apply(c.id, "2026-07-01");
+    sm.calculate("c2", "2026-06", 100, 1000);
+    const s = sm.summary();
+    assert.equal(s.totalCredits, 2);
+    assert.equal(s.applied, 1);
+    assert.equal(s.totalCreditUsd, 250);
+    assert.equal(s.avgUptimePct, 99);
+  });
+});
+
+describe("StatusPageManager", () => {
+  it("addComponent starts operational", () => {
+    const bus = new EventBus();
+    const sm = new StatusPageManager(bus);
+    const c = sm.addComponent("API");
+    assert.equal(c.status, "operational");
+  });
+
+  it("openIncident publishes incident_opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("statuspage.incident_opened", (e) => { events.push(e.payload); });
+    const sm = new StatusPageManager(bus);
+    const comp = sm.addComponent("API");
+    sm.openIncident({ title: "API down", impact: "major", components: [comp.id], message: "investigating", openedAt: "2026-06-01T09:00:00.000Z" });
+    assert.equal(events.length, 1);
+  });
+
+  it("postUpdate advances phase and publishes updated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("statuspage.incident_updated", (e) => { events.push(e.payload); });
+    const sm = new StatusPageManager(bus);
+    const inc = sm.openIncident({ title: "X", impact: "minor", components: [], message: "m", openedAt: "2026-06-01T09:00:00.000Z" });
+    sm.postUpdate(inc.id, "identified", "found it", "2026-06-01T09:30:00.000Z");
+    assert.equal(sm.getIncident(inc.id)!.phase, "identified");
+    assert.equal(events.length, 1);
+  });
+
+  it("resolving publishes incident_resolved with duration", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("statuspage.incident_resolved", (e) => { events.push(e.payload); });
+    const sm = new StatusPageManager(bus);
+    const inc = sm.openIncident({ title: "X", impact: "major", components: [], message: "m", openedAt: "2026-06-01T09:00:00.000Z" });
+    sm.postUpdate(inc.id, "resolved", "fixed", "2026-06-01T10:00:00.000Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].durationMinutes, 60);
+  });
+
+  it("overallStatus reflects worst component", () => {
+    const bus = new EventBus();
+    const sm = new StatusPageManager(bus);
+    const a = sm.addComponent("API");
+    sm.addComponent("Web");
+    sm.setComponentStatus(a.id, "major_outage");
+    assert.equal(sm.overallStatus(), "major_outage");
+  });
+
+  it("summary aggregates components and incidents", () => {
+    const bus = new EventBus();
+    const sm = new StatusPageManager(bus);
+    sm.addComponent("API");
+    const inc = sm.openIncident({ title: "X", impact: "critical", components: [], message: "m", openedAt: "2026-06-01T09:00:00.000Z" });
+    sm.postUpdate(inc.id, "resolved", "fixed", "2026-06-01T10:00:00.000Z");
+    const s = sm.summary();
+    assert.equal(s.totalComponents, 1);
+    assert.equal(s.resolvedIncidents, 1);
+    assert.equal(s.byImpact.critical, 1);
   });
 });

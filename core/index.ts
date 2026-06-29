@@ -181,6 +181,8 @@ import { EscrowManager } from "./escrow/escrow-manager.js";
 import { TradeDeductionManager } from "./trade-deduction/trade-deduction-manager.js";
 import { DonationManager } from "./donation/donation-manager.js";
 import { VolunteerManager } from "./volunteer/volunteer-manager.js";
+import { ServiceCreditManager } from "./service-credit/service-credit-manager.js";
+import { StatusPageManager } from "./status-page/status-page-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -450,6 +452,8 @@ export class Olympus {
   readonly tradeDeduction: TradeDeductionManager;
   readonly donation: DonationManager;
   readonly volunteer: VolunteerManager;
+  readonly serviceCredit: ServiceCreditManager;
+  readonly statusPage: StatusPageManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -623,6 +627,8 @@ export class Olympus {
     this.tradeDeduction = new TradeDeductionManager(this.bus);
     this.donation = new DonationManager(this.bus);
     this.volunteer = new VolunteerManager(this.bus);
+    this.serviceCredit = new ServiceCreditManager(this.bus);
+    this.statusPage = new StatusPageManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -802,3 +808,5 @@ export { EscrowManager, type EscrowStatus, type EscrowCondition, type Escrow, ty
 export { TradeDeductionManager, type DeductionReason, type DeductionStatus, type DeductionOutcome, type TradeDeduction, type TradeDeductionSummary } from "./trade-deduction/index.js";
 export { DonationManager, type DonationCause, type MatchStatus, type Donation, type DonationSummary } from "./donation/index.js";
 export { VolunteerManager, type VolunteerCause, type LogStatus, type VolunteerOpportunity, type VolunteerLog, type VolunteerSummary } from "./volunteer/index.js";
+export { ServiceCreditManager, type CreditStatus, type SLATier, type ServiceCredit, type ServiceCreditSummary } from "./service-credit/index.js";
+export { StatusPageManager, type ComponentStatus, type IncidentImpact, type IncidentPhase, type StatusComponent, type IncidentUpdate, type StatusIncident, type StatusPageSummary } from "./status-page/index.js";
