@@ -120,6 +120,8 @@ import { SalesSequenceManager } from "../sales-sequence/sales-sequence-manager.j
 import { LeadScoringManager } from "../lead-scoring/lead-scoring-manager.js";
 import { AccountPlanManager } from "../account-plan/account-plan-manager.js";
 import { QBRManager } from "../qbr/qbr-manager.js";
+import { RenewalManager } from "../renewal/renewal-manager.js";
+import { ChurnSaveManager } from "../churn-save/churn-save-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -15987,5 +15989,130 @@ describe("QBRManager", () => {
     assert.equal(s.atRisk, 1);
     assert.equal(s.openActionItems, 1);
     assert.equal(s.metricsOnTargetPct, 50);
+  });
+});
+
+describe("RenewalManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("renewal.created", (e) => { events.push(e.payload); });
+    const rm = new RenewalManager(bus);
+    rm.create({ accountId: "a1", accountName: "Acme", currentArrUsd: 100000, renewalDate: "2026-12-31", ownerId: "ae1" });
+    assert.equal(events.length, 1);
+  });
+
+  it("renew with uplift publishes renewed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("renewal.renewed", (e) => { events.push(e.payload); });
+    const rm = new RenewalManager(bus);
+    const r = rm.create({ accountId: "a1", accountName: "Acme", currentArrUsd: 100000, renewalDate: "2026-12-31", ownerId: "ae1" });
+    rm.renew(r.id, 120000, "2026-12-31");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].upliftPct, 20);
+  });
+
+  it("churn publishes churned with lost ARR", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("renewal.churned", (e) => { events.push(e.payload); });
+    const rm = new RenewalManager(bus);
+    const r = rm.create({ accountId: "a1", accountName: "Acme", currentArrUsd: 100000, renewalDate: "2026-12-31", ownerId: "ae1" });
+    rm.churn(r.id, "2026-12-31");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].lostArrUsd, 100000);
+  });
+
+  it("cannot renew an already-closed renewal", () => {
+    const bus = new EventBus();
+    const rm = new RenewalManager(bus);
+    const r = rm.create({ accountId: "a1", accountName: "Acme", currentArrUsd: 100000, renewalDate: "2026-12-31", ownerId: "ae1" });
+    rm.churn(r.id, "2026-12-31");
+    assert.equal(rm.renew(r.id, 120000, "2026-12-31"), undefined);
+  });
+
+  it("atRiskArr counts high-risk open renewals", () => {
+    const bus = new EventBus();
+    const rm = new RenewalManager(bus);
+    const r = rm.create({ accountId: "a1", accountName: "Acme", currentArrUsd: 50000, renewalDate: "2026-12-31", ownerId: "ae1", risk: "high" });
+    rm.setRisk(r.id, "high");
+    assert.equal(rm.summary().atRiskArrUsd, 50000);
+  });
+
+  it("summary computes gross and net retention", () => {
+    const bus = new EventBus();
+    const rm = new RenewalManager(bus);
+    const r1 = rm.create({ accountId: "a1", accountName: "A", currentArrUsd: 100000, renewalDate: "2026-12-31", ownerId: "ae1" });
+    rm.renew(r1.id, 120000, "2026-12-31"); // expansion
+    const r2 = rm.create({ accountId: "a2", accountName: "B", currentArrUsd: 100000, renewalDate: "2026-12-31", ownerId: "ae1" });
+    rm.churn(r2.id, "2026-12-31");
+    const s = rm.summary();
+    // closedArr 200k; retained min(100k,120k)+min(100k,0)=100k -> gross 50%; renewed 120k+0=120k -> net 60%
+    assert.equal(s.grossRetentionPct, 50);
+    assert.equal(s.netRetentionPct, 60);
+  });
+});
+
+describe("ChurnSaveManager", () => {
+  it("openCase publishes case_opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("churnsave.case_opened", (e) => { events.push(e.payload); });
+    const cm = new ChurnSaveManager(bus);
+    cm.openCase({ accountId: "a1", accountName: "Acme", riskScore: 80, arrAtRiskUsd: 50000, reason: "low usage" });
+    assert.equal(events.length, 1);
+  });
+
+  it("extendOffer publishes offer_extended", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("churnsave.offer_extended", (e) => { events.push(e.payload); });
+    const cm = new ChurnSaveManager(bus);
+    const c = cm.openCase({ accountId: "a1", accountName: "Acme", riskScore: 80, arrAtRiskUsd: 50000, reason: "price" });
+    cm.extendOffer(c.id, "discount", 20);
+    assert.equal(events.length, 1);
+  });
+
+  it("markSaved publishes saved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("churnsave.saved", (e) => { events.push(e.payload); });
+    const cm = new ChurnSaveManager(bus);
+    const c = cm.openCase({ accountId: "a1", accountName: "Acme", riskScore: 80, arrAtRiskUsd: 50000, reason: "price" });
+    cm.extendOffer(c.id, "discount", 20);
+    cm.markSaved(c.id, 40000, "2026-06-30");
+    assert.equal(cm.getCase(c.id)!.status, "saved");
+    assert.equal(events.length, 1);
+  });
+
+  it("markLost blocks further resolution", () => {
+    const bus = new EventBus();
+    const cm = new ChurnSaveManager(bus);
+    const c = cm.openCase({ accountId: "a1", accountName: "Acme", riskScore: 80, arrAtRiskUsd: 50000, reason: "price" });
+    cm.markLost(c.id, "2026-06-30");
+    assert.equal(cm.markSaved(c.id, 40000, "2026-07-01"), undefined);
+  });
+
+  it("save rate computed over resolved cases", () => {
+    const bus = new EventBus();
+    const cm = new ChurnSaveManager(bus);
+    const c1 = cm.openCase({ accountId: "a1", accountName: "A", riskScore: 70, arrAtRiskUsd: 30000, reason: "x" });
+    cm.markSaved(c1.id, 30000, "2026-06-30");
+    const c2 = cm.openCase({ accountId: "a2", accountName: "B", riskScore: 90, arrAtRiskUsd: 20000, reason: "y" });
+    cm.markLost(c2.id, "2026-06-30");
+    const s = cm.summary();
+    assert.equal(s.saveRatePct, 50);
+    assert.equal(s.savedArrUsd, 30000);
+    assert.equal(s.lostArrUsd, 20000);
+  });
+
+  it("summary tracks open cases", () => {
+    const bus = new EventBus();
+    const cm = new ChurnSaveManager(bus);
+    cm.openCase({ accountId: "a1", accountName: "A", riskScore: 70, arrAtRiskUsd: 30000, reason: "x" });
+    const s = cm.summary();
+    assert.equal(s.totalCases, 1);
+    assert.equal(s.open, 1);
   });
 });

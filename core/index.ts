@@ -217,6 +217,8 @@ import { SalesSequenceManager } from "./sales-sequence/sales-sequence-manager.js
 import { LeadScoringManager } from "./lead-scoring/lead-scoring-manager.js";
 import { AccountPlanManager } from "./account-plan/account-plan-manager.js";
 import { QBRManager } from "./qbr/qbr-manager.js";
+import { RenewalManager } from "./renewal/renewal-manager.js";
+import { ChurnSaveManager } from "./churn-save/churn-save-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -522,6 +524,8 @@ export class Olympus {
   readonly leadScoring: LeadScoringManager;
   readonly accountPlan: AccountPlanManager;
   readonly qbr: QBRManager;
+  readonly renewal: RenewalManager;
+  readonly churnSave: ChurnSaveManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -731,6 +735,8 @@ export class Olympus {
     this.leadScoring = new LeadScoringManager(this.bus);
     this.accountPlan = new AccountPlanManager(this.bus);
     this.qbr = new QBRManager(this.bus);
+    this.renewal = new RenewalManager(this.bus);
+    this.churnSave = new ChurnSaveManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -946,3 +952,5 @@ export { SalesSequenceManager, type StepChannel, type SequenceEnrollmentStatus, 
 export { LeadScoringManager, type LeadGrade, type RuleKind, type ScoringRule, type Lead, type LeadScoringSummary } from "./lead-scoring/index.js";
 export { AccountPlanManager, type StakeholderRole, type AccountOpportunityStatus, type Stakeholder, type AccountGoal, type WhitespaceOpportunity, type AccountPlan, type AccountPlanSummary } from "./account-plan/index.js";
 export { QBRManager, type QBRStatus, type QBRSentiment, type QBRMetric, type QBRActionItem, type QBR, type QBRSummary } from "./qbr/index.js";
+export { RenewalManager, type RenewalStage, type RenewalRisk, type Renewal, type RenewalSummary } from "./renewal/index.js";
+export { ChurnSaveManager, type SaveStatus, type SavePlay, type ChurnSaveCase, type ChurnSaveSummary } from "./churn-save/index.js";
