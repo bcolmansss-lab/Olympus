@@ -86,6 +86,8 @@ import { DonationManager } from "../donation/donation-manager.js";
 import { VolunteerManager } from "../volunteer/volunteer-manager.js";
 import { ServiceCreditManager } from "../service-credit/service-credit-manager.js";
 import { StatusPageManager } from "../status-page/status-page-manager.js";
+import { WebinarManager } from "../webinar/webinar-manager.js";
+import { FormSubmissionManager } from "../form-submission/form-submission-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -13751,5 +13753,136 @@ describe("StatusPageManager", () => {
     assert.equal(s.totalComponents, 1);
     assert.equal(s.resolvedIncidents, 1);
     assert.equal(s.byImpact.critical, 1);
+  });
+});
+
+describe("WebinarManager", () => {
+  it("schedule publishes scheduled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("webinar.scheduled", (e) => { events.push(e.payload); });
+    const wm = new WebinarManager(bus);
+    wm.schedule({ title: "Demo Day", host: "Jane", scheduledFor: "2026-07-01T17:00:00.000Z", durationMinutes: 60 });
+    assert.equal(events.length, 1);
+  });
+
+  it("register publishes registered and dedupes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("webinar.registered", (e) => { events.push(e.payload); });
+    const wm = new WebinarManager(bus);
+    const w = wm.schedule({ title: "X", host: "H", scheduledFor: "2026-07-01T17:00:00.000Z", durationMinutes: 60 });
+    wm.register(w.id, "u1", "u1@x.com", "2026-06-20");
+    assert.equal(wm.register(w.id, "u1", "u1@x.com", "2026-06-20"), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("capacity is enforced", () => {
+    const bus = new EventBus();
+    const wm = new WebinarManager(bus);
+    const w = wm.schedule({ title: "X", host: "H", scheduledFor: "2026-07-01T17:00:00.000Z", durationMinutes: 60, capacity: 1 });
+    wm.register(w.id, "u1", "u1@x.com", "2026-06-20");
+    assert.equal(wm.register(w.id, "u2", "u2@x.com", "2026-06-20"), undefined);
+  });
+
+  it("recordAttendance publishes attended", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("webinar.attended", (e) => { events.push(e.payload); });
+    const wm = new WebinarManager(bus);
+    const w = wm.schedule({ title: "X", host: "H", scheduledFor: "2026-07-01T17:00:00.000Z", durationMinutes: 60 });
+    wm.register(w.id, "u1", "u1@x.com", "2026-06-20");
+    wm.recordAttendance(w.id, "u1", 45);
+    assert.equal(events.length, 1);
+    assert.equal(wm.attendanceRate(w.id), 100);
+  });
+
+  it("cancel blocks completed webinars", () => {
+    const bus = new EventBus();
+    const wm = new WebinarManager(bus);
+    const w = wm.schedule({ title: "X", host: "H", scheduledFor: "2026-07-01T17:00:00.000Z", durationMinutes: 60 });
+    wm.complete(w.id);
+    assert.equal(wm.cancel(w.id), undefined);
+  });
+
+  it("summary aggregates registrations and attendance", () => {
+    const bus = new EventBus();
+    const wm = new WebinarManager(bus);
+    const w = wm.schedule({ title: "X", host: "H", scheduledFor: "2026-07-01T17:00:00.000Z", durationMinutes: 60 });
+    wm.register(w.id, "u1", "u1@x.com", "2026-06-20");
+    wm.register(w.id, "u2", "u2@x.com", "2026-06-20");
+    wm.recordAttendance(w.id, "u1", 50);
+    const s = wm.summary();
+    assert.equal(s.totalRegistrations, 2);
+    assert.equal(s.totalAttendees, 1);
+    assert.equal(s.attendanceRatePct, 50);
+  });
+});
+
+describe("FormSubmissionManager", () => {
+  it("createForm and submit publishes submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("form.submitted", (e) => { events.push(e.payload); });
+    const fm = new FormSubmissionManager(bus);
+    const form = fm.createForm({ name: "Contact Us", type: "contact", routeTo: "support" });
+    fm.submit(form.id, { name: "Sam", message: "hi" }, "2026-06-01");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].routedTo, "support");
+  });
+
+  it("spam submissions are flagged not routed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("form.flagged_spam", (e) => { events.push(e.payload); });
+    const fm = new FormSubmissionManager(bus, 0.7);
+    const form = fm.createForm({ name: "Lead", type: "lead", routeTo: "sales" });
+    const sub = fm.submit(form.id, { email: "x" }, "2026-06-01", 0.9)!;
+    assert.equal(sub.status, "spam");
+    assert.equal(sub.routedTo, undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("inactive form rejects submissions", () => {
+    const bus = new EventBus();
+    const fm = new FormSubmissionManager(bus);
+    const form = fm.createForm({ name: "X", type: "newsletter", routeTo: "mktg" });
+    fm.setActive(form.id, false);
+    assert.equal(fm.submit(form.id, {}, "2026-06-01"), undefined);
+  });
+
+  it("process sets outcome and publishes processed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("form.processed", (e) => { events.push(e.payload); });
+    const fm = new FormSubmissionManager(bus);
+    const form = fm.createForm({ name: "Demo", type: "demo_request", routeTo: "sales" });
+    const sub = fm.submit(form.id, { co: "Acme" }, "2026-06-01")!;
+    fm.process(sub.id, "converted", "2026-06-02");
+    assert.equal(fm.getSubmission(sub.id)!.outcome, "converted");
+    assert.equal(events.length, 1);
+  });
+
+  it("spam submissions cannot be processed", () => {
+    const bus = new EventBus();
+    const fm = new FormSubmissionManager(bus, 0.5);
+    const form = fm.createForm({ name: "X", type: "support", routeTo: "support" });
+    const sub = fm.submit(form.id, {}, "2026-06-01", 0.9)!;
+    assert.equal(fm.process(sub.id, "closed", "2026-06-02"), undefined);
+  });
+
+  it("summary aggregates submissions and conversions", () => {
+    const bus = new EventBus();
+    const fm = new FormSubmissionManager(bus);
+    const form = fm.createForm({ name: "Lead", type: "lead", routeTo: "sales" });
+    const s1 = fm.submit(form.id, {}, "2026-06-01")!;
+    fm.process(s1.id, "converted", "2026-06-02");
+    fm.submit(form.id, {}, "2026-06-01", 0.95);
+    const s = fm.summary();
+    assert.equal(s.totalForms, 1);
+    assert.equal(s.totalSubmissions, 2);
+    assert.equal(s.spamCount, 1);
+    assert.equal(s.converted, 1);
+    assert.equal(s.byFormType.lead, 2);
   });
 });

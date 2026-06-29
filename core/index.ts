@@ -183,6 +183,8 @@ import { DonationManager } from "./donation/donation-manager.js";
 import { VolunteerManager } from "./volunteer/volunteer-manager.js";
 import { ServiceCreditManager } from "./service-credit/service-credit-manager.js";
 import { StatusPageManager } from "./status-page/status-page-manager.js";
+import { WebinarManager } from "./webinar/webinar-manager.js";
+import { FormSubmissionManager } from "./form-submission/form-submission-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -454,6 +456,8 @@ export class Olympus {
   readonly volunteer: VolunteerManager;
   readonly serviceCredit: ServiceCreditManager;
   readonly statusPage: StatusPageManager;
+  readonly webinar: WebinarManager;
+  readonly formSubmission: FormSubmissionManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -629,6 +633,8 @@ export class Olympus {
     this.volunteer = new VolunteerManager(this.bus);
     this.serviceCredit = new ServiceCreditManager(this.bus);
     this.statusPage = new StatusPageManager(this.bus);
+    this.webinar = new WebinarManager(this.bus);
+    this.formSubmission = new FormSubmissionManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -810,3 +816,5 @@ export { DonationManager, type DonationCause, type MatchStatus, type Donation, t
 export { VolunteerManager, type VolunteerCause, type LogStatus, type VolunteerOpportunity, type VolunteerLog, type VolunteerSummary } from "./volunteer/index.js";
 export { ServiceCreditManager, type CreditStatus, type SLATier, type ServiceCredit, type ServiceCreditSummary } from "./service-credit/index.js";
 export { StatusPageManager, type ComponentStatus, type IncidentImpact, type IncidentPhase, type StatusComponent, type IncidentUpdate, type StatusIncident, type StatusPageSummary } from "./status-page/index.js";
+export { WebinarManager, type WebinarStatus, type Registration, type Webinar, type WebinarSummary } from "./webinar/index.js";
+export { FormSubmissionManager, type FormType, type FormSubmissionStatus, type ProcessOutcome, type FormDef, type FormSubmission, type FormSubmissionSummary } from "./form-submission/index.js";
