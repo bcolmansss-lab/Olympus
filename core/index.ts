@@ -237,6 +237,8 @@ import { ClauseLibraryManager } from "./clause-library/clause-library-manager.js
 import { RedlineManager } from "./redline/redline-manager.js";
 import { DiscountApprovalManager } from "./discount-approval/discount-approval-manager.js";
 import { MarginGuardManager } from "./margin-guard/margin-guard-manager.js";
+import { DealRoomManager } from "./deal-room/deal-room-manager.js";
+import { MutualActionPlanManager } from "./mutual-action-plan/mutual-action-plan-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -562,6 +564,8 @@ export class Olympus {
   readonly redline: RedlineManager;
   readonly discountApproval: DiscountApprovalManager;
   readonly marginGuard: MarginGuardManager;
+  readonly dealRoom: DealRoomManager;
+  readonly mutualActionPlan: MutualActionPlanManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -791,6 +795,8 @@ export class Olympus {
     this.redline = new RedlineManager(this.bus);
     this.discountApproval = new DiscountApprovalManager(this.bus);
     this.marginGuard = new MarginGuardManager(this.bus);
+    this.dealRoom = new DealRoomManager(this.bus);
+    this.mutualActionPlan = new MutualActionPlanManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1026,3 +1032,5 @@ export { ClauseLibraryManager, type ClauseCategory, type ClauseRisk, type Clause
 export { RedlineManager, type RedlineParty, type RedlineStatus, type Redline, type RedlineSummary } from "./redline/index.js";
 export { DiscountApprovalManager, type ApproverTier, type DiscountRequestStatus, type ApprovalTier, type DiscountRequest, type DiscountApprovalSummary } from "./discount-approval/index.js";
 export { MarginGuardManager, type MarginVerdict, type MarginCheck, type MarginGuardSummary } from "./margin-guard/index.js";
+export { DealRoomManager, type RoomStatus, type DealDocument, type DealRoom, type DealRoomSummary } from "./deal-room/index.js";
+export { MutualActionPlanManager, type OwnerSide, type MAPStatus, type MAPStep, type MutualActionPlan, type MAPSummary } from "./mutual-action-plan/index.js";

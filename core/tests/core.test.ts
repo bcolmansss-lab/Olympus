@@ -140,6 +140,8 @@ import { ClauseLibraryManager } from "../clause-library/clause-library-manager.j
 import { RedlineManager } from "../redline/redline-manager.js";
 import { DiscountApprovalManager } from "../discount-approval/discount-approval-manager.js";
 import { MarginGuardManager } from "../margin-guard/margin-guard-manager.js";
+import { DealRoomManager } from "../deal-room/deal-room-manager.js";
+import { MutualActionPlanManager } from "../mutual-action-plan/mutual-action-plan-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17298,5 +17300,134 @@ describe("MarginGuardManager", () => {
     assert.equal(s.totalChecks, 2);
     assert.equal(s.passed, 1);
     assert.equal(s.blocked, 1);
+  });
+});
+
+describe("DealRoomManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dealroom.created", (e) => { events.push(e.payload); });
+    const dm = new DealRoomManager(bus);
+    dm.create("deal1", "BigCo");
+    assert.equal(events.length, 1);
+  });
+
+  it("addDocument publishes document_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dealroom.document_added", (e) => { events.push(e.payload); });
+    const dm = new DealRoomManager(bus);
+    const r = dm.create("deal1", "BigCo");
+    dm.addDocument(r.id, "MSA.pdf", "contract");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordView increments views and publishes viewed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dealroom.viewed", (e) => { events.push(e.payload); });
+    const dm = new DealRoomManager(bus);
+    const r = dm.create("deal1", "BigCo");
+    const d = dm.addDocument(r.id, "Pricing.pdf", "pricing")!;
+    dm.recordView(r.id, d.id, "buyer1");
+    dm.recordView(r.id, d.id, "buyer1");
+    assert.equal(dm.getRoom(r.id)!.documents.get(d.id)!.views, 2);
+    assert.equal(events.length, 2);
+  });
+
+  it("engagementScore reflects unique viewers vs members", () => {
+    const bus = new EventBus();
+    const dm = new DealRoomManager(bus);
+    const r = dm.create("deal1", "BigCo");
+    dm.addMember(r.id, "b1"); dm.addMember(r.id, "b2");
+    const d = dm.addDocument(r.id, "X", "x")!;
+    dm.recordView(r.id, d.id, "b1");
+    assert.equal(dm.engagementScore(r.id), 50);
+  });
+
+  it("archived room rejects new documents", () => {
+    const bus = new EventBus();
+    const dm = new DealRoomManager(bus);
+    const r = dm.create("deal1", "BigCo");
+    dm.archive(r.id);
+    assert.equal(dm.addDocument(r.id, "X", "x"), undefined);
+  });
+
+  it("summary aggregates documents and views", () => {
+    const bus = new EventBus();
+    const dm = new DealRoomManager(bus);
+    const r = dm.create("deal1", "BigCo");
+    const d = dm.addDocument(r.id, "X", "x")!;
+    dm.recordView(r.id, d.id, "b1");
+    const s = dm.summary();
+    assert.equal(s.totalRooms, 1);
+    assert.equal(s.totalDocuments, 1);
+    assert.equal(s.totalViews, 1);
+  });
+});
+
+describe("MutualActionPlanManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("map.created", (e) => { events.push(e.payload); });
+    const mm = new MutualActionPlanManager(bus);
+    mm.create("deal1", "2026-09-30");
+    assert.equal(events.length, 1);
+  });
+
+  it("completeStep publishes step_completed and updates progress", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("map.step_completed", (e) => { events.push(e.payload); });
+    const mm = new MutualActionPlanManager(bus);
+    const p = mm.create("deal1", "2026-09-30");
+    const s1 = mm.addStep(p.id, "Security review", "buyer", "2026-08-01")!;
+    mm.addStep(p.id, "Legal sign-off", "joint", "2026-09-01");
+    mm.completeStep(p.id, s1.id, "2026-07-15");
+    assert.equal(mm.progress(p.id), 50);
+    assert.equal(events.length, 1);
+  });
+
+  it("overdueSteps lists incomplete past-due steps", () => {
+    const bus = new EventBus();
+    const mm = new MutualActionPlanManager(bus);
+    const p = mm.create("deal1", "2026-09-30");
+    mm.addStep(p.id, "Step", "seller", "2026-06-01");
+    assert.equal(mm.overdueSteps(p.id, "2026-07-01").length, 1);
+  });
+
+  it("checkRisk publishes at_risk when overdue", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("map.at_risk", (e) => { events.push(e.payload); });
+    const mm = new MutualActionPlanManager(bus);
+    const p = mm.create("deal1", "2026-09-30");
+    mm.addStep(p.id, "Step", "seller", "2026-06-01");
+    assert.equal(mm.checkRisk(p.id, "2026-07-01"), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("close sets won/lost", () => {
+    const bus = new EventBus();
+    const mm = new MutualActionPlanManager(bus);
+    const p = mm.create("deal1", "2026-09-30");
+    mm.close(p.id, "won");
+    assert.equal(mm.getPlan(p.id)!.status, "won");
+    assert.equal(mm.addStep(p.id, "X", "buyer", "2026-08-01"), undefined);
+  });
+
+  it("summary aggregates steps and progress", () => {
+    const bus = new EventBus();
+    const mm = new MutualActionPlanManager(bus);
+    const p = mm.create("deal1", "2026-09-30");
+    const s1 = mm.addStep(p.id, "A", "buyer", "2026-08-01")!;
+    mm.addStep(p.id, "B", "seller", "2026-08-15");
+    mm.completeStep(p.id, s1.id, "2026-07-15");
+    const s = mm.summary();
+    assert.equal(s.totalSteps, 2);
+    assert.equal(s.completedSteps, 1);
+    assert.equal(s.overallProgressPct, 50);
   });
 });
