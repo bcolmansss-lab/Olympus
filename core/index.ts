@@ -223,6 +223,8 @@ import { MarketplaceManager } from "./marketplace/marketplace-manager.js";
 import { IntegrationConnectorManager } from "./integration/integration-connector-manager.js";
 import { FieldServiceManager } from "./field-service/field-service-manager.js";
 import { PreventiveMaintenanceManager } from "./preventive-maintenance/preventive-maintenance-manager.js";
+import { ProductReviewManager } from "./product-review/product-review-manager.js";
+import { ProductQnAManager } from "./product-qna/product-qna-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -534,6 +536,8 @@ export class Olympus {
   readonly integration: IntegrationConnectorManager;
   readonly fieldService: FieldServiceManager;
   readonly preventiveMaintenance: PreventiveMaintenanceManager;
+  readonly productReview: ProductReviewManager;
+  readonly productQnA: ProductQnAManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -749,6 +753,8 @@ export class Olympus {
     this.integration = new IntegrationConnectorManager(this.bus);
     this.fieldService = new FieldServiceManager(this.bus);
     this.preventiveMaintenance = new PreventiveMaintenanceManager(this.bus);
+    this.productReview = new ProductReviewManager(this.bus);
+    this.productQnA = new ProductQnAManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -970,3 +976,5 @@ export { MarketplaceManager, type ListingStatus, type ListingCategory, type List
 export { IntegrationConnectorManager, type ConnectorStatus, type SyncResult, type SyncRun, type Connector, type IntegrationSummary } from "./integration/index.js";
 export { FieldServiceManager, type WorkOrderPriority, type WorkOrderStatus, type Technician, type WorkOrder, type FieldServiceSummary } from "./field-service/index.js";
 export { PreventiveMaintenanceManager, type PMTriggerType, type PMStatus, type PMLog, type PMSchedule, type PMSummary } from "./preventive-maintenance/index.js";
+export { ProductReviewManager, type ReviewStatus, type ProductReview, type ProductRatingSummary, type ReviewSummary } from "./product-review/index.js";
+export { ProductQnAManager, type QuestionStatus, type QnAAnswer, type QnAQuestion, type QnASummary } from "./product-qna/index.js";

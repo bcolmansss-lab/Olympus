@@ -126,6 +126,8 @@ import { MarketplaceManager } from "../marketplace/marketplace-manager.js";
 import { IntegrationConnectorManager } from "../integration/integration-connector-manager.js";
 import { FieldServiceManager } from "../field-service/field-service-manager.js";
 import { PreventiveMaintenanceManager } from "../preventive-maintenance/preventive-maintenance-manager.js";
+import { ProductReviewManager } from "../product-review/product-review-manager.js";
+import { ProductQnAManager } from "../product-qna/product-qna-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -16389,5 +16391,137 @@ describe("PreventiveMaintenanceManager", () => {
     assert.equal(s.totalSchedules, 2);
     assert.equal(s.due, 1);
     assert.equal(s.complianceRatePct, 50);
+  });
+});
+
+describe("ProductReviewManager", () => {
+  it("submit publishes submitted and rejects bad rating", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("review.submitted", (e) => { events.push(e.payload); });
+    const rm = new ProductReviewManager(bus);
+    assert.equal(rm.submit({ productId: "p1", authorId: "u1", rating: 6, title: "x", body: "y" }), undefined);
+    rm.submit({ productId: "p1", authorId: "u1", rating: 5, title: "Great", body: "Love it" });
+    assert.equal(events.length, 1);
+  });
+
+  it("approve publishes approved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("review.approved", (e) => { events.push(e.payload); });
+    const rm = new ProductReviewManager(bus);
+    const r = rm.submit({ productId: "p1", authorId: "u1", rating: 4, title: "x", body: "y" })!;
+    rm.approve(r.id);
+    assert.equal(rm.getReview(r.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("reject publishes flagged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("review.flagged", (e) => { events.push(e.payload); });
+    const rm = new ProductReviewManager(bus);
+    const r = rm.submit({ productId: "p1", authorId: "u1", rating: 1, title: "spam", body: "z" })!;
+    rm.reject(r.id, "spam");
+    assert.equal(events.length, 1);
+  });
+
+  it("voteHelpful only on approved reviews", () => {
+    const bus = new EventBus();
+    const rm = new ProductReviewManager(bus);
+    const r = rm.submit({ productId: "p1", authorId: "u1", rating: 4, title: "x", body: "y" })!;
+    assert.equal(rm.voteHelpful(r.id), undefined);
+    rm.approve(r.id);
+    rm.voteHelpful(r.id);
+    assert.equal(rm.getReview(r.id)!.helpfulVotes, 1);
+  });
+
+  it("productRating aggregates approved reviews", () => {
+    const bus = new EventBus();
+    const rm = new ProductReviewManager(bus);
+    const a = rm.submit({ productId: "p1", authorId: "u1", rating: 5, title: "x", body: "y" })!; rm.approve(a.id);
+    const b = rm.submit({ productId: "p1", authorId: "u2", rating: 3, title: "x", body: "y" })!; rm.approve(b.id);
+    const rating = rm.productRating("p1");
+    assert.equal(rating.approvedCount, 2);
+    assert.equal(rating.averageRating, 4);
+    assert.equal(rating.distribution[5], 1);
+  });
+
+  it("summary computes verified pct and overall avg", () => {
+    const bus = new EventBus();
+    const rm = new ProductReviewManager(bus);
+    const a = rm.submit({ productId: "p1", authorId: "u1", rating: 4, title: "x", body: "y", verifiedPurchase: true })!; rm.approve(a.id);
+    rm.submit({ productId: "p1", authorId: "u2", rating: 2, title: "x", body: "y" });
+    const s = rm.summary();
+    assert.equal(s.totalReviews, 2);
+    assert.equal(s.approved, 1);
+    assert.equal(s.verifiedPct, 50);
+    assert.equal(s.overallAverageRating, 4);
+  });
+});
+
+describe("ProductQnAManager", () => {
+  it("ask publishes question_asked", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("qna.question_asked", (e) => { events.push(e.payload); });
+    const qm = new ProductQnAManager(bus);
+    qm.ask("p1", "u1", "Does it support X?");
+    assert.equal(events.length, 1);
+  });
+
+  it("answer marks question answered and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("qna.answer_posted", (e) => { events.push(e.payload); });
+    const qm = new ProductQnAManager(bus);
+    const q = qm.ask("p1", "u1", "Q?");
+    qm.answer(q.id, "staff1", "Yes", true);
+    assert.equal(qm.getQuestion(q.id)!.status, "answered");
+    assert.equal(events.length, 1);
+  });
+
+  it("voteAnswer increments votes", () => {
+    const bus = new EventBus();
+    const qm = new ProductQnAManager(bus);
+    const q = qm.ask("p1", "u1", "Q?");
+    const a = qm.answer(q.id, "u2", "A")!;
+    qm.voteAnswer(q.id, a.id);
+    assert.equal(qm.getQuestion(q.id)!.answers[0]!.votes, 1);
+  });
+
+  it("selectBestAnswer closes question and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("qna.best_answer_selected", (e) => { events.push(e.payload); });
+    const qm = new ProductQnAManager(bus);
+    const q = qm.ask("p1", "u1", "Q?");
+    const a = qm.answer(q.id, "u2", "A")!;
+    qm.selectBestAnswer(q.id, a.id);
+    assert.equal(qm.getQuestion(q.id)!.status, "closed");
+    assert.equal(qm.getQuestion(q.id)!.answers[0]!.isBest, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("unanswered lists open questions", () => {
+    const bus = new EventBus();
+    const qm = new ProductQnAManager(bus);
+    qm.ask("p1", "u1", "Q1?");
+    const q2 = qm.ask("p1", "u2", "Q2?");
+    qm.answer(q2.id, "u3", "A");
+    assert.equal(qm.unanswered().length, 1);
+  });
+
+  it("summary computes staff answer and answer rates", () => {
+    const bus = new EventBus();
+    const qm = new ProductQnAManager(bus);
+    const q1 = qm.ask("p1", "u1", "Q1?");
+    qm.answer(q1.id, "staff1", "A", true);
+    qm.ask("p1", "u2", "Q2?");
+    const s = qm.summary();
+    assert.equal(s.totalQuestions, 2);
+    assert.equal(s.answered, 1);
+    assert.equal(s.staffAnswerPct, 100);
+    assert.equal(s.answerRatePct, 50);
   });
 });
