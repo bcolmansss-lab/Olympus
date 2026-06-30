@@ -138,6 +138,8 @@ import { PreorderManager } from "../preorder/preorder-manager.js";
 import { AuctionManager } from "../auction/auction-manager.js";
 import { ClauseLibraryManager } from "../clause-library/clause-library-manager.js";
 import { RedlineManager } from "../redline/redline-manager.js";
+import { DiscountApprovalManager } from "../discount-approval/discount-approval-manager.js";
+import { MarginGuardManager } from "../margin-guard/margin-guard-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17174,5 +17176,127 @@ describe("RedlineManager", () => {
     assert.equal(s.accepted, 1);
     assert.equal(s.open, 1);
     assert.equal(s.byParty.us, 1);
+  });
+});
+
+describe("DiscountApprovalManager", () => {
+  it("auto-approves below threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("discount.auto_approved", (e) => { events.push(e.payload); });
+    const dm = new DiscountApprovalManager(bus);
+    const r = dm.request({ dealId: "d1", listPriceUsd: 1000, discountPct: 5, justification: "loyalty" });
+    assert.equal(r.status, "auto_approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("routes to correct approver tier", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("discount.requested", (e) => { events.push(e.payload); });
+    const dm = new DiscountApprovalManager(bus);
+    const r = dm.request({ dealId: "d1", listPriceUsd: 1000, discountPct: 35, justification: "comp" });
+    assert.equal(r.requiredApprover, "vp"); // 35 <= 40
+    assert.equal(events.length, 1);
+  });
+
+  it("decide approves a pending request", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("discount.decided", (e) => { events.push(e.payload); });
+    const dm = new DiscountApprovalManager(bus);
+    const r = dm.request({ dealId: "d1", listPriceUsd: 1000, discountPct: 25, justification: "x" });
+    dm.decide(r.id, "director1", true);
+    assert.equal(dm.getRequest(r.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("netPrice reflects discount", () => {
+    const bus = new EventBus();
+    const dm = new DiscountApprovalManager(bus);
+    const r = dm.request({ dealId: "d1", listPriceUsd: 1000, discountPct: 20, justification: "x" });
+    assert.equal(dm.netPriceUsd(r.id), 800);
+  });
+
+  it("cannot decide an auto-approved request", () => {
+    const bus = new EventBus();
+    const dm = new DiscountApprovalManager(bus);
+    const r = dm.request({ dealId: "d1", listPriceUsd: 1000, discountPct: 5, justification: "x" });
+    assert.equal(dm.decide(r.id, "m1", true), undefined);
+  });
+
+  it("summary aggregates statuses and avg discount", () => {
+    const bus = new EventBus();
+    const dm = new DiscountApprovalManager(bus);
+    dm.request({ dealId: "d1", listPriceUsd: 1000, discountPct: 5, justification: "x" }); // auto
+    dm.request({ dealId: "d2", listPriceUsd: 1000, discountPct: 25, justification: "x" }); // pending
+    const s = dm.summary();
+    assert.equal(s.totalRequests, 2);
+    assert.equal(s.autoApproved, 1);
+    assert.equal(s.pending, 1);
+    assert.equal(s.avgDiscountPct, 15);
+  });
+});
+
+describe("MarginGuardManager", () => {
+  it("setFloor publishes floor_set", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("marginguard.floor_set", (e) => { events.push(e.payload); });
+    const mg = new MarginGuardManager(bus);
+    mg.setFloor("hardware", 30);
+    assert.equal(events.length, 1);
+  });
+
+  it("evaluate passes healthy margin", () => {
+    const bus = new EventBus();
+    const mg = new MarginGuardManager(bus, 5);
+    mg.setFloor("hardware", 30);
+    const c = mg.evaluate({ dealId: "d1", category: "hardware", priceUsd: 100, costUsd: 50 }); // 50%
+    assert.equal(c.verdict, "pass");
+  });
+
+  it("warn within buffer above floor", () => {
+    const bus = new EventBus();
+    const mg = new MarginGuardManager(bus, 5);
+    mg.setFloor("hardware", 30);
+    const c = mg.evaluate({ dealId: "d1", category: "hardware", priceUsd: 100, costUsd: 67 }); // 33%
+    assert.equal(c.verdict, "warn");
+  });
+
+  it("block below floor and publish violation", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("marginguard.violation", (e) => { events.push(e.payload); });
+    const mg = new MarginGuardManager(bus, 5);
+    mg.setFloor("hardware", 30);
+    const c = mg.evaluate({ dealId: "d1", category: "hardware", priceUsd: 100, costUsd: 80 }); // 20%
+    assert.equal(c.verdict, "block");
+    assert.equal(mg.canProceed(c.id), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("override allows blocked deal to proceed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("marginguard.override_granted", (e) => { events.push(e.payload); });
+    const mg = new MarginGuardManager(bus, 5);
+    mg.setFloor("hardware", 30);
+    const c = mg.evaluate({ dealId: "d1", category: "hardware", priceUsd: 100, costUsd: 80 });
+    mg.override(c.id, "vp1");
+    assert.equal(mg.canProceed(c.id), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates verdicts", () => {
+    const bus = new EventBus();
+    const mg = new MarginGuardManager(bus, 5);
+    mg.setFloor("hw", 30);
+    mg.evaluate({ dealId: "d1", category: "hw", priceUsd: 100, costUsd: 40 }); // pass
+    mg.evaluate({ dealId: "d2", category: "hw", priceUsd: 100, costUsd: 80 }); // block
+    const s = mg.summary();
+    assert.equal(s.totalChecks, 2);
+    assert.equal(s.passed, 1);
+    assert.equal(s.blocked, 1);
   });
 });

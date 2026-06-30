@@ -235,6 +235,8 @@ import { PreorderManager } from "./preorder/preorder-manager.js";
 import { AuctionManager } from "./auction/auction-manager.js";
 import { ClauseLibraryManager } from "./clause-library/clause-library-manager.js";
 import { RedlineManager } from "./redline/redline-manager.js";
+import { DiscountApprovalManager } from "./discount-approval/discount-approval-manager.js";
+import { MarginGuardManager } from "./margin-guard/margin-guard-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -558,6 +560,8 @@ export class Olympus {
   readonly auction: AuctionManager;
   readonly clauseLibrary: ClauseLibraryManager;
   readonly redline: RedlineManager;
+  readonly discountApproval: DiscountApprovalManager;
+  readonly marginGuard: MarginGuardManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -785,6 +789,8 @@ export class Olympus {
     this.auction = new AuctionManager(this.bus);
     this.clauseLibrary = new ClauseLibraryManager(this.bus);
     this.redline = new RedlineManager(this.bus);
+    this.discountApproval = new DiscountApprovalManager(this.bus);
+    this.marginGuard = new MarginGuardManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1018,3 +1024,5 @@ export { PreorderManager, type PreorderCampaignStatus, type PreorderStatus, type
 export { AuctionManager, type AuctionStatus, type AuctionBid, type Auction, type AuctionSummary } from "./auction/index.js";
 export { ClauseLibraryManager, type ClauseCategory, type ClauseRisk, type ClauseStatus, type Clause, type ClauseLibrarySummary } from "./clause-library/index.js";
 export { RedlineManager, type RedlineParty, type RedlineStatus, type Redline, type RedlineSummary } from "./redline/index.js";
+export { DiscountApprovalManager, type ApproverTier, type DiscountRequestStatus, type ApprovalTier, type DiscountRequest, type DiscountApprovalSummary } from "./discount-approval/index.js";
+export { MarginGuardManager, type MarginVerdict, type MarginCheck, type MarginGuardSummary } from "./margin-guard/index.js";
