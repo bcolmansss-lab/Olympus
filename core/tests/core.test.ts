@@ -128,6 +128,8 @@ import { FieldServiceManager } from "../field-service/field-service-manager.js";
 import { PreventiveMaintenanceManager } from "../preventive-maintenance/preventive-maintenance-manager.js";
 import { ProductReviewManager } from "../product-review/product-review-manager.js";
 import { ProductQnAManager } from "../product-qna/product-qna-manager.js";
+import { StoreCreditManager } from "../store-credit/store-credit-manager.js";
+import { LayawayManager } from "../layaway/layaway-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -16523,5 +16525,126 @@ describe("ProductQnAManager", () => {
     assert.equal(s.answered, 1);
     assert.equal(s.staffAnswerPct, 100);
     assert.equal(s.answerRatePct, 50);
+  });
+});
+
+describe("StoreCreditManager", () => {
+  it("issue publishes issued and increases balance", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("storecredit.issued", (e) => { events.push(e.payload); });
+    const sm = new StoreCreditManager(bus);
+    sm.issue("c1", 50, "refund");
+    assert.equal(sm.balance("c1"), 50);
+    assert.equal(events.length, 1);
+  });
+
+  it("issue consolidates into one wallet per customer", () => {
+    const bus = new EventBus();
+    const sm = new StoreCreditManager(bus);
+    sm.issue("c1", 50, "refund");
+    sm.issue("c1", 25, "goodwill");
+    assert.equal(sm.balance("c1"), 75);
+    assert.equal(sm.listWallets().length, 1);
+  });
+
+  it("redeem reduces balance and rejects overdraw", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("storecredit.redeemed", (e) => { events.push(e.payload); });
+    const sm = new StoreCreditManager(bus);
+    sm.issue("c1", 50, "refund");
+    assert.equal(sm.redeem("c1", 100), false);
+    assert.equal(sm.redeem("c1", 30), true);
+    assert.equal(sm.balance("c1"), 20);
+    assert.equal(events.length, 1);
+  });
+
+  it("expireCredits reduces balance and publishes expired", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("storecredit.expired", (e) => { events.push(e.payload); });
+    const sm = new StoreCreditManager(bus);
+    sm.issue("c1", 40, "promotion", "2026-06-01");
+    const expired = sm.expireCredits("2026-07-01");
+    assert.equal(expired, 40);
+    assert.equal(sm.balance("c1"), 0);
+    assert.equal(events.length, 1);
+  });
+
+  it("issue rejects non-positive amounts", () => {
+    const bus = new EventBus();
+    const sm = new StoreCreditManager(bus);
+    assert.equal(sm.issue("c1", 0, "refund"), undefined);
+  });
+
+  it("summary aggregates issued, redeemed and outstanding", () => {
+    const bus = new EventBus();
+    const sm = new StoreCreditManager(bus);
+    sm.issue("c1", 100, "refund");
+    sm.redeem("c1", 30);
+    const s = sm.summary();
+    assert.equal(s.totalIssuedUsd, 100);
+    assert.equal(s.totalRedeemedUsd, 30);
+    assert.equal(s.totalOutstandingUsd, 70);
+  });
+});
+
+describe("LayawayManager", () => {
+  it("create publishes created and applies deposit", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("layaway.created", (e) => { events.push(e.payload); });
+    const lm = new LayawayManager(bus);
+    const p = lm.create({ customerId: "c1", itemSku: "TV", totalUsd: 1200, installments: 6, depositUsd: 200 })!;
+    assert.equal(lm.getPlan(p.id)!.paidUsd, 200);
+    assert.equal(events.length, 1);
+  });
+
+  it("installmentAmount divides total evenly", () => {
+    const bus = new EventBus();
+    const lm = new LayawayManager(bus);
+    const p = lm.create({ customerId: "c1", itemSku: "TV", totalUsd: 1200, installments: 6 })!;
+    assert.equal(lm.installmentAmount(p.id), 200);
+  });
+
+  it("recordPayment caps at total and completes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("layaway.completed", (e) => { events.push(e.payload); });
+    const lm = new LayawayManager(bus);
+    const p = lm.create({ customerId: "c1", itemSku: "TV", totalUsd: 300, installments: 3 })!;
+    lm.recordPayment(p.id, 200, "2026-06-01");
+    lm.recordPayment(p.id, 500, "2026-07-01"); // overpay capped to remaining 100
+    assert.equal(lm.getPlan(p.id)!.paidUsd, 300);
+    assert.equal(lm.getPlan(p.id)!.status, "completed");
+    assert.equal(events.length, 1);
+  });
+
+  it("cancel returns refund minus restocking fee", () => {
+    const bus = new EventBus();
+    const lm = new LayawayManager(bus);
+    const p = lm.create({ customerId: "c1", itemSku: "TV", totalUsd: 1000, installments: 5, restockingFeePct: 10 })!;
+    lm.recordPayment(p.id, 400, "2026-06-01");
+    const refund = lm.cancel(p.id);
+    assert.equal(refund, 300); // 400 paid - 100 fee
+  });
+
+  it("create rejects invalid inputs", () => {
+    const bus = new EventBus();
+    const lm = new LayawayManager(bus);
+    assert.equal(lm.create({ customerId: "c1", itemSku: "X", totalUsd: 0, installments: 3 }), undefined);
+    assert.equal(lm.create({ customerId: "c1", itemSku: "X", totalUsd: 100, installments: 0 }), undefined);
+  });
+
+  it("summary aggregates collected and outstanding", () => {
+    const bus = new EventBus();
+    const lm = new LayawayManager(bus);
+    const p = lm.create({ customerId: "c1", itemSku: "TV", totalUsd: 1000, installments: 5 })!;
+    lm.recordPayment(p.id, 400, "2026-06-01");
+    const s = lm.summary();
+    assert.equal(s.active, 1);
+    assert.equal(s.totalCollectedUsd, 400);
+    assert.equal(s.outstandingUsd, 600);
   });
 });

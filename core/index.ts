@@ -225,6 +225,8 @@ import { FieldServiceManager } from "./field-service/field-service-manager.js";
 import { PreventiveMaintenanceManager } from "./preventive-maintenance/preventive-maintenance-manager.js";
 import { ProductReviewManager } from "./product-review/product-review-manager.js";
 import { ProductQnAManager } from "./product-qna/product-qna-manager.js";
+import { StoreCreditManager } from "./store-credit/store-credit-manager.js";
+import { LayawayManager } from "./layaway/layaway-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -538,6 +540,8 @@ export class Olympus {
   readonly preventiveMaintenance: PreventiveMaintenanceManager;
   readonly productReview: ProductReviewManager;
   readonly productQnA: ProductQnAManager;
+  readonly storeCredit: StoreCreditManager;
+  readonly layaway: LayawayManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -755,6 +759,8 @@ export class Olympus {
     this.preventiveMaintenance = new PreventiveMaintenanceManager(this.bus);
     this.productReview = new ProductReviewManager(this.bus);
     this.productQnA = new ProductQnAManager(this.bus);
+    this.storeCredit = new StoreCreditManager(this.bus);
+    this.layaway = new LayawayManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -978,3 +984,5 @@ export { FieldServiceManager, type WorkOrderPriority, type WorkOrderStatus, type
 export { PreventiveMaintenanceManager, type PMTriggerType, type PMStatus, type PMLog, type PMSchedule, type PMSummary } from "./preventive-maintenance/index.js";
 export { ProductReviewManager, type ReviewStatus, type ProductReview, type ProductRatingSummary, type ReviewSummary } from "./product-review/index.js";
 export { ProductQnAManager, type QuestionStatus, type QnAAnswer, type QnAQuestion, type QnASummary } from "./product-qna/index.js";
+export { StoreCreditManager, type CreditReason, type CreditEntry, type CreditWallet, type StoreCreditSummary } from "./store-credit/index.js";
+export { LayawayManager, type LayawayStatus, type LayawayPayment, type LayawayPlan, type LayawaySummary } from "./layaway/index.js";
