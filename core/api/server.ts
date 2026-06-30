@@ -332,6 +332,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/product-qna", handler: (_req, res) => res.json(200, { summary: this.olympus.productQnA.summary(), unanswered: this.olympus.productQnA.unanswered() }) },
       { method: "GET", pattern: "/v1/store-credit", handler: (_req, res) => res.json(200, { summary: this.olympus.storeCredit.summary(), wallets: this.olympus.storeCredit.listWallets() }) },
       { method: "GET", pattern: "/v1/layaway", handler: (_req, res) => res.json(200, { summary: this.olympus.layaway.summary(), plans: this.olympus.layaway.listPlans("active") }) },
+      { method: "GET", pattern: "/v1/fraud-detection", handler: (_req, res) => res.json(200, { summary: this.olympus.fraudDetection.summary(), rules: this.olympus.fraudDetection.listRules() }) },
+      { method: "GET", pattern: "/v1/identity-verification", handler: (_req, res) => res.json(200, { summary: this.olympus.identityVerification.summary() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

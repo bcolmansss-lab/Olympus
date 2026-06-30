@@ -227,6 +227,8 @@ import { ProductReviewManager } from "./product-review/product-review-manager.js
 import { ProductQnAManager } from "./product-qna/product-qna-manager.js";
 import { StoreCreditManager } from "./store-credit/store-credit-manager.js";
 import { LayawayManager } from "./layaway/layaway-manager.js";
+import { FraudDetectionManager } from "./fraud-detection/fraud-detection-manager.js";
+import { IdentityVerificationManager } from "./identity-verification/identity-verification-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -542,6 +544,8 @@ export class Olympus {
   readonly productQnA: ProductQnAManager;
   readonly storeCredit: StoreCreditManager;
   readonly layaway: LayawayManager;
+  readonly fraudDetection: FraudDetectionManager;
+  readonly identityVerification: IdentityVerificationManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -761,6 +765,8 @@ export class Olympus {
     this.productQnA = new ProductQnAManager(this.bus);
     this.storeCredit = new StoreCreditManager(this.bus);
     this.layaway = new LayawayManager(this.bus);
+    this.fraudDetection = new FraudDetectionManager(this.bus);
+    this.identityVerification = new IdentityVerificationManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -986,3 +992,5 @@ export { ProductReviewManager, type ReviewStatus, type ProductReview, type Produ
 export { ProductQnAManager, type QuestionStatus, type QnAAnswer, type QnAQuestion, type QnASummary } from "./product-qna/index.js";
 export { StoreCreditManager, type CreditReason, type CreditEntry, type CreditWallet, type StoreCreditSummary } from "./store-credit/index.js";
 export { LayawayManager, type LayawayStatus, type LayawayPayment, type LayawayPlan, type LayawaySummary } from "./layaway/index.js";
+export { FraudDetectionManager, type FraudDecision, type ReviewOutcome, type FraudRule, type FraudAssessment, type FraudSummary } from "./fraud-detection/index.js";
+export { IdentityVerificationManager, type VerificationLevel, type KYCStep, type SessionVerdict, type StepResult, type KYCSession, type KYCSummary } from "./identity-verification/index.js";

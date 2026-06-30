@@ -130,6 +130,8 @@ import { ProductReviewManager } from "../product-review/product-review-manager.j
 import { ProductQnAManager } from "../product-qna/product-qna-manager.js";
 import { StoreCreditManager } from "../store-credit/store-credit-manager.js";
 import { LayawayManager } from "../layaway/layaway-manager.js";
+import { FraudDetectionManager } from "../fraud-detection/fraud-detection-manager.js";
+import { IdentityVerificationManager } from "../identity-verification/identity-verification-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -16646,5 +16648,136 @@ describe("LayawayManager", () => {
     assert.equal(s.active, 1);
     assert.equal(s.totalCollectedUsd, 400);
     assert.equal(s.outstandingUsd, 600);
+  });
+});
+
+describe("FraudDetectionManager", () => {
+  it("evaluate approves low-risk transactions", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("fraud.evaluated", (e) => { events.push(e.payload); });
+    const fm = new FraudDetectionManager(bus, 40, 75);
+    fm.addRule("new_device", 20);
+    const a = fm.evaluate("tx1", 100, ["new_device"]);
+    assert.equal(a.decision, "approve");
+    assert.equal(events.length, 1);
+  });
+
+  it("review threshold flags for review", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("fraud.flagged_for_review", (e) => { events.push(e.payload); });
+    const fm = new FraudDetectionManager(bus, 40, 75);
+    fm.addRule("new_device", 25);
+    fm.addRule("velocity", 25);
+    const a = fm.evaluate("tx1", 100, ["new_device", "velocity"]); // 50
+    assert.equal(a.decision, "review");
+    assert.equal(events.length, 1);
+  });
+
+  it("high score declines and publishes declined", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("fraud.declined", (e) => { events.push(e.payload); });
+    const fm = new FraudDetectionManager(bus, 40, 75);
+    fm.addRule("stolen_card", 80);
+    const a = fm.evaluate("tx1", 500, ["stolen_card"]);
+    assert.equal(a.decision, "decline");
+    assert.equal(events.length, 1);
+  });
+
+  it("unknown signals are ignored", () => {
+    const bus = new EventBus();
+    const fm = new FraudDetectionManager(bus);
+    fm.addRule("known", 10);
+    const a = fm.evaluate("tx1", 100, ["known", "unknown"]);
+    assert.equal(a.score, 10);
+    assert.deepEqual(a.triggeredRules, ["known"]);
+  });
+
+  it("resolveReview records outcome", () => {
+    const bus = new EventBus();
+    const fm = new FraudDetectionManager(bus, 40, 75);
+    fm.addRule("v", 50);
+    const a = fm.evaluate("tx1", 100, ["v"]);
+    fm.resolveReview(a.id, "fraud");
+    assert.equal(fm.getAssessment(a.id)!.reviewOutcome, "fraud");
+  });
+
+  it("summary aggregates decisions and blocked amount", () => {
+    const bus = new EventBus();
+    const fm = new FraudDetectionManager(bus, 40, 75);
+    fm.addRule("stolen", 80);
+    fm.evaluate("tx1", 500, ["stolen"]);
+    fm.addRule("ok", 5);
+    fm.evaluate("tx2", 100, ["ok"]);
+    const s = fm.summary();
+    assert.equal(s.declined, 1);
+    assert.equal(s.approved, 1);
+    assert.equal(s.fraudAmountBlockedUsd, 500);
+  });
+});
+
+describe("IdentityVerificationManager", () => {
+  it("start publishes session_started with level steps", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("kyc.session_started", (e) => { events.push(e.payload); });
+    const im = new IdentityVerificationManager(bus);
+    const s = im.start("u1", "basic");
+    assert.deepEqual(s.requiredSteps, ["document"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("completing all steps passed yields verified", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("kyc.verdict", (e) => { events.push(e.payload); });
+    const im = new IdentityVerificationManager(bus);
+    const s = im.start("u1", "basic");
+    im.completeStep(s.id, "document", true, "2026-06-01");
+    assert.equal(im.getSession(s.id)!.verdict, "verified");
+    assert.equal(im.isVerified("u1"), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("a failed non-sanctions step routes to manual_review", () => {
+    const bus = new EventBus();
+    const im = new IdentityVerificationManager(bus);
+    const s = im.start("u1", "standard");
+    im.completeStep(s.id, "document", true, "2026-06-01");
+    im.completeStep(s.id, "selfie_match", false, "2026-06-01");
+    im.completeStep(s.id, "database", true, "2026-06-01");
+    assert.equal(im.getSession(s.id)!.verdict, "manual_review");
+  });
+
+  it("sanctions failure immediately rejects", () => {
+    const bus = new EventBus();
+    const im = new IdentityVerificationManager(bus);
+    const s = im.start("u1", "enhanced");
+    im.completeStep(s.id, "sanctions", false, "2026-06-01");
+    assert.equal(im.getSession(s.id)!.verdict, "rejected");
+  });
+
+  it("resolveManualReview finalizes verdict", () => {
+    const bus = new EventBus();
+    const im = new IdentityVerificationManager(bus);
+    const s = im.start("u1", "standard");
+    im.completeStep(s.id, "document", true, "2026-06-01");
+    im.completeStep(s.id, "selfie_match", false, "2026-06-01");
+    im.completeStep(s.id, "database", true, "2026-06-01");
+    im.resolveManualReview(s.id, true, "2026-06-02");
+    assert.equal(im.getSession(s.id)!.verdict, "verified");
+  });
+
+  it("summary computes verification rate", () => {
+    const bus = new EventBus();
+    const im = new IdentityVerificationManager(bus);
+    const s1 = im.start("u1", "basic"); im.completeStep(s1.id, "document", true, "2026-06-01");
+    const s2 = im.start("u2", "enhanced"); im.completeStep(s2.id, "sanctions", false, "2026-06-01");
+    const sm = im.summary();
+    assert.equal(sm.verified, 1);
+    assert.equal(sm.rejected, 1);
+    assert.equal(sm.verificationRatePct, 50);
   });
 });
