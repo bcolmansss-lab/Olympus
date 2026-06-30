@@ -346,6 +346,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/mutual-action-plans", handler: (_req, res) => res.json(200, { summary: this.olympus.mutualActionPlan.summary(), active: this.olympus.mutualActionPlan.listPlans("active") }) },
       { method: "GET", pattern: "/v1/vulnerabilities", handler: (_req, res) => res.json(200, { summary: this.olympus.vulnerability.summary(), open: this.olympus.vulnerability.listVulns("open") }) },
       { method: "GET", pattern: "/v1/bug-bounty", handler: (_req, res) => res.json(200, { summary: this.olympus.bugBounty.summary(), submissions: this.olympus.bugBounty.listSubmissions() }) },
+      { method: "GET", pattern: "/v1/pentest", handler: (_req, res) => res.json(200, { summary: this.olympus.penTest.summary(), engagements: this.olympus.penTest.listEngagements() }) },
+      { method: "GET", pattern: "/v1/phishing-sim", handler: (_req, res) => res.json(200, { summary: this.olympus.phishingSim.summary(), campaigns: this.olympus.phishingSim.listCampaigns() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

@@ -144,6 +144,8 @@ import { DealRoomManager } from "../deal-room/deal-room-manager.js";
 import { MutualActionPlanManager } from "../mutual-action-plan/mutual-action-plan-manager.js";
 import { VulnerabilityManager } from "../vulnerability/vulnerability-manager.js";
 import { BugBountyManager } from "../bug-bounty/bug-bounty-manager.js";
+import { PenTestManager } from "../pentest/pentest-manager.js";
+import { PhishingSimulationManager } from "../phishing-sim/phishing-simulation-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17555,5 +17557,135 @@ describe("BugBountyManager", () => {
     assert.equal(s.valid, 1);
     assert.equal(s.duplicates, 1);
     assert.equal(s.totalPaidUsd, 2000);
+  });
+});
+
+describe("PenTestManager", () => {
+  it("startEngagement publishes engagement_started", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pentest.engagement_started", (e) => { events.push(e.payload); });
+    const pm = new PenTestManager(bus);
+    pm.startEngagement({ name: "Q2 Web", scope: "app.example.com", vendor: "SecCo" });
+    assert.equal(events.length, 1);
+  });
+
+  it("logFinding publishes finding_logged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pentest.finding_logged", (e) => { events.push(e.payload); });
+    const pm = new PenTestManager(bus);
+    const e = pm.startEngagement({ name: "X", scope: "x", vendor: "v" });
+    pm.logFinding(e.id, "SQLi", "critical", "CWE-89");
+    assert.equal(events.length, 1);
+  });
+
+  it("retest then verifyFix marks fixed", () => {
+    const bus = new EventBus();
+    const pm = new PenTestManager(bus);
+    const e = pm.startEngagement({ name: "X", scope: "x", vendor: "v" });
+    const f = pm.logFinding(e.id, "XSS", "high")!;
+    pm.requestRetest(e.id, f.id);
+    pm.verifyFix(e.id, f.id, true, "2026-06-15");
+    assert.equal(pm.getEngagement(e.id)!.findings[0]!.status, "fixed");
+  });
+
+  it("failed retest reopens finding", () => {
+    const bus = new EventBus();
+    const pm = new PenTestManager(bus);
+    const e = pm.startEngagement({ name: "X", scope: "x", vendor: "v" });
+    const f = pm.logFinding(e.id, "XSS", "high")!;
+    pm.requestRetest(e.id, f.id);
+    pm.verifyFix(e.id, f.id, false, "2026-06-15");
+    assert.equal(pm.getEngagement(e.id)!.findings[0]!.status, "open");
+  });
+
+  it("complete publishes engagement_completed with critical count", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pentest.engagement_completed", (e) => { events.push(e.payload); });
+    const pm = new PenTestManager(bus);
+    const e = pm.startEngagement({ name: "X", scope: "x", vendor: "v" });
+    pm.logFinding(e.id, "RCE", "critical");
+    pm.complete(e.id, "2026-06-30");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].criticalCount, 1);
+  });
+
+  it("summary aggregates findings by severity", () => {
+    const bus = new EventBus();
+    const pm = new PenTestManager(bus);
+    const e = pm.startEngagement({ name: "X", scope: "x", vendor: "v" });
+    pm.logFinding(e.id, "A", "critical");
+    pm.logFinding(e.id, "B", "low");
+    const s = pm.summary();
+    assert.equal(s.totalFindings, 2);
+    assert.equal(s.openFindings, 2);
+    assert.equal(s.bySeverity.critical, 1);
+  });
+});
+
+describe("PhishingSimulationManager", () => {
+  it("launch publishes campaign_launched", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("phishing.campaign_launched", (e) => { events.push(e.payload); });
+    const pm = new PhishingSimulationManager(bus);
+    pm.launch("Q2 Test", "invoice-lure", [{ recipientId: "u1", email: "u1@x.com" }]);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordClick assigns training and publishes clicked", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("phishing.clicked", (e) => { events.push(e.payload); });
+    const pm = new PhishingSimulationManager(bus);
+    const c = pm.launch("X", "t", [{ recipientId: "u1", email: "u1@x.com" }]);
+    pm.recordClick(c.id, "u1");
+    assert.equal(pm.getCampaign(c.id)!.targets[0]!.trainingAssigned, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordReport publishes reported", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("phishing.reported", (e) => { events.push(e.payload); });
+    const pm = new PhishingSimulationManager(bus);
+    const c = pm.launch("X", "t", [{ recipientId: "u1", email: "u1@x.com" }]);
+    pm.recordReport(c.id, "u1");
+    assert.equal(events.length, 1);
+  });
+
+  it("completeTraining requires assignment", () => {
+    const bus = new EventBus();
+    const pm = new PhishingSimulationManager(bus);
+    const c = pm.launch("X", "t", [{ recipientId: "u1", email: "u1@x.com" }]);
+    assert.equal(pm.completeTraining(c.id, "u1"), undefined);
+    pm.recordClick(c.id, "u1");
+    pm.completeTraining(c.id, "u1");
+    assert.equal(pm.getCampaign(c.id)!.targets[0]!.trainingCompleted, true);
+  });
+
+  it("recordOpen only from delivered", () => {
+    const bus = new EventBus();
+    const pm = new PhishingSimulationManager(bus);
+    const c = pm.launch("X", "t", [{ recipientId: "u1", email: "u1@x.com" }]);
+    pm.recordOpen(c.id, "u1");
+    assert.equal(pm.getCampaign(c.id)!.targets[0]!.outcome, "opened");
+  });
+
+  it("summary computes click and report rates", () => {
+    const bus = new EventBus();
+    const pm = new PhishingSimulationManager(bus);
+    const c = pm.launch("X", "t", [
+      { recipientId: "u1", email: "u1@x.com" },
+      { recipientId: "u2", email: "u2@x.com" },
+    ]);
+    pm.recordClick(c.id, "u1");
+    pm.recordReport(c.id, "u2");
+    const s = pm.summary();
+    assert.equal(s.totalTargets, 2);
+    assert.equal(s.clickRatePct, 50);
+    assert.equal(s.reportRatePct, 50);
   });
 });

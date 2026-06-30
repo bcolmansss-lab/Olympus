@@ -241,6 +241,8 @@ import { DealRoomManager } from "./deal-room/deal-room-manager.js";
 import { MutualActionPlanManager } from "./mutual-action-plan/mutual-action-plan-manager.js";
 import { VulnerabilityManager } from "./vulnerability/vulnerability-manager.js";
 import { BugBountyManager } from "./bug-bounty/bug-bounty-manager.js";
+import { PenTestManager } from "./pentest/pentest-manager.js";
+import { PhishingSimulationManager } from "./phishing-sim/phishing-simulation-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -570,6 +572,8 @@ export class Olympus {
   readonly mutualActionPlan: MutualActionPlanManager;
   readonly vulnerability: VulnerabilityManager;
   readonly bugBounty: BugBountyManager;
+  readonly penTest: PenTestManager;
+  readonly phishingSim: PhishingSimulationManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -803,6 +807,8 @@ export class Olympus {
     this.mutualActionPlan = new MutualActionPlanManager(this.bus);
     this.vulnerability = new VulnerabilityManager(this.bus);
     this.bugBounty = new BugBountyManager(this.bus);
+    this.penTest = new PenTestManager(this.bus);
+    this.phishingSim = new PhishingSimulationManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1042,3 +1048,5 @@ export { DealRoomManager, type RoomStatus, type DealDocument, type DealRoom, typ
 export { MutualActionPlanManager, type OwnerSide, type MAPStatus, type MAPStep, type MutualActionPlan, type MAPSummary } from "./mutual-action-plan/index.js";
 export { VulnerabilityManager, type VulnSeverity, type VulnStatus, type Vulnerability, type VulnerabilitySummary } from "./vulnerability/index.js";
 export { BugBountyManager, type BountySeverity, type BountySubmissionStatus, type BountySubmission, type BugBountySummary } from "./bug-bounty/index.js";
+export { PenTestManager, type PenTestSeverity, type PenTestEngagementStatus, type PenTestFindingStatus, type PenTestFinding, type PenTestEngagement, type PenTestSummary } from "./pentest/index.js";
+export { PhishingSimulationManager, type PhishingCampaignStatus, type RecipientOutcome, type PhishingTarget, type PhishingCampaign, type PhishingSummary } from "./phishing-sim/index.js";
