@@ -231,6 +231,8 @@ import { FraudDetectionManager } from "./fraud-detection/fraud-detection-manager
 import { IdentityVerificationManager } from "./identity-verification/identity-verification-manager.js";
 import { AbandonedCartManager } from "./abandoned-cart/abandoned-cart-manager.js";
 import { WishlistManager } from "./wishlist/wishlist-manager.js";
+import { PreorderManager } from "./preorder/preorder-manager.js";
+import { AuctionManager } from "./auction/auction-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -550,6 +552,8 @@ export class Olympus {
   readonly identityVerification: IdentityVerificationManager;
   readonly abandonedCart: AbandonedCartManager;
   readonly wishlist: WishlistManager;
+  readonly preorder: PreorderManager;
+  readonly auction: AuctionManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -773,6 +777,8 @@ export class Olympus {
     this.identityVerification = new IdentityVerificationManager(this.bus);
     this.abandonedCart = new AbandonedCartManager(this.bus);
     this.wishlist = new WishlistManager(this.bus);
+    this.preorder = new PreorderManager(this.bus);
+    this.auction = new AuctionManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1002,3 +1008,5 @@ export { FraudDetectionManager, type FraudDecision, type ReviewOutcome, type Fra
 export { IdentityVerificationManager, type VerificationLevel, type KYCStep, type SessionVerdict, type StepResult, type KYCSession, type KYCSummary } from "./identity-verification/index.js";
 export { AbandonedCartManager, type CartStatus, type CartLine, type Cart, type AbandonedCartSummary } from "./abandoned-cart/index.js";
 export { WishlistManager, type WishlistItem, type Wishlist, type WishlistSummary } from "./wishlist/index.js";
+export { PreorderManager, type PreorderCampaignStatus, type PreorderStatus, type PreorderCampaign, type Preorder, type PreorderSummary } from "./preorder/index.js";
+export { AuctionManager, type AuctionStatus, type AuctionBid, type Auction, type AuctionSummary } from "./auction/index.js";

@@ -134,6 +134,8 @@ import { FraudDetectionManager } from "../fraud-detection/fraud-detection-manage
 import { IdentityVerificationManager } from "../identity-verification/identity-verification-manager.js";
 import { AbandonedCartManager } from "../abandoned-cart/abandoned-cart-manager.js";
 import { WishlistManager } from "../wishlist/wishlist-manager.js";
+import { PreorderManager } from "../preorder/preorder-manager.js";
+import { AuctionManager } from "../auction/auction-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -16911,5 +16913,133 @@ describe("WishlistManager", () => {
     assert.equal(s.itemsOnSale, 2);
     assert.equal(s.topWishedSkus[0]!.sku, "A");
     assert.equal(s.topWishedSkus[0]!.count, 2);
+  });
+});
+
+describe("PreorderManager", () => {
+  it("openCampaign publishes campaign_opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("preorder.campaign_opened", (e) => { events.push(e.payload); });
+    const pm = new PreorderManager(bus);
+    pm.openCampaign({ sku: "PHONE", productName: "Phone X", capacity: 100, depositUsd: 50, fullPriceUsd: 999, releaseDate: "2026-09-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("reserve decrements capacity and publishes reserved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("preorder.reserved", (e) => { events.push(e.payload); });
+    const pm = new PreorderManager(bus);
+    const c = pm.openCampaign({ sku: "X", productName: "X", capacity: 2, depositUsd: 50, fullPriceUsd: 500, releaseDate: "2026-09-01" });
+    pm.reserve(c.id, "u1", "2026-06-01");
+    assert.equal(pm.getCampaign(c.id)!.reserved, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("campaign sells out at capacity", () => {
+    const bus = new EventBus();
+    const pm = new PreorderManager(bus);
+    const c = pm.openCampaign({ sku: "X", productName: "X", capacity: 1, depositUsd: 50, fullPriceUsd: 500, releaseDate: "2026-09-01" });
+    pm.reserve(c.id, "u1", "2026-06-01");
+    assert.equal(pm.getCampaign(c.id)!.status, "sold_out");
+    assert.equal(pm.reserve(c.id, "u2", "2026-06-01"), undefined);
+  });
+
+  it("fulfill publishes fulfilled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("preorder.fulfilled", (e) => { events.push(e.payload); });
+    const pm = new PreorderManager(bus);
+    const c = pm.openCampaign({ sku: "X", productName: "X", capacity: 5, depositUsd: 50, fullPriceUsd: 500, releaseDate: "2026-09-01" });
+    const p = pm.reserve(c.id, "u1", "2026-06-01")!;
+    pm.fulfill(p.id, "2026-09-01");
+    assert.equal(pm.getPreorder(p.id)!.status, "fulfilled");
+    assert.equal(events.length, 1);
+  });
+
+  it("refund frees capacity and reopens sold-out", () => {
+    const bus = new EventBus();
+    const pm = new PreorderManager(bus);
+    const c = pm.openCampaign({ sku: "X", productName: "X", capacity: 1, depositUsd: 50, fullPriceUsd: 500, releaseDate: "2026-09-01" });
+    const p = pm.reserve(c.id, "u1", "2026-06-01")!;
+    pm.refund(p.id);
+    assert.equal(pm.getCampaign(c.id)!.status, "open");
+    assert.equal(pm.getCampaign(c.id)!.reserved, 0);
+  });
+
+  it("summary aggregates deposits and expected revenue", () => {
+    const bus = new EventBus();
+    const pm = new PreorderManager(bus);
+    const c = pm.openCampaign({ sku: "X", productName: "X", capacity: 5, depositUsd: 50, fullPriceUsd: 500, releaseDate: "2026-09-01" });
+    pm.reserve(c.id, "u1", "2026-06-01");
+    pm.reserve(c.id, "u2", "2026-06-01");
+    const s = pm.summary();
+    assert.equal(s.totalPreorders, 2);
+    assert.equal(s.totalDepositsUsd, 100);
+    assert.equal(s.expectedRevenueUsd, 1000);
+  });
+});
+
+describe("AuctionManager", () => {
+  it("open publishes opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("auction.opened", (e) => { events.push(e.payload); });
+    const am = new AuctionManager(bus);
+    am.open({ lot: "Painting", startingBidUsd: 100, reservePriceUsd: 500, minIncrementUsd: 50, endsAt: "2026-07-01T00:00:00.000Z" });
+    assert.equal(events.length, 1);
+  });
+
+  it("placeBid enforces minimum increment", () => {
+    const bus = new EventBus();
+    const am = new AuctionManager(bus);
+    const a = am.open({ lot: "X", startingBidUsd: 100, reservePriceUsd: 100, minIncrementUsd: 50, endsAt: "2026-07-01T00:00:00.000Z" });
+    am.placeBid(a.id, "b1", 100, "2026-06-01T00:00:00.000Z");
+    assert.equal(am.placeBid(a.id, "b2", 120, "2026-06-01T00:00:00.000Z"), undefined); // needs >=150
+    assert.ok(am.placeBid(a.id, "b2", 150, "2026-06-01T00:00:00.000Z"));
+  });
+
+  it("bids after end time are rejected", () => {
+    const bus = new EventBus();
+    const am = new AuctionManager(bus);
+    const a = am.open({ lot: "X", startingBidUsd: 100, reservePriceUsd: 100, minIncrementUsd: 10, endsAt: "2026-07-01T00:00:00.000Z" });
+    assert.equal(am.placeBid(a.id, "b1", 100, "2026-07-02T00:00:00.000Z"), undefined);
+  });
+
+  it("close above reserve sells to highest bidder", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("auction.closed", (e) => { events.push(e.payload); });
+    const am = new AuctionManager(bus);
+    const a = am.open({ lot: "X", startingBidUsd: 100, reservePriceUsd: 200, minIncrementUsd: 50, endsAt: "2026-07-01T00:00:00.000Z" });
+    am.placeBid(a.id, "b1", 100, "2026-06-01T00:00:00.000Z");
+    am.placeBid(a.id, "b2", 250, "2026-06-01T00:00:00.000Z");
+    am.close(a.id);
+    assert.equal(am.getAuction(a.id)!.status, "closed_sold");
+    assert.equal(events[0].soldTo, "b2");
+  });
+
+  it("close below reserve passes the lot", () => {
+    const bus = new EventBus();
+    const am = new AuctionManager(bus);
+    const a = am.open({ lot: "X", startingBidUsd: 100, reservePriceUsd: 500, minIncrementUsd: 50, endsAt: "2026-07-01T00:00:00.000Z" });
+    am.placeBid(a.id, "b1", 100, "2026-06-01T00:00:00.000Z");
+    am.close(a.id);
+    assert.equal(am.getAuction(a.id)!.status, "closed_passed");
+  });
+
+  it("summary computes sell-through and hammer total", () => {
+    const bus = new EventBus();
+    const am = new AuctionManager(bus);
+    const a1 = am.open({ lot: "A", startingBidUsd: 100, reservePriceUsd: 100, minIncrementUsd: 10, endsAt: "2026-07-01T00:00:00.000Z" });
+    am.placeBid(a1.id, "b1", 150, "2026-06-01T00:00:00.000Z"); am.close(a1.id);
+    const a2 = am.open({ lot: "B", startingBidUsd: 100, reservePriceUsd: 999, minIncrementUsd: 10, endsAt: "2026-07-01T00:00:00.000Z" });
+    am.placeBid(a2.id, "b1", 120, "2026-06-01T00:00:00.000Z"); am.close(a2.id);
+    const s = am.summary();
+    assert.equal(s.sold, 1);
+    assert.equal(s.passed, 1);
+    assert.equal(s.sellThroughPct, 50);
+    assert.equal(s.totalHammerUsd, 150);
   });
 });
