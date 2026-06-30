@@ -233,6 +233,8 @@ import { AbandonedCartManager } from "./abandoned-cart/abandoned-cart-manager.js
 import { WishlistManager } from "./wishlist/wishlist-manager.js";
 import { PreorderManager } from "./preorder/preorder-manager.js";
 import { AuctionManager } from "./auction/auction-manager.js";
+import { ClauseLibraryManager } from "./clause-library/clause-library-manager.js";
+import { RedlineManager } from "./redline/redline-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -554,6 +556,8 @@ export class Olympus {
   readonly wishlist: WishlistManager;
   readonly preorder: PreorderManager;
   readonly auction: AuctionManager;
+  readonly clauseLibrary: ClauseLibraryManager;
+  readonly redline: RedlineManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -779,6 +783,8 @@ export class Olympus {
     this.wishlist = new WishlistManager(this.bus);
     this.preorder = new PreorderManager(this.bus);
     this.auction = new AuctionManager(this.bus);
+    this.clauseLibrary = new ClauseLibraryManager(this.bus);
+    this.redline = new RedlineManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1010,3 +1016,5 @@ export { AbandonedCartManager, type CartStatus, type CartLine, type Cart, type A
 export { WishlistManager, type WishlistItem, type Wishlist, type WishlistSummary } from "./wishlist/index.js";
 export { PreorderManager, type PreorderCampaignStatus, type PreorderStatus, type PreorderCampaign, type Preorder, type PreorderSummary } from "./preorder/index.js";
 export { AuctionManager, type AuctionStatus, type AuctionBid, type Auction, type AuctionSummary } from "./auction/index.js";
+export { ClauseLibraryManager, type ClauseCategory, type ClauseRisk, type ClauseStatus, type Clause, type ClauseLibrarySummary } from "./clause-library/index.js";
+export { RedlineManager, type RedlineParty, type RedlineStatus, type Redline, type RedlineSummary } from "./redline/index.js";

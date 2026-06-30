@@ -136,6 +136,8 @@ import { AbandonedCartManager } from "../abandoned-cart/abandoned-cart-manager.j
 import { WishlistManager } from "../wishlist/wishlist-manager.js";
 import { PreorderManager } from "../preorder/preorder-manager.js";
 import { AuctionManager } from "../auction/auction-manager.js";
+import { ClauseLibraryManager } from "../clause-library/clause-library-manager.js";
+import { RedlineManager } from "../redline/redline-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17041,5 +17043,136 @@ describe("AuctionManager", () => {
     assert.equal(s.passed, 1);
     assert.equal(s.sellThroughPct, 50);
     assert.equal(s.totalHammerUsd, 150);
+  });
+});
+
+describe("ClauseLibraryManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("clause.created", (e) => { events.push(e.payload); });
+    const cm = new ClauseLibraryManager(bus);
+    cm.create({ category: "liability", title: "Limitation of Liability", body: "...", riskLevel: "standard" });
+    assert.equal(events.length, 1);
+  });
+
+  it("approve transitions draft to approved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("clause.approved", (e) => { events.push(e.payload); });
+    const cm = new ClauseLibraryManager(bus);
+    const c = cm.create({ category: "ip", title: "IP", body: "x", riskLevel: "moderate" });
+    cm.approve(c.id, "legal1");
+    assert.equal(cm.getClause(c.id)!.status, "approved");
+    assert.equal(events.length, 1);
+  });
+
+  it("preferred picks standard non-fallback first", () => {
+    const bus = new EventBus();
+    const cm = new ClauseLibraryManager(bus);
+    const fallback = cm.create({ category: "payment", title: "Fallback", body: "x", riskLevel: "standard", isFallback: true });
+    const std = cm.create({ category: "payment", title: "Std", body: "x", riskLevel: "standard" });
+    cm.approve(fallback.id, "l"); cm.approve(std.id, "l");
+    assert.equal(cm.preferred("payment")!.id, std.id);
+  });
+
+  it("use requires approved and increments usage", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("clause.used", (e) => { events.push(e.payload); });
+    const cm = new ClauseLibraryManager(bus);
+    const c = cm.create({ category: "warranty", title: "W", body: "x", riskLevel: "standard" });
+    assert.equal(cm.use(c.id, "CTR-1"), undefined);
+    cm.approve(c.id, "l");
+    cm.use(c.id, "CTR-1");
+    assert.equal(cm.getClause(c.id)!.usageCount, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("deprecate removes from preferred", () => {
+    const bus = new EventBus();
+    const cm = new ClauseLibraryManager(bus);
+    const c = cm.create({ category: "dispute", title: "D", body: "x", riskLevel: "standard" });
+    cm.approve(c.id, "l");
+    cm.deprecate(c.id);
+    assert.equal(cm.preferred("dispute"), undefined);
+  });
+
+  it("summary aggregates by category and risk", () => {
+    const bus = new EventBus();
+    const cm = new ClauseLibraryManager(bus);
+    const a = cm.create({ category: "liability", title: "A", body: "x", riskLevel: "high" });
+    cm.approve(a.id, "l");
+    cm.create({ category: "liability", title: "B", body: "x", riskLevel: "standard" });
+    const s = cm.summary();
+    assert.equal(s.totalClauses, 2);
+    assert.equal(s.approved, 1);
+    assert.equal(s.byCategory.liability, 2);
+    assert.equal(s.byRisk.high, 1);
+  });
+});
+
+describe("RedlineManager", () => {
+  it("propose publishes proposed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("redline.proposed", (e) => { events.push(e.payload); });
+    const rm = new RedlineManager(bus);
+    rm.propose({ contractId: "c1", section: "5.1", proposedBy: "counterparty", originalText: "30 days", proposedText: "60 days" });
+    assert.equal(events.length, 1);
+  });
+
+  it("accept resolves and emits resolved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("redline.resolved", (e) => { events.push(e.payload); });
+    const rm = new RedlineManager(bus);
+    const r = rm.propose({ contractId: "c1", section: "5.1", proposedBy: "counterparty", originalText: "a", proposedText: "b" });
+    rm.accept(r.id, "2026-06-01");
+    assert.equal(rm.getRedline(r.id)!.status, "accepted");
+    assert.equal(events.length, 1);
+  });
+
+  it("contract_clean fires when last open redline resolves", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("redline.contract_clean", (e) => { events.push(e.payload); });
+    const rm = new RedlineManager(bus);
+    const r = rm.propose({ contractId: "c1", section: "5.1", proposedBy: "us", originalText: "a", proposedText: "b" });
+    rm.accept(r.id, "2026-06-01");
+    assert.equal(events.length, 1);
+    assert.equal(rm.isClean("c1"), true);
+  });
+
+  it("counter flips party and opens a new round", () => {
+    const bus = new EventBus();
+    const rm = new RedlineManager(bus);
+    const r = rm.propose({ contractId: "c1", section: "5.1", proposedBy: "counterparty", originalText: "a", proposedText: "b" });
+    const counter = rm.counter(r.id, "c")!;
+    assert.equal(rm.getRedline(r.id)!.status, "countered");
+    assert.equal(counter.proposedBy, "us");
+    assert.equal(counter.rounds, 2);
+  });
+
+  it("openIssues lists unresolved redlines", () => {
+    const bus = new EventBus();
+    const rm = new RedlineManager(bus);
+    rm.propose({ contractId: "c1", section: "1", proposedBy: "us", originalText: "a", proposedText: "b" });
+    const r2 = rm.propose({ contractId: "c1", section: "2", proposedBy: "us", originalText: "a", proposedText: "b" });
+    rm.reject(r2.id, "2026-06-01");
+    assert.equal(rm.openIssues("c1").length, 1);
+  });
+
+  it("summary aggregates by party and resolution", () => {
+    const bus = new EventBus();
+    const rm = new RedlineManager(bus);
+    const r1 = rm.propose({ contractId: "c1", section: "1", proposedBy: "us", originalText: "a", proposedText: "b" });
+    rm.accept(r1.id, "2026-06-01");
+    rm.propose({ contractId: "c1", section: "2", proposedBy: "counterparty", originalText: "a", proposedText: "b" });
+    const s = rm.summary();
+    assert.equal(s.totalRedlines, 2);
+    assert.equal(s.accepted, 1);
+    assert.equal(s.open, 1);
+    assert.equal(s.byParty.us, 1);
   });
 });
