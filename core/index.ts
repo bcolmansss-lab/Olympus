@@ -239,6 +239,8 @@ import { DiscountApprovalManager } from "./discount-approval/discount-approval-m
 import { MarginGuardManager } from "./margin-guard/margin-guard-manager.js";
 import { DealRoomManager } from "./deal-room/deal-room-manager.js";
 import { MutualActionPlanManager } from "./mutual-action-plan/mutual-action-plan-manager.js";
+import { VulnerabilityManager } from "./vulnerability/vulnerability-manager.js";
+import { BugBountyManager } from "./bug-bounty/bug-bounty-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -566,6 +568,8 @@ export class Olympus {
   readonly marginGuard: MarginGuardManager;
   readonly dealRoom: DealRoomManager;
   readonly mutualActionPlan: MutualActionPlanManager;
+  readonly vulnerability: VulnerabilityManager;
+  readonly bugBounty: BugBountyManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -797,6 +801,8 @@ export class Olympus {
     this.marginGuard = new MarginGuardManager(this.bus);
     this.dealRoom = new DealRoomManager(this.bus);
     this.mutualActionPlan = new MutualActionPlanManager(this.bus);
+    this.vulnerability = new VulnerabilityManager(this.bus);
+    this.bugBounty = new BugBountyManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1034,3 +1040,5 @@ export { DiscountApprovalManager, type ApproverTier, type DiscountRequestStatus,
 export { MarginGuardManager, type MarginVerdict, type MarginCheck, type MarginGuardSummary } from "./margin-guard/index.js";
 export { DealRoomManager, type RoomStatus, type DealDocument, type DealRoom, type DealRoomSummary } from "./deal-room/index.js";
 export { MutualActionPlanManager, type OwnerSide, type MAPStatus, type MAPStep, type MutualActionPlan, type MAPSummary } from "./mutual-action-plan/index.js";
+export { VulnerabilityManager, type VulnSeverity, type VulnStatus, type Vulnerability, type VulnerabilitySummary } from "./vulnerability/index.js";
+export { BugBountyManager, type BountySeverity, type BountySubmissionStatus, type BountySubmission, type BugBountySummary } from "./bug-bounty/index.js";

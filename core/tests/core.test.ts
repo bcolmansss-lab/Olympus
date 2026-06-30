@@ -142,6 +142,8 @@ import { DiscountApprovalManager } from "../discount-approval/discount-approval-
 import { MarginGuardManager } from "../margin-guard/margin-guard-manager.js";
 import { DealRoomManager } from "../deal-room/deal-room-manager.js";
 import { MutualActionPlanManager } from "../mutual-action-plan/mutual-action-plan-manager.js";
+import { VulnerabilityManager } from "../vulnerability/vulnerability-manager.js";
+import { BugBountyManager } from "../bug-bounty/bug-bounty-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17429,5 +17431,129 @@ describe("MutualActionPlanManager", () => {
     assert.equal(s.totalSteps, 2);
     assert.equal(s.completedSteps, 1);
     assert.equal(s.overallProgressPct, 50);
+  });
+});
+
+describe("VulnerabilityManager", () => {
+  it("report sets SLA due date by severity and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("vuln.reported", (e) => { events.push(e.payload); });
+    const vm = new VulnerabilityManager(bus);
+    const v = vm.report({ title: "RCE", asset: "api", severity: "critical", cvssScore: 9.8, reportedAt: "2026-06-01" });
+    assert.equal(v.dueBy, "2026-06-08T00:00:00.000Z"); // +7 days
+    assert.equal(events.length, 1);
+  });
+
+  it("remediate publishes remediated with days", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("vuln.remediated", (e) => { events.push(e.payload); });
+    const vm = new VulnerabilityManager(bus);
+    const v = vm.report({ title: "XSS", asset: "web", severity: "high", cvssScore: 7, reportedAt: "2026-06-01" });
+    vm.remediate(v.id, "2026-06-11");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].daysToRemediate, 10);
+  });
+
+  it("checkSLA publishes sla_breached for overdue", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("vuln.sla_breached", (e) => { events.push(e.payload); });
+    const vm = new VulnerabilityManager(bus);
+    vm.report({ title: "X", asset: "a", severity: "critical", cvssScore: 9, reportedAt: "2026-06-01" });
+    const breached = vm.checkSLA("2026-06-30");
+    assert.equal(breached.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("setStatus accepts risk or false positive", () => {
+    const bus = new EventBus();
+    const vm = new VulnerabilityManager(bus);
+    const v = vm.report({ title: "X", asset: "a", severity: "low", cvssScore: 2, reportedAt: "2026-06-01" });
+    vm.setStatus(v.id, "false_positive");
+    assert.equal(vm.getVuln(v.id)!.status, "false_positive");
+  });
+
+  it("startWork moves to in_progress", () => {
+    const bus = new EventBus();
+    const vm = new VulnerabilityManager(bus);
+    const v = vm.report({ title: "X", asset: "a", severity: "medium", cvssScore: 5, reportedAt: "2026-06-01" });
+    vm.startWork(v.id);
+    assert.equal(vm.getVuln(v.id)!.status, "in_progress");
+  });
+
+  it("summary computes MTTR and overdue", () => {
+    const bus = new EventBus();
+    const vm = new VulnerabilityManager(bus);
+    const v1 = vm.report({ title: "A", asset: "a", severity: "high", cvssScore: 7, reportedAt: "2026-06-01" });
+    vm.remediate(v1.id, "2026-06-11"); // 10 days
+    vm.report({ title: "B", asset: "b", severity: "critical", cvssScore: 9, reportedAt: "2026-06-01" }); // overdue
+    const s = vm.summary("2026-06-30");
+    assert.equal(s.remediated, 1);
+    assert.equal(s.overdue, 1);
+    assert.equal(s.meanTimeToRemediateDays, 10);
+  });
+});
+
+describe("BugBountyManager", () => {
+  it("submit publishes submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("bounty.submitted", (e) => { events.push(e.payload); });
+    const bm = new BugBountyManager(bus);
+    bm.submit("r1", "IDOR", "high");
+    assert.equal(events.length, 1);
+  });
+
+  it("validate assigns reward and publishes validated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("bounty.validated", (e) => { events.push(e.payload); });
+    const bm = new BugBountyManager(bus);
+    const s = bm.submit("r1", "RCE", "critical");
+    bm.validate(s.id);
+    assert.equal(bm.getSubmission(s.id)!.rewardUsd, 10000);
+    assert.equal(events.length, 1);
+  });
+
+  it("validate can override severity", () => {
+    const bus = new EventBus();
+    const bm = new BugBountyManager(bus);
+    const s = bm.submit("r1", "X", "critical");
+    bm.validate(s.id, "low");
+    assert.equal(bm.getSubmission(s.id)!.rewardUsd, 100);
+  });
+
+  it("payReward requires valid and publishes paid", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("bounty.paid", (e) => { events.push(e.payload); });
+    const bm = new BugBountyManager(bus);
+    const s = bm.submit("r1", "X", "medium");
+    assert.equal(bm.payReward(s.id, "2026-06-10"), undefined);
+    bm.validate(s.id);
+    bm.payReward(s.id, "2026-06-10");
+    assert.equal(bm.getSubmission(s.id)!.status, "paid");
+    assert.equal(events.length, 1);
+  });
+
+  it("researcherEarnings sums paid rewards", () => {
+    const bus = new EventBus();
+    const bm = new BugBountyManager(bus);
+    const a = bm.submit("r1", "A", "high"); bm.validate(a.id); bm.payReward(a.id, "2026-06-10");
+    const b = bm.submit("r1", "B", "low"); bm.validate(b.id); bm.payReward(b.id, "2026-06-10");
+    assert.equal(bm.researcherEarnings("r1"), 2100);
+  });
+
+  it("summary aggregates valid, duplicates and paid total", () => {
+    const bus = new EventBus();
+    const bm = new BugBountyManager(bus);
+    const a = bm.submit("r1", "A", "high"); bm.validate(a.id); bm.payReward(a.id, "2026-06-10");
+    const b = bm.submit("r2", "dup", "medium"); bm.markDuplicate(b.id, a.id);
+    const s = bm.summary();
+    assert.equal(s.valid, 1);
+    assert.equal(s.duplicates, 1);
+    assert.equal(s.totalPaidUsd, 2000);
   });
 });
