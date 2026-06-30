@@ -124,6 +124,8 @@ import { RenewalManager } from "../renewal/renewal-manager.js";
 import { ChurnSaveManager } from "../churn-save/churn-save-manager.js";
 import { MarketplaceManager } from "../marketplace/marketplace-manager.js";
 import { IntegrationConnectorManager } from "../integration/integration-connector-manager.js";
+import { FieldServiceManager } from "../field-service/field-service-manager.js";
+import { PreventiveMaintenanceManager } from "../preventive-maintenance/preventive-maintenance-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -16250,5 +16252,142 @@ describe("IntegrationConnectorManager", () => {
     assert.equal(s.totalSyncs, 3);
     assert.equal(s.failedSyncs, 1);
     assert.equal(s.syncSuccessRatePct, 67);
+  });
+});
+
+describe("FieldServiceManager", () => {
+  it("createWorkOrder publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("fieldservice.created", (e) => { events.push(e.payload); });
+    const fm = new FieldServiceManager(bus);
+    fm.createWorkOrder({ customerId: "c1", description: "fix HVAC", requiredSkill: "hvac", priority: "high" });
+    assert.equal(events.length, 1);
+  });
+
+  it("autoAssign matches skill and marks tech busy", () => {
+    const bus = new EventBus();
+    const fm = new FieldServiceManager(bus);
+    const t = fm.addTechnician("Joe", ["hvac"]);
+    const wo = fm.createWorkOrder({ customerId: "c1", description: "x", requiredSkill: "hvac", priority: "medium" });
+    fm.autoAssign(wo.id);
+    assert.equal(fm.getWorkOrder(wo.id)!.technicianId, t.id);
+    assert.equal(fm.listTechnicians(true).length, 0);
+  });
+
+  it("autoAssign returns undefined with no matching skill", () => {
+    const bus = new EventBus();
+    const fm = new FieldServiceManager(bus);
+    fm.addTechnician("Joe", ["plumbing"]);
+    const wo = fm.createWorkOrder({ customerId: "c1", description: "x", requiredSkill: "hvac", priority: "medium" });
+    assert.equal(fm.autoAssign(wo.id), undefined);
+  });
+
+  it("dispatch then complete frees technician and publishes completed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("fieldservice.completed", (e) => { events.push(e.payload); });
+    const fm = new FieldServiceManager(bus);
+    const t = fm.addTechnician("Joe", ["hvac"]);
+    const wo = fm.createWorkOrder({ customerId: "c1", description: "x", requiredSkill: "hvac", priority: "medium" });
+    fm.autoAssign(wo.id);
+    fm.dispatch(wo.id, "2026-06-01T09:00:00.000Z");
+    fm.complete(wo.id, { laborHours: 2, partsCostUsd: 50, firstTimeFix: true, asOf: "2026-06-01T11:00:00.000Z" });
+    assert.equal(fm.getWorkOrder(wo.id)!.status, "completed");
+    assert.equal(fm.listTechnicians(true).length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("complete requires dispatched state", () => {
+    const bus = new EventBus();
+    const fm = new FieldServiceManager(bus);
+    fm.addTechnician("Joe", ["hvac"]);
+    const wo = fm.createWorkOrder({ customerId: "c1", description: "x", requiredSkill: "hvac", priority: "medium" });
+    assert.equal(fm.complete(wo.id, { laborHours: 1, partsCostUsd: 0, firstTimeFix: true, asOf: "2026-06-01T11:00:00.000Z" }), undefined);
+  });
+
+  it("summary computes first-time-fix rate", () => {
+    const bus = new EventBus();
+    const fm = new FieldServiceManager(bus);
+    fm.addTechnician("Joe", ["hvac"]);
+    fm.addTechnician("Sue", ["hvac"]);
+    const w1 = fm.createWorkOrder({ customerId: "c1", description: "x", requiredSkill: "hvac", priority: "medium" });
+    fm.autoAssign(w1.id); fm.dispatch(w1.id, "2026-06-01T09:00:00.000Z");
+    fm.complete(w1.id, { laborHours: 1, partsCostUsd: 20, firstTimeFix: true, asOf: "2026-06-01T10:00:00.000Z" });
+    const w2 = fm.createWorkOrder({ customerId: "c2", description: "y", requiredSkill: "hvac", priority: "medium" });
+    fm.autoAssign(w2.id); fm.dispatch(w2.id, "2026-06-01T09:00:00.000Z");
+    fm.complete(w2.id, { laborHours: 3, partsCostUsd: 80, firstTimeFix: false, asOf: "2026-06-01T12:00:00.000Z" });
+    const s = fm.summary();
+    assert.equal(s.completed, 2);
+    assert.equal(s.firstTimeFixRatePct, 50);
+    assert.equal(s.totalPartsCostUsd, 100);
+  });
+});
+
+describe("PreventiveMaintenanceManager", () => {
+  it("create publishes schedule_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pm.schedule_created", (e) => { events.push(e.payload); });
+    const pm = new PreventiveMaintenanceManager(bus);
+    pm.create({ assetTag: "EQ-1", task: "oil change", triggerType: "calendar", intervalDays: 90, firstDueDate: "2026-07-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("evaluate marks calendar schedules due", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pm.due", (e) => { events.push(e.payload); });
+    const pm = new PreventiveMaintenanceManager(bus);
+    pm.create({ assetTag: "EQ-1", task: "x", triggerType: "calendar", intervalDays: 90, firstDueDate: "2026-06-01" });
+    const due = pm.evaluate("2026-06-25");
+    assert.equal(due.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("usage-based PM becomes due at interval", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pm.due", (e) => { events.push(e.payload); });
+    const pm = new PreventiveMaintenanceManager(bus);
+    const s = pm.create({ assetTag: "EQ-1", task: "x", triggerType: "usage", usageInterval: 100, firstDueDate: "2026-07-01" });
+    pm.recordUsage(s.id, 60);
+    pm.recordUsage(s.id, 50); // 110 >= 100
+    assert.equal(pm.getSchedule(s.id)!.status, "due");
+    assert.equal(events.length, 1);
+  });
+
+  it("complete logs history and reschedules", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pm.completed", (e) => { events.push(e.payload); });
+    const pm = new PreventiveMaintenanceManager(bus);
+    const s = pm.create({ assetTag: "EQ-1", task: "x", triggerType: "calendar", intervalDays: 30, firstDueDate: "2026-06-01" });
+    pm.evaluate("2026-06-25");
+    pm.complete(s.id, "tech1", "2026-06-25", "done");
+    assert.equal(pm.getSchedule(s.id)!.status, "scheduled");
+    assert.equal(pm.getSchedule(s.id)!.history.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("complete resets usage counter", () => {
+    const bus = new EventBus();
+    const pm = new PreventiveMaintenanceManager(bus);
+    const s = pm.create({ assetTag: "EQ-1", task: "x", triggerType: "usage", usageInterval: 100, intervalDays: 30, firstDueDate: "2026-07-01" });
+    pm.recordUsage(s.id, 120);
+    pm.complete(s.id, "tech1", "2026-06-25");
+    assert.equal(pm.getSchedule(s.id)!.usageSinceLast, 0);
+  });
+
+  it("summary computes compliance rate", () => {
+    const bus = new EventBus();
+    const pm = new PreventiveMaintenanceManager(bus);
+    pm.create({ assetTag: "EQ-1", task: "x", triggerType: "calendar", intervalDays: 30, firstDueDate: "2026-06-01" });
+    pm.create({ assetTag: "EQ-2", task: "y", triggerType: "calendar", intervalDays: 30, firstDueDate: "2027-01-01" });
+    pm.evaluate("2026-06-25"); // EQ-1 due
+    const s = pm.summary("2026-06-25");
+    assert.equal(s.totalSchedules, 2);
+    assert.equal(s.due, 1);
+    assert.equal(s.complianceRatePct, 50);
   });
 });

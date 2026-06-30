@@ -221,6 +221,8 @@ import { RenewalManager } from "./renewal/renewal-manager.js";
 import { ChurnSaveManager } from "./churn-save/churn-save-manager.js";
 import { MarketplaceManager } from "./marketplace/marketplace-manager.js";
 import { IntegrationConnectorManager } from "./integration/integration-connector-manager.js";
+import { FieldServiceManager } from "./field-service/field-service-manager.js";
+import { PreventiveMaintenanceManager } from "./preventive-maintenance/preventive-maintenance-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -530,6 +532,8 @@ export class Olympus {
   readonly churnSave: ChurnSaveManager;
   readonly marketplace: MarketplaceManager;
   readonly integration: IntegrationConnectorManager;
+  readonly fieldService: FieldServiceManager;
+  readonly preventiveMaintenance: PreventiveMaintenanceManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -743,6 +747,8 @@ export class Olympus {
     this.churnSave = new ChurnSaveManager(this.bus);
     this.marketplace = new MarketplaceManager(this.bus);
     this.integration = new IntegrationConnectorManager(this.bus);
+    this.fieldService = new FieldServiceManager(this.bus);
+    this.preventiveMaintenance = new PreventiveMaintenanceManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -962,3 +968,5 @@ export { RenewalManager, type RenewalStage, type RenewalRisk, type Renewal, type
 export { ChurnSaveManager, type SaveStatus, type SavePlay, type ChurnSaveCase, type ChurnSaveSummary } from "./churn-save/index.js";
 export { MarketplaceManager, type ListingStatus, type ListingCategory, type Listing, type MarketplaceSummary } from "./marketplace/index.js";
 export { IntegrationConnectorManager, type ConnectorStatus, type SyncResult, type SyncRun, type Connector, type IntegrationSummary } from "./integration/index.js";
+export { FieldServiceManager, type WorkOrderPriority, type WorkOrderStatus, type Technician, type WorkOrder, type FieldServiceSummary } from "./field-service/index.js";
+export { PreventiveMaintenanceManager, type PMTriggerType, type PMStatus, type PMLog, type PMSchedule, type PMSummary } from "./preventive-maintenance/index.js";
