@@ -219,6 +219,8 @@ import { AccountPlanManager } from "./account-plan/account-plan-manager.js";
 import { QBRManager } from "./qbr/qbr-manager.js";
 import { RenewalManager } from "./renewal/renewal-manager.js";
 import { ChurnSaveManager } from "./churn-save/churn-save-manager.js";
+import { MarketplaceManager } from "./marketplace/marketplace-manager.js";
+import { IntegrationConnectorManager } from "./integration/integration-connector-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -526,6 +528,8 @@ export class Olympus {
   readonly qbr: QBRManager;
   readonly renewal: RenewalManager;
   readonly churnSave: ChurnSaveManager;
+  readonly marketplace: MarketplaceManager;
+  readonly integration: IntegrationConnectorManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -737,6 +741,8 @@ export class Olympus {
     this.qbr = new QBRManager(this.bus);
     this.renewal = new RenewalManager(this.bus);
     this.churnSave = new ChurnSaveManager(this.bus);
+    this.marketplace = new MarketplaceManager(this.bus);
+    this.integration = new IntegrationConnectorManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -954,3 +960,5 @@ export { AccountPlanManager, type StakeholderRole, type AccountOpportunityStatus
 export { QBRManager, type QBRStatus, type QBRSentiment, type QBRMetric, type QBRActionItem, type QBR, type QBRSummary } from "./qbr/index.js";
 export { RenewalManager, type RenewalStage, type RenewalRisk, type Renewal, type RenewalSummary } from "./renewal/index.js";
 export { ChurnSaveManager, type SaveStatus, type SavePlay, type ChurnSaveCase, type ChurnSaveSummary } from "./churn-save/index.js";
+export { MarketplaceManager, type ListingStatus, type ListingCategory, type Listing, type MarketplaceSummary } from "./marketplace/index.js";
+export { IntegrationConnectorManager, type ConnectorStatus, type SyncResult, type SyncRun, type Connector, type IntegrationSummary } from "./integration/index.js";

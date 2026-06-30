@@ -122,6 +122,8 @@ import { AccountPlanManager } from "../account-plan/account-plan-manager.js";
 import { QBRManager } from "../qbr/qbr-manager.js";
 import { RenewalManager } from "../renewal/renewal-manager.js";
 import { ChurnSaveManager } from "../churn-save/churn-save-manager.js";
+import { MarketplaceManager } from "../marketplace/marketplace-manager.js";
+import { IntegrationConnectorManager } from "../integration/integration-connector-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -16114,5 +16116,139 @@ describe("ChurnSaveManager", () => {
     const s = cm.summary();
     assert.equal(s.totalCases, 1);
     assert.equal(s.open, 1);
+  });
+});
+
+describe("MarketplaceManager", () => {
+  it("submit publishes listing_submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("marketplace.listing_submitted", (e) => { events.push(e.payload); });
+    const mm = new MarketplaceManager(bus);
+    mm.submit({ partnerId: "p1", name: "Analytics Pro", category: "analytics", monthlyPriceUsd: 50 });
+    assert.equal(events.length, 1);
+  });
+
+  it("publish requires review and publishes listing_published", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("marketplace.listing_published", (e) => { events.push(e.payload); });
+    const mm = new MarketplaceManager(bus);
+    const l = mm.submit({ partnerId: "p1", name: "X", category: "crm", monthlyPriceUsd: 30 });
+    mm.publish(l.id, "2026-06-01");
+    assert.equal(mm.getListing(l.id)!.status, "published");
+    assert.equal(events.length, 1);
+  });
+
+  it("install only on published and publishes installed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("marketplace.installed", (e) => { events.push(e.payload); });
+    const mm = new MarketplaceManager(bus);
+    const l = mm.submit({ partnerId: "p1", name: "X", category: "crm", monthlyPriceUsd: 30 });
+    assert.equal(mm.install(l.id, "c1"), undefined);
+    mm.publish(l.id, "2026-06-01");
+    mm.install(l.id, "c1");
+    assert.equal(mm.getListing(l.id)!.installs, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("rating averages submitted stars", () => {
+    const bus = new EventBus();
+    const mm = new MarketplaceManager(bus);
+    const l = mm.submit({ partnerId: "p1", name: "X", category: "crm", monthlyPriceUsd: 30 });
+    mm.rate(l.id, 4);
+    mm.rate(l.id, 5);
+    assert.equal(mm.rating(l.id), 4.5);
+  });
+
+  it("revenue share computed from installs and price", () => {
+    const bus = new EventBus();
+    const mm = new MarketplaceManager(bus);
+    const l = mm.submit({ partnerId: "p1", name: "X", category: "finance", monthlyPriceUsd: 100, revSharePct: 20 });
+    mm.publish(l.id, "2026-06-01");
+    mm.install(l.id, "c1"); mm.install(l.id, "c2");
+    assert.equal(mm.monthlyRevShareUsd(), 40); // 2 * 100 * 0.2
+  });
+
+  it("summary aggregates installs and categories", () => {
+    const bus = new EventBus();
+    const mm = new MarketplaceManager(bus);
+    const l = mm.submit({ partnerId: "p1", name: "X", category: "security", monthlyPriceUsd: 50 });
+    mm.publish(l.id, "2026-06-01"); mm.install(l.id, "c1");
+    const s = mm.summary();
+    assert.equal(s.published, 1);
+    assert.equal(s.totalInstalls, 1);
+    assert.equal(s.byCategory.security, 1);
+  });
+});
+
+describe("IntegrationConnectorManager", () => {
+  it("connect publishes connected", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("integration.connected", (e) => { events.push(e.payload); });
+    const im = new IntegrationConnectorManager(bus);
+    im.connect("Salesforce");
+    assert.equal(events.length, 1);
+  });
+
+  it("failed sync degrades then disconnects after threshold", () => {
+    const bus = new EventBus();
+    const failed: any[] = [];
+    const disabled: any[] = [];
+    bus.subscribe("integration.sync_failed", (e) => { failed.push(e.payload); });
+    bus.subscribe("integration.disabled", (e) => { disabled.push(e.payload); });
+    const im = new IntegrationConnectorManager(bus, 2);
+    const c = im.connect("Stripe");
+    im.recordSync(c.id, "failure", 0, "2026-06-01", "timeout");
+    assert.equal(im.getConnector(c.id)!.status, "degraded");
+    im.recordSync(c.id, "failure", 0, "2026-06-02", "timeout");
+    assert.equal(im.getConnector(c.id)!.status, "disconnected");
+    assert.equal(failed.length, 2);
+    assert.equal(disabled.length, 1);
+  });
+
+  it("success resets consecutive failures and recovers", () => {
+    const bus = new EventBus();
+    const im = new IntegrationConnectorManager(bus, 3);
+    const c = im.connect("Hubspot");
+    im.recordSync(c.id, "failure", 0, "2026-06-01", "x");
+    im.recordSync(c.id, "success", 100, "2026-06-02");
+    assert.equal(im.getConnector(c.id)!.status, "connected");
+    assert.equal(im.getConnector(c.id)!.consecutiveFailures, 0);
+  });
+
+  it("checkAuthExpiry disables expired auth", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("integration.disabled", (e) => { events.push(e.payload); });
+    const im = new IntegrationConnectorManager(bus);
+    im.connect("Google", "2026-01-01T00:00:00.000Z");
+    const expired = im.checkAuthExpiry("2026-06-01T00:00:00.000Z");
+    assert.equal(expired.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("healthScore reflects recent sync success", () => {
+    const bus = new EventBus();
+    const im = new IntegrationConnectorManager(bus, 99);
+    const c = im.connect("X");
+    im.recordSync(c.id, "success", 10, "2026-06-01");
+    im.recordSync(c.id, "failure", 0, "2026-06-02", "e");
+    assert.equal(im.healthScore(c.id), 50);
+  });
+
+  it("summary computes sync success rate", () => {
+    const bus = new EventBus();
+    const im = new IntegrationConnectorManager(bus, 99);
+    const c = im.connect("X");
+    im.recordSync(c.id, "success", 10, "2026-06-01");
+    im.recordSync(c.id, "success", 10, "2026-06-02");
+    im.recordSync(c.id, "failure", 0, "2026-06-03", "e");
+    const s = im.summary();
+    assert.equal(s.totalSyncs, 3);
+    assert.equal(s.failedSyncs, 1);
+    assert.equal(s.syncSuccessRatePct, 67);
   });
 });
