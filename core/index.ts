@@ -229,6 +229,8 @@ import { StoreCreditManager } from "./store-credit/store-credit-manager.js";
 import { LayawayManager } from "./layaway/layaway-manager.js";
 import { FraudDetectionManager } from "./fraud-detection/fraud-detection-manager.js";
 import { IdentityVerificationManager } from "./identity-verification/identity-verification-manager.js";
+import { AbandonedCartManager } from "./abandoned-cart/abandoned-cart-manager.js";
+import { WishlistManager } from "./wishlist/wishlist-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -546,6 +548,8 @@ export class Olympus {
   readonly layaway: LayawayManager;
   readonly fraudDetection: FraudDetectionManager;
   readonly identityVerification: IdentityVerificationManager;
+  readonly abandonedCart: AbandonedCartManager;
+  readonly wishlist: WishlistManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -767,6 +771,8 @@ export class Olympus {
     this.layaway = new LayawayManager(this.bus);
     this.fraudDetection = new FraudDetectionManager(this.bus);
     this.identityVerification = new IdentityVerificationManager(this.bus);
+    this.abandonedCart = new AbandonedCartManager(this.bus);
+    this.wishlist = new WishlistManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -994,3 +1000,5 @@ export { StoreCreditManager, type CreditReason, type CreditEntry, type CreditWal
 export { LayawayManager, type LayawayStatus, type LayawayPayment, type LayawayPlan, type LayawaySummary } from "./layaway/index.js";
 export { FraudDetectionManager, type FraudDecision, type ReviewOutcome, type FraudRule, type FraudAssessment, type FraudSummary } from "./fraud-detection/index.js";
 export { IdentityVerificationManager, type VerificationLevel, type KYCStep, type SessionVerdict, type StepResult, type KYCSession, type KYCSummary } from "./identity-verification/index.js";
+export { AbandonedCartManager, type CartStatus, type CartLine, type Cart, type AbandonedCartSummary } from "./abandoned-cart/index.js";
+export { WishlistManager, type WishlistItem, type Wishlist, type WishlistSummary } from "./wishlist/index.js";

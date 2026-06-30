@@ -132,6 +132,8 @@ import { StoreCreditManager } from "../store-credit/store-credit-manager.js";
 import { LayawayManager } from "../layaway/layaway-manager.js";
 import { FraudDetectionManager } from "../fraud-detection/fraud-detection-manager.js";
 import { IdentityVerificationManager } from "../identity-verification/identity-verification-manager.js";
+import { AbandonedCartManager } from "../abandoned-cart/abandoned-cart-manager.js";
+import { WishlistManager } from "../wishlist/wishlist-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -16779,5 +16781,135 @@ describe("IdentityVerificationManager", () => {
     assert.equal(sm.verified, 1);
     assert.equal(sm.rejected, 1);
     assert.equal(sm.verificationRatePct, 50);
+  });
+});
+
+describe("AbandonedCartManager", () => {
+  it("detectAbandoned flags inactive carts and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cart.abandoned", (e) => { events.push(e.payload); });
+    const cm = new AbandonedCartManager(bus, 60);
+    cm.createCart("c1", [{ sku: "A", quantity: 1, unitPriceUsd: 100 }], "2026-06-01T10:00:00.000Z");
+    const ab = cm.detectAbandoned("2026-06-01T11:30:00.000Z"); // 90 min idle
+    assert.equal(ab.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("active recent cart is not abandoned", () => {
+    const bus = new EventBus();
+    const cm = new AbandonedCartManager(bus, 60);
+    cm.createCart("c1", [{ sku: "A", quantity: 1, unitPriceUsd: 100 }], "2026-06-01T10:00:00.000Z");
+    assert.equal(cm.detectAbandoned("2026-06-01T10:30:00.000Z").length, 0);
+  });
+
+  it("sendRecovery only on abandoned and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cart.recovery_sent", (e) => { events.push(e.payload); });
+    const cm = new AbandonedCartManager(bus, 60);
+    const cart = cm.createCart("c1", [{ sku: "A", quantity: 1, unitPriceUsd: 100 }], "2026-06-01T10:00:00.000Z");
+    assert.equal(cm.sendRecovery(cart.id), undefined);
+    cm.detectAbandoned("2026-06-01T12:00:00.000Z");
+    cm.sendRecovery(cart.id);
+    assert.equal(cm.getCart(cart.id)!.recoveryAttempts, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("convert after abandonment marks recovered and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cart.recovered", (e) => { events.push(e.payload); });
+    const cm = new AbandonedCartManager(bus, 60);
+    const cart = cm.createCart("c1", [{ sku: "A", quantity: 2, unitPriceUsd: 50 }], "2026-06-01T10:00:00.000Z");
+    cm.detectAbandoned("2026-06-01T12:00:00.000Z");
+    cm.convert(cart.id);
+    assert.equal(cm.getCart(cart.id)!.status, "recovered");
+    assert.equal(events.length, 1);
+  });
+
+  it("convert without abandonment is a normal conversion", () => {
+    const bus = new EventBus();
+    const cm = new AbandonedCartManager(bus, 60);
+    const cart = cm.createCart("c1", [{ sku: "A", quantity: 1, unitPriceUsd: 100 }], "2026-06-01T10:00:00.000Z");
+    cm.convert(cart.id);
+    assert.equal(cm.getCart(cart.id)!.status, "converted");
+  });
+
+  it("summary computes recovery rate and revenue", () => {
+    const bus = new EventBus();
+    const cm = new AbandonedCartManager(bus, 60);
+    const c1 = cm.createCart("c1", [{ sku: "A", quantity: 1, unitPriceUsd: 100 }], "2026-06-01T10:00:00.000Z");
+    const c2 = cm.createCart("c2", [{ sku: "B", quantity: 1, unitPriceUsd: 200 }], "2026-06-01T10:00:00.000Z");
+    cm.detectAbandoned("2026-06-01T12:00:00.000Z");
+    cm.convert(c1.id); // recovered
+    const s = cm.summary();
+    assert.equal(s.recovered, 1);
+    assert.equal(s.recoveryRatePct, 50);
+    assert.equal(s.recoveredRevenueUsd, 100);
+  });
+});
+
+describe("WishlistManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("wishlist.created", (e) => { events.push(e.payload); });
+    const wm = new WishlistManager(bus);
+    wm.create("c1", "Holiday");
+    assert.equal(events.length, 1);
+  });
+
+  it("addItem publishes item_added and dedupes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("wishlist.item_added", (e) => { events.push(e.payload); });
+    const wm = new WishlistManager(bus);
+    const w = wm.create("c1", "List");
+    wm.addItem(w.id, { sku: "A", name: "Thing", priceUsd: 50, asOf: "2026-06-01" });
+    assert.equal(wm.addItem(w.id, { sku: "A", name: "Thing", priceUsd: 50, asOf: "2026-06-01" }), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("updatePrice publishes price_drop on decrease", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("wishlist.price_drop", (e) => { events.push(e.payload); });
+    const wm = new WishlistManager(bus);
+    const w = wm.create("c1", "List");
+    wm.addItem(w.id, { sku: "A", name: "Thing", priceUsd: 100, asOf: "2026-06-01" });
+    const drops = wm.updatePrice("A", 80);
+    assert.equal(drops, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("price increase does not fire drop but updates current", () => {
+    const bus = new EventBus();
+    const wm = new WishlistManager(bus);
+    const w = wm.create("c1", "List");
+    wm.addItem(w.id, { sku: "A", name: "Thing", priceUsd: 100, asOf: "2026-06-01" });
+    assert.equal(wm.updatePrice("A", 120), 0);
+  });
+
+  it("removeItem deletes from list", () => {
+    const bus = new EventBus();
+    const wm = new WishlistManager(bus);
+    const w = wm.create("c1", "List");
+    wm.addItem(w.id, { sku: "A", name: "Thing", priceUsd: 50, asOf: "2026-06-01" });
+    wm.removeItem(w.id, "A");
+    assert.equal(wm.getWishlist(w.id)!.items.length, 0);
+  });
+
+  it("summary ranks most-wished and items on sale", () => {
+    const bus = new EventBus();
+    const wm = new WishlistManager(bus);
+    const w1 = wm.create("c1", "L1"); wm.addItem(w1.id, { sku: "A", name: "T", priceUsd: 50, asOf: "2026-06-01" });
+    const w2 = wm.create("c2", "L2"); wm.addItem(w2.id, { sku: "A", name: "T", priceUsd: 50, asOf: "2026-06-01" });
+    wm.updatePrice("A", 40);
+    const s = wm.summary();
+    assert.equal(s.totalItems, 2);
+    assert.equal(s.itemsOnSale, 2);
+    assert.equal(s.topWishedSkus[0]!.sku, "A");
+    assert.equal(s.topWishedSkus[0]!.count, 2);
   });
 });
