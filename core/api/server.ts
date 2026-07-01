@@ -378,6 +378,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/whistleblower", handler: (_req, res) => res.json(200, { summary: this.olympus.whistleblower.summary() }) },
       { method: "GET", pattern: "/v1/credit-limits", handler: (_req, res) => res.json(200, { summary: this.olympus.creditLimit.summary(), lines: this.olympus.creditLimit.listLines() }) },
       { method: "GET", pattern: "/v1/loan-servicing", handler: (_req, res) => res.json(200, { summary: this.olympus.loanServicing.summary(), loans: this.olympus.loanServicing.listLoans() }) },
+      { method: "GET", pattern: "/v1/payments", handler: (_req, res) => res.json(200, { summary: this.olympus.paymentGateway.summary(), payments: this.olympus.paymentGateway.listPayments() }) },
+      { method: "GET", pattern: "/v1/refunds", handler: (_req, res) => res.json(200, { summary: this.olympus.refund.summary(), pending: this.olympus.refund.listRefunds("requested") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

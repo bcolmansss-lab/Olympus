@@ -273,6 +273,8 @@ import { RegulatoryFilingManager } from "./regulatory-filing/regulatory-filing-m
 import { WhistleblowerHotlineManager } from "./whistleblower/whistleblower-hotline-manager.js";
 import { CreditLimitManager } from "./credit-limit/credit-limit-manager.js";
 import { LoanServicingManager } from "./loan-servicing/loan-servicing-manager.js";
+import { PaymentGatewayManager } from "./payment-gateway/payment-gateway-manager.js";
+import { RefundManager } from "./refund/refund-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -634,6 +636,8 @@ export class Olympus {
   readonly whistleblower: WhistleblowerHotlineManager;
   readonly creditLimit: CreditLimitManager;
   readonly loanServicing: LoanServicingManager;
+  readonly paymentGateway: PaymentGatewayManager;
+  readonly refund: RefundManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -899,6 +903,8 @@ export class Olympus {
     this.whistleblower = new WhistleblowerHotlineManager(this.bus);
     this.creditLimit = new CreditLimitManager(this.bus);
     this.loanServicing = new LoanServicingManager(this.bus);
+    this.paymentGateway = new PaymentGatewayManager(this.bus);
+    this.refund = new RefundManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1170,3 +1176,5 @@ export { RegulatoryFilingManager, type FilingFrequency, type FilingStatus, type 
 export { WhistleblowerHotlineManager, type HotlineCategory, type HotlineStatus, type HotlineOutcome, type HotlineMessage, type HotlineReport, type HotlineSummary } from "./whistleblower/index.js";
 export { CreditLimitManager, type CreditRiskTier, type CreditLine, type CreditLimitSummary } from "./credit-limit/index.js";
 export { LoanServicingManager, type ServicedLoanStatus, type LoanPayment, type ServicedLoan, type LoanServicingSummary } from "./loan-servicing/index.js";
+export { PaymentGatewayManager, type GatewayPaymentMethod, type GatewayPaymentStatus, type Payment, type PaymentGatewaySummary } from "./payment-gateway/index.js";
+export { RefundManager, type RefundReason, type RefundStatus, type PaymentInfo, type Refund, type RefundSummary } from "./refund/index.js";

@@ -176,6 +176,8 @@ import { RegulatoryFilingManager } from "../regulatory-filing/regulatory-filing-
 import { WhistleblowerHotlineManager } from "../whistleblower/whistleblower-hotline-manager.js";
 import { CreditLimitManager } from "../credit-limit/credit-limit-manager.js";
 import { LoanServicingManager } from "../loan-servicing/loan-servicing-manager.js";
+import { PaymentGatewayManager } from "../payment-gateway/payment-gateway-manager.js";
+import { RefundManager } from "../refund/refund-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19590,5 +19592,129 @@ describe("LoanServicingManager", () => {
     assert.equal(s.totalLoans, 1);
     assert.equal(s.current, 1);
     assert.equal(s.totalInterestCollectedUsd, 12);
+  });
+});
+
+describe("PaymentGatewayManager", () => {
+  it("authorize publishes authorized and rejects non-positive", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("payment.authorized", (e) => { events.push(e.payload); });
+    const pm = new PaymentGatewayManager(bus);
+    assert.equal(pm.authorize({ orderRef: "O1", method: "card", amountUsd: 0, authorizedAt: "2026-06-01" }), undefined);
+    pm.authorize({ orderRef: "O1", method: "card", amountUsd: 100, authorizedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("capture up to authorized amount, partial then full", () => {
+    const bus = new EventBus();
+    const pm = new PaymentGatewayManager(bus);
+    const p = pm.authorize({ orderRef: "O1", method: "card", amountUsd: 100, authorizedAt: "2026-06-01" })!;
+    pm.capture(p.id, 40);
+    assert.equal(pm.getPayment(p.id)!.status, "partially_captured");
+    pm.capture(p.id, 60);
+    assert.equal(pm.getPayment(p.id)!.status, "captured");
+    assert.equal(pm.capture(p.id, 10), undefined); // over
+  });
+
+  it("void works only on uncaptured authorization", () => {
+    const bus = new EventBus();
+    const pm = new PaymentGatewayManager(bus);
+    const p = pm.authorize({ orderRef: "O1", method: "card", amountUsd: 100, authorizedAt: "2026-06-01" })!;
+    pm.void(p.id);
+    assert.equal(pm.getPayment(p.id)!.status, "voided");
+  });
+
+  it("expireAuthorizations marks stale auths", () => {
+    const bus = new EventBus();
+    const pm = new PaymentGatewayManager(bus, 7);
+    pm.authorize({ orderRef: "O1", method: "card", amountUsd: 100, authorizedAt: "2026-06-01" });
+    const expired = pm.expireAuthorizations("2026-06-20");
+    assert.equal(expired.length, 1);
+  });
+
+  it("settle batches captured payments and publishes settled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("payment.settled", (e) => { events.push(e.payload); });
+    const pm = new PaymentGatewayManager(bus);
+    const p = pm.authorize({ orderRef: "O1", method: "card", amountUsd: 100, authorizedAt: "2026-06-01" })!;
+    pm.capture(p.id, 100);
+    const batch = pm.settle("2026-06-05");
+    assert.equal(batch.count, 1);
+    assert.equal(batch.totalUsd, 100);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes capture rate", () => {
+    const bus = new EventBus();
+    const pm = new PaymentGatewayManager(bus);
+    const a = pm.authorize({ orderRef: "O1", method: "card", amountUsd: 100, authorizedAt: "2026-06-01" })!;
+    pm.capture(a.id, 100);
+    pm.authorize({ orderRef: "O2", method: "card", amountUsd: 100, authorizedAt: "2026-06-01" });
+    const s = pm.summary();
+    assert.equal(s.totalCapturedUsd, 100);
+    assert.equal(s.captureRatePct, 50);
+  });
+});
+
+describe("RefundManager", () => {
+  it("request rejects amount above refundable", () => {
+    const bus = new EventBus();
+    const rm = new RefundManager(bus);
+    rm.registerPayment("P1", 100);
+    assert.equal(rm.request({ paymentRef: "P1", amountUsd: 200, reason: "defective", requestedAt: "2026-06-01" }), undefined);
+    assert.ok(rm.request({ paymentRef: "P1", amountUsd: 50, reason: "defective", requestedAt: "2026-06-01" }));
+  });
+
+  it("approve then process reduces refundable and publishes processed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("refund.processed", (e) => { events.push(e.payload); });
+    const rm = new RefundManager(bus);
+    rm.registerPayment("P1", 100);
+    const r = rm.request({ paymentRef: "P1", amountUsd: 40, reason: "changed_mind", requestedAt: "2026-06-01" })!;
+    rm.approve(r.id, "mgr1");
+    rm.process(r.id, "2026-06-02");
+    assert.equal(rm.refundableRemaining("P1"), 60);
+    assert.equal(events.length, 1);
+  });
+
+  it("process requires approval", () => {
+    const bus = new EventBus();
+    const rm = new RefundManager(bus);
+    rm.registerPayment("P1", 100);
+    const r = rm.request({ paymentRef: "P1", amountUsd: 40, reason: "duplicate_charge", requestedAt: "2026-06-01" })!;
+    assert.equal(rm.process(r.id, "2026-06-02"), undefined);
+  });
+
+  it("over-refund across multiple refunds is prevented", () => {
+    const bus = new EventBus();
+    const rm = new RefundManager(bus);
+    rm.registerPayment("P1", 100);
+    const r1 = rm.request({ paymentRef: "P1", amountUsd: 70, reason: "goodwill", requestedAt: "2026-06-01" })!;
+    rm.approve(r1.id, "m"); rm.process(r1.id, "2026-06-02");
+    assert.equal(rm.request({ paymentRef: "P1", amountUsd: 50, reason: "goodwill", requestedAt: "2026-06-03" }), undefined);
+  });
+
+  it("reject blocks approval", () => {
+    const bus = new EventBus();
+    const rm = new RefundManager(bus);
+    rm.registerPayment("P1", 100);
+    const r = rm.request({ paymentRef: "P1", amountUsd: 40, reason: "cancellation", requestedAt: "2026-06-01" })!;
+    rm.reject(r.id);
+    assert.equal(rm.approve(r.id, "m"), undefined);
+  });
+
+  it("summary aggregates processed amount and reasons", () => {
+    const bus = new EventBus();
+    const rm = new RefundManager(bus);
+    rm.registerPayment("P1", 100);
+    const r = rm.request({ paymentRef: "P1", amountUsd: 30, reason: "defective", requestedAt: "2026-06-01" })!;
+    rm.approve(r.id, "m"); rm.process(r.id, "2026-06-02");
+    const s = rm.summary();
+    assert.equal(s.processed, 1);
+    assert.equal(s.totalRefundedUsd, 30);
+    assert.equal(s.byReason.defective, 1);
   });
 });
