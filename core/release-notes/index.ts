@@ -1,0 +1,1 @@
+export { ReleaseNotesManager, type ChangeCategory, type ReleaseState, type Reaction, type ChangelogEntry, type Release as ChangelogRelease, type ReleaseNotesSummary } from "./release-notes-manager.js";

@@ -255,6 +255,8 @@ import { SecretsManager } from "./secrets/secrets-manager.js";
 import { CertificateManager } from "./certificate/certificate-manager.js";
 import { AlertRoutingManager } from "./alert-routing/alert-routing-manager.js";
 import { ObservabilityDashboardManager } from "./obs-dashboard/observability-dashboard-manager.js";
+import { ReleaseNotesManager } from "./release-notes/release-notes-manager.js";
+import { BetaProgramManager } from "./beta-program/beta-program-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -598,6 +600,8 @@ export class Olympus {
   readonly certificate: CertificateManager;
   readonly alertRouting: AlertRoutingManager;
   readonly obsDashboard: ObservabilityDashboardManager;
+  readonly releaseNotes: ReleaseNotesManager;
+  readonly betaProgram: BetaProgramManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -845,6 +849,8 @@ export class Olympus {
     this.certificate = new CertificateManager(this.bus);
     this.alertRouting = new AlertRoutingManager(this.bus);
     this.obsDashboard = new ObservabilityDashboardManager(this.bus);
+    this.releaseNotes = new ReleaseNotesManager(this.bus);
+    this.betaProgram = new BetaProgramManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1098,3 +1104,5 @@ export { SecretsManager, type SecretType, type SecretMeta, type SecretsSummary }
 export { CertificateManager, type TLSCertStatus, type CertAuthority, type Certificate, type CertificateSummary } from "./certificate/index.js";
 export { AlertRoutingManager, type RoutedAlertSeverity, type AlertState, type RoutingRule, type RoutedAlert, type AlertRoutingSummary } from "./alert-routing/index.js";
 export { ObservabilityDashboardManager, type Comparator, type WidgetHealth, type Widget, type ObsDashboard, type DashboardSummary } from "./obs-dashboard/index.js";
+export { ReleaseNotesManager, type ChangeCategory, type ReleaseState, type Reaction, type ChangelogEntry, type ChangelogRelease, type ReleaseNotesSummary } from "./release-notes/index.js";
+export { BetaProgramManager, type BetaProgramStatus, type BetaFeedbackSeverity, type BetaParticipant, type BetaFeedback, type BetaProgram, type BetaSummary } from "./beta-program/index.js";

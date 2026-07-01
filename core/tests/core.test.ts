@@ -158,6 +158,8 @@ import { SecretsManager } from "../secrets/secrets-manager.js";
 import { CertificateManager } from "../certificate/certificate-manager.js";
 import { AlertRoutingManager } from "../alert-routing/alert-routing-manager.js";
 import { ObservabilityDashboardManager } from "../obs-dashboard/observability-dashboard-manager.js";
+import { ReleaseNotesManager } from "../release-notes/release-notes-manager.js";
+import { BetaProgramManager } from "../beta-program/beta-program-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18454,5 +18456,128 @@ describe("ObservabilityDashboardManager", () => {
     assert.equal(s.totalWidgets, 2);
     assert.equal(s.breachedWidgets, 1);
     assert.equal(s.healthyWidgets, 1);
+  });
+});
+
+describe("ReleaseNotesManager", () => {
+  it("addEntry publishes entry_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("releasenotes.entry_added", (e) => { events.push(e.payload); });
+    const rm = new ReleaseNotesManager(bus);
+    rm.addEntry({ version: "1.2.0", title: "Dark mode", body: "...", category: "feature" });
+    assert.equal(events.length, 1);
+  });
+
+  it("publish requires entries and publishes published", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("releasenotes.published", (e) => { events.push(e.payload); });
+    const rm = new ReleaseNotesManager(bus);
+    assert.equal(rm.publish("9.9.9", "2026-06-01"), undefined);
+    rm.addEntry({ version: "1.2.0", title: "X", body: "y", category: "fix" });
+    rm.publish("1.2.0", "2026-06-01");
+    assert.equal(rm.getRelease("1.2.0")!.state, "published");
+    assert.equal(events.length, 1);
+  });
+
+  it("cannot add entries after publish", () => {
+    const bus = new EventBus();
+    const rm = new ReleaseNotesManager(bus);
+    rm.addEntry({ version: "1.2.0", title: "X", body: "y", category: "fix" });
+    rm.publish("1.2.0", "2026-06-01");
+    assert.equal(rm.addEntry({ version: "1.2.0", title: "Z", body: "w", category: "feature" }), undefined);
+  });
+
+  it("react only works on published entries", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("releasenotes.reaction", (e) => { events.push(e.payload); });
+    const rm = new ReleaseNotesManager(bus);
+    const e = rm.addEntry({ version: "1.2.0", title: "X", body: "y", category: "feature" })!;
+    assert.equal(rm.react("1.2.0", e.id, "thumbs_up"), undefined);
+    rm.publish("1.2.0", "2026-06-01");
+    rm.react("1.2.0", e.id, "thumbs_up");
+    assert.equal(rm.getRelease("1.2.0")!.entries[0]!.reactions.thumbs_up, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("publishedNotes returns published releases newest first", () => {
+    const bus = new EventBus();
+    const rm = new ReleaseNotesManager(bus);
+    rm.addEntry({ version: "1.0.0", title: "A", body: "y", category: "feature" }); rm.publish("1.0.0", "2026-05-01");
+    rm.addEntry({ version: "1.1.0", title: "B", body: "y", category: "feature" }); rm.publish("1.1.0", "2026-06-01");
+    assert.equal(rm.publishedNotes()[0]!.version, "1.1.0");
+  });
+
+  it("summary aggregates categories and reactions", () => {
+    const bus = new EventBus();
+    const rm = new ReleaseNotesManager(bus);
+    const e = rm.addEntry({ version: "1.2.0", title: "X", body: "y", category: "security" })!;
+    rm.publish("1.2.0", "2026-06-01"); rm.react("1.2.0", e.id, "celebrate");
+    const s = rm.summary();
+    assert.equal(s.published, 1);
+    assert.equal(s.byCategory.security, 1);
+    assert.equal(s.totalReactions, 1);
+  });
+});
+
+describe("BetaProgramManager", () => {
+  it("open publishes program_opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("beta.program_opened", (e) => { events.push(e.payload); });
+    const bm = new BetaProgramManager(bus);
+    bm.open({ feature: "AI Assistant", capacity: 50 });
+    assert.equal(events.length, 1);
+  });
+
+  it("enroll respects capacity", () => {
+    const bus = new EventBus();
+    const bm = new BetaProgramManager(bus);
+    const p = bm.open({ feature: "X", capacity: 1 });
+    bm.enroll(p.id, "u1");
+    assert.equal(bm.enroll(p.id, "u2"), undefined);
+  });
+
+  it("NDA gating blocks unsigned enrollment", () => {
+    const bus = new EventBus();
+    const bm = new BetaProgramManager(bus);
+    const p = bm.open({ feature: "X", capacity: 10, requiresNda: true });
+    assert.equal(bm.enroll(p.id, "u1", false), undefined);
+    assert.ok(bm.enroll(p.id, "u1", true));
+  });
+
+  it("submitFeedback requires active participant and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("beta.feedback_received", (e) => { events.push(e.payload); });
+    const bm = new BetaProgramManager(bus);
+    const p = bm.open({ feature: "X", capacity: 10 });
+    assert.equal(bm.submitFeedback(p.id, "u1", "minor", "n", "2026-06-01"), undefined);
+    bm.enroll(p.id, "u1");
+    bm.submitFeedback(p.id, "u1", "minor", "n", "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("graduate blocked by open blocker feedback", () => {
+    const bus = new EventBus();
+    const bm = new BetaProgramManager(bus);
+    const p = bm.open({ feature: "X", capacity: 10 });
+    bm.enroll(p.id, "u1");
+    bm.submitFeedback(p.id, "u1", "blocker", "broken", "2026-06-01");
+    assert.equal(bm.graduate(p.id), undefined);
+  });
+
+  it("summary aggregates participants, feedback and blockers", () => {
+    const bus = new EventBus();
+    const bm = new BetaProgramManager(bus);
+    const p = bm.open({ feature: "X", capacity: 10 });
+    bm.enroll(p.id, "u1"); bm.enroll(p.id, "u2");
+    bm.submitFeedback(p.id, "u1", "blocker", "x", "2026-06-01");
+    const s = bm.summary();
+    assert.equal(s.totalParticipants, 2);
+    assert.equal(s.totalFeedback, 1);
+    assert.equal(s.blockers, 1);
   });
 });
