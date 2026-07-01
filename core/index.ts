@@ -259,6 +259,8 @@ import { ReleaseNotesManager } from "./release-notes/release-notes-manager.js";
 import { BetaProgramManager } from "./beta-program/beta-program-manager.js";
 import { AnnouncementManager } from "./announcement/announcement-manager.js";
 import { PollManager } from "./poll/poll-manager.js";
+import { KnowledgeGapManager } from "./knowledge-gap/knowledge-gap-manager.js";
+import { MacroManager } from "./macro/macro-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -606,6 +608,8 @@ export class Olympus {
   readonly betaProgram: BetaProgramManager;
   readonly announcement: AnnouncementManager;
   readonly poll: PollManager;
+  readonly knowledgeGap: KnowledgeGapManager;
+  readonly macro: MacroManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -857,6 +861,8 @@ export class Olympus {
     this.betaProgram = new BetaProgramManager(this.bus);
     this.announcement = new AnnouncementManager(this.bus);
     this.poll = new PollManager(this.bus);
+    this.knowledgeGap = new KnowledgeGapManager(this.bus);
+    this.macro = new MacroManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1114,3 +1120,5 @@ export { ReleaseNotesManager, type ChangeCategory, type ReleaseState, type React
 export { BetaProgramManager, type BetaProgramStatus, type BetaFeedbackSeverity, type BetaParticipant, type BetaFeedback, type BetaProgram, type BetaSummary } from "./beta-program/index.js";
 export { AnnouncementManager, type AnnouncementPriority, type AnnouncementStatus, type Announcement as InternalAnnouncement, type AnnouncementSummary } from "./announcement/index.js";
 export { PollManager, type PollStatus, type PollOption, type Poll, type PollSummary } from "./poll/index.js";
+export { KnowledgeGapManager, type GapStatus, type KnowledgeGap, type KnowledgeGapSummary } from "./knowledge-gap/index.js";
+export { MacroManager, type MacroStatus, type Macro, type MacroSummary } from "./macro/index.js";

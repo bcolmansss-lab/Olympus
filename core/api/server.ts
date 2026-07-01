@@ -364,6 +364,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/beta-programs", handler: (_req, res) => res.json(200, { summary: this.olympus.betaProgram.summary(), open: this.olympus.betaProgram.listPrograms("open") }) },
       { method: "GET", pattern: "/v1/announcements", handler: (_req, res) => res.json(200, { summary: this.olympus.announcement.summary(), published: this.olympus.announcement.listAnnouncements("published").map(a => ({ id: a.id, title: a.title, audience: a.audience, priority: a.priority, reads: a.reads.size, acks: a.acks.size })) }) },
       { method: "GET", pattern: "/v1/polls", handler: (_req, res) => res.json(200, { summary: this.olympus.poll.summary(), open: this.olympus.poll.listPolls("open").map(p => ({ id: p.id, question: p.question, results: this.olympus.poll.results(p.id) })) }) },
+      { method: "GET", pattern: "/v1/knowledge-gaps", handler: (_req, res) => res.json(200, { summary: this.olympus.knowledgeGap.summary(), prioritized: this.olympus.knowledgeGap.prioritized() }) },
+      { method: "GET", pattern: "/v1/macros", handler: (_req, res) => res.json(200, { summary: this.olympus.macro.summary(), macros: this.olympus.macro.listMacros(undefined, "active") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

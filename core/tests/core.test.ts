@@ -162,6 +162,8 @@ import { ReleaseNotesManager } from "../release-notes/release-notes-manager.js";
 import { BetaProgramManager } from "../beta-program/beta-program-manager.js";
 import { AnnouncementManager } from "../announcement/announcement-manager.js";
 import { PollManager } from "../poll/poll-manager.js";
+import { KnowledgeGapManager } from "../knowledge-gap/knowledge-gap-manager.js";
+import { MacroManager } from "../macro/macro-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18707,5 +18709,127 @@ describe("PollManager", () => {
     assert.equal(events.length, 1);
     assert.equal(events[0].winningOption, "a");
     assert.equal(pm.vote(p.id, "u2", [p.options[1]!.id]), undefined); // closed
+  });
+});
+
+describe("KnowledgeGapManager", () => {
+  it("recordMiss publishes miss_recorded and accumulates", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("knowledgegap.miss_recorded", (e) => { events.push(e.payload); });
+    const km = new KnowledgeGapManager(bus);
+    km.recordMiss("billing", "how to refund", "2026-06-01");
+    km.recordMiss("billing", "cancel subscription", "2026-06-02");
+    assert.equal(km.getGap("billing")!.missCount, 2);
+    assert.equal(events.length, 2);
+  });
+
+  it("escalates at threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("knowledgegap.escalated", (e) => { events.push(e.payload); });
+    const km = new KnowledgeGapManager(bus, 3);
+    for (let i = 0; i < 3; i++) km.recordMiss("sso", `q${i}`, "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("sampleQueries dedupe and cap at 10", () => {
+    const bus = new EventBus();
+    const km = new KnowledgeGapManager(bus);
+    km.recordMiss("t", "same", "2026-06-01");
+    km.recordMiss("t", "same", "2026-06-01");
+    assert.equal(km.getGap("t")!.sampleQueries.length, 1);
+  });
+
+  it("fill publishes filled and closes gap", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("knowledgegap.filled", (e) => { events.push(e.payload); });
+    const km = new KnowledgeGapManager(bus);
+    km.recordMiss("api-auth", "q", "2026-06-01");
+    km.fill("api-auth", "KB-123");
+    assert.equal(km.getGap("api-auth")!.status, "filled");
+    assert.equal(events.length, 1);
+  });
+
+  it("prioritized ranks unfilled gaps by miss count", () => {
+    const bus = new EventBus();
+    const km = new KnowledgeGapManager(bus);
+    km.recordMiss("a", "q", "2026-06-01");
+    km.recordMiss("b", "q", "2026-06-01"); km.recordMiss("b", "q2", "2026-06-01");
+    assert.equal(km.prioritized()[0]!.topic, "b");
+  });
+
+  it("summary aggregates misses and top gaps", () => {
+    const bus = new EventBus();
+    const km = new KnowledgeGapManager(bus);
+    km.recordMiss("a", "q", "2026-06-01");
+    km.recordMiss("b", "q", "2026-06-01");
+    km.fill("b", "KB-1");
+    const s = km.summary();
+    assert.equal(s.totalGaps, 2);
+    assert.equal(s.filled, 1);
+    assert.equal(s.open, 1);
+    assert.equal(s.topGaps[0]!.topic, "a");
+  });
+});
+
+describe("MacroManager", () => {
+  it("create extracts placeholders and publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("macro.created", (e) => { events.push(e.payload); });
+    const mm = new MacroManager(bus);
+    const m = mm.create("Greeting", "general", "Hi {{name}}, thanks for contacting {{company}}.");
+    assert.deepEqual(m.placeholders.sort(), ["company", "name"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("apply substitutes values and records usage", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("macro.applied", (e) => { events.push(e.payload); });
+    const mm = new MacroManager(bus);
+    const m = mm.create("G", "general", "Hi {{name}}!");
+    const r = mm.apply(m.id, { name: "Sam" }, "TKT-1")!;
+    assert.equal(r.text, "Hi Sam!");
+    assert.equal(mm.getMacro(m.id)!.usageCount, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("apply reports missing placeholders", () => {
+    const bus = new EventBus();
+    const mm = new MacroManager(bus);
+    const m = mm.create("G", "general", "Hi {{name}} from {{company}}");
+    const r = mm.apply(m.id, { name: "Sam" }, "TKT-1")!;
+    assert.deepEqual(r.missing, ["company"]);
+  });
+
+  it("archived macro cannot be applied", () => {
+    const bus = new EventBus();
+    const mm = new MacroManager(bus);
+    const m = mm.create("G", "general", "Hi");
+    mm.archive(m.id);
+    assert.equal(mm.apply(m.id, {}, "TKT-1"), undefined);
+  });
+
+  it("update re-extracts placeholders", () => {
+    const bus = new EventBus();
+    const mm = new MacroManager(bus);
+    const m = mm.create("G", "general", "Hi {{a}}");
+    mm.update(m.id, "Hi {{a}} and {{b}}");
+    assert.deepEqual(mm.getMacro(m.id)!.placeholders.sort(), ["a", "b"]);
+  });
+
+  it("summary aggregates categories and top used", () => {
+    const bus = new EventBus();
+    const mm = new MacroManager(bus);
+    const a = mm.create("A", "billing", "x");
+    mm.create("B", "billing", "y");
+    mm.apply(a.id, {}, "TKT-1"); mm.apply(a.id, {}, "TKT-2");
+    const s = mm.summary();
+    assert.equal(s.totalMacros, 2);
+    assert.equal(s.byCategory.billing, 2);
+    assert.equal(s.topUsed[0]!.name, "A");
   });
 });
