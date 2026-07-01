@@ -253,6 +253,8 @@ import { CloudCostManager } from "./cloud-cost/cloud-cost-manager.js";
 import { RightsizingManager } from "./rightsizing/rightsizing-manager.js";
 import { SecretsManager } from "./secrets/secrets-manager.js";
 import { CertificateManager } from "./certificate/certificate-manager.js";
+import { AlertRoutingManager } from "./alert-routing/alert-routing-manager.js";
+import { ObservabilityDashboardManager } from "./obs-dashboard/observability-dashboard-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -594,6 +596,8 @@ export class Olympus {
   readonly rightsizing: RightsizingManager;
   readonly secrets: SecretsManager;
   readonly certificate: CertificateManager;
+  readonly alertRouting: AlertRoutingManager;
+  readonly obsDashboard: ObservabilityDashboardManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -839,6 +843,8 @@ export class Olympus {
     this.rightsizing = new RightsizingManager(this.bus);
     this.secrets = new SecretsManager(this.bus);
     this.certificate = new CertificateManager(this.bus);
+    this.alertRouting = new AlertRoutingManager(this.bus);
+    this.obsDashboard = new ObservabilityDashboardManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1090,3 +1096,5 @@ export { CloudCostManager, type CloudProvider, type CostEntry, type CloudCostSum
 export { RightsizingManager, type CloudResourceType, type RecAction, type RecStatus, type CloudResource, type RightsizingRecommendation, type RightsizingSummary } from "./rightsizing/index.js";
 export { SecretsManager, type SecretType, type SecretMeta, type SecretsSummary } from "./secrets/index.js";
 export { CertificateManager, type TLSCertStatus, type CertAuthority, type Certificate, type CertificateSummary } from "./certificate/index.js";
+export { AlertRoutingManager, type RoutedAlertSeverity, type AlertState, type RoutingRule, type RoutedAlert, type AlertRoutingSummary } from "./alert-routing/index.js";
+export { ObservabilityDashboardManager, type Comparator, type WidgetHealth, type Widget, type ObsDashboard, type DashboardSummary } from "./obs-dashboard/index.js";

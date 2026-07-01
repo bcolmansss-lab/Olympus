@@ -156,6 +156,8 @@ import { CloudCostManager } from "../cloud-cost/cloud-cost-manager.js";
 import { RightsizingManager } from "../rightsizing/rightsizing-manager.js";
 import { SecretsManager } from "../secrets/secrets-manager.js";
 import { CertificateManager } from "../certificate/certificate-manager.js";
+import { AlertRoutingManager } from "../alert-routing/alert-routing-manager.js";
+import { ObservabilityDashboardManager } from "../obs-dashboard/observability-dashboard-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18322,5 +18324,135 @@ describe("CertificateManager", () => {
     assert.equal(s.totalCertificates, 2);
     assert.equal(s.expiringIn30Days, 1);
     assert.equal(s.byAuthority.lets_encrypt, 1);
+  });
+});
+
+describe("AlertRoutingManager", () => {
+  it("ingest routes by severity and publishes fired", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("alertrouting.fired", (e) => { events.push(e.payload); });
+    const am = new AlertRoutingManager(bus);
+    am.setRoute("critical", "#oncall");
+    const a = am.ingest({ fingerprint: "cpu-high", title: "CPU high", severity: "critical", source: "prom", at: "2026-06-01T00:00:00.000Z" });
+    assert.equal(a.routedTo, "#oncall");
+    assert.equal(events.length, 1);
+  });
+
+  it("dedup increments occurrences and publishes deduped", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("alertrouting.deduped", (e) => { events.push(e.payload); });
+    const am = new AlertRoutingManager(bus);
+    am.ingest({ fingerprint: "fp1", title: "X", severity: "warning", source: "s", at: "2026-06-01T00:00:00.000Z" });
+    am.ingest({ fingerprint: "fp1", title: "X", severity: "warning", source: "s", at: "2026-06-01T00:01:00.000Z" });
+    assert.equal(am.listAlerts()[0]!.occurrences, 2);
+    assert.equal(events.length, 1);
+  });
+
+  it("resolved alert re-fires as new on next ingest", () => {
+    const bus = new EventBus();
+    const am = new AlertRoutingManager(bus);
+    const a = am.ingest({ fingerprint: "fp1", title: "X", severity: "error", source: "s", at: "2026-06-01T00:00:00.000Z" });
+    am.resolve(a.id, "2026-06-01T01:00:00.000Z");
+    am.ingest({ fingerprint: "fp1", title: "X", severity: "error", source: "s", at: "2026-06-01T02:00:00.000Z" });
+    assert.equal(am.listAlerts().length, 2);
+  });
+
+  it("acknowledge transitions firing alert", () => {
+    const bus = new EventBus();
+    const am = new AlertRoutingManager(bus);
+    const a = am.ingest({ fingerprint: "fp1", title: "X", severity: "warning", source: "s", at: "2026-06-01T00:00:00.000Z" });
+    am.acknowledge(a.id);
+    assert.equal(am.getAlert(a.id)!.state, "acknowledged");
+  });
+
+  it("resolve publishes resolved", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("alertrouting.resolved", (e) => { events.push(e.payload); });
+    const am = new AlertRoutingManager(bus);
+    const a = am.ingest({ fingerprint: "fp1", title: "X", severity: "error", source: "s", at: "2026-06-01T00:00:00.000Z" });
+    am.resolve(a.id, "2026-06-01T01:00:00.000Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates states and dedup total", () => {
+    const bus = new EventBus();
+    const am = new AlertRoutingManager(bus);
+    am.ingest({ fingerprint: "fp1", title: "A", severity: "critical", source: "s", at: "2026-06-01T00:00:00.000Z" });
+    am.ingest({ fingerprint: "fp1", title: "A", severity: "critical", source: "s", at: "2026-06-01T00:01:00.000Z" });
+    const s = am.summary();
+    assert.equal(s.totalAlerts, 1);
+    assert.equal(s.firing, 1);
+    assert.equal(s.dedupedTotal, 1);
+    assert.equal(s.bySeverity.critical, 1);
+  });
+});
+
+describe("ObservabilityDashboardManager", () => {
+  it("createDashboard publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("obsdash.created", (e) => { events.push(e.payload); });
+    const dm = new ObservabilityDashboardManager(bus);
+    dm.createDashboard("API Health");
+    assert.equal(events.length, 1);
+  });
+
+  it("ingestMetric breaches gt threshold and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("obsdash.threshold_breached", (e) => { events.push(e.payload); });
+    const dm = new ObservabilityDashboardManager(bus);
+    const d = dm.createDashboard("D");
+    dm.addWidget(d.id, { title: "Error rate", metric: "error_rate", comparator: "gt", threshold: 5 });
+    dm.ingestMetric("error_rate", 8);
+    assert.equal(events.length, 1);
+    assert.equal(dm.dashboardHealth(d.id), "breached");
+  });
+
+  it("recovery publishes recovered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("obsdash.recovered", (e) => { events.push(e.payload); });
+    const dm = new ObservabilityDashboardManager(bus);
+    const d = dm.createDashboard("D");
+    dm.addWidget(d.id, { title: "Errors", metric: "err", comparator: "gt", threshold: 5 });
+    dm.ingestMetric("err", 8);
+    dm.ingestMetric("err", 2);
+    assert.equal(events.length, 1);
+    assert.equal(dm.dashboardHealth(d.id), "ok");
+  });
+
+  it("lt comparator breaches on low values", () => {
+    const bus = new EventBus();
+    const dm = new ObservabilityDashboardManager(bus);
+    const d = dm.createDashboard("D");
+    const w = dm.addWidget(d.id, { title: "Uptime", metric: "uptime", comparator: "lt", threshold: 99 })!;
+    dm.ingestMetric("uptime", 95);
+    assert.equal(dm.getDashboard(d.id)!.widgets.find(x => x.id === w.id)!.health, "breached");
+  });
+
+  it("ingestMetric updates widgets across dashboards", () => {
+    const bus = new EventBus();
+    const dm = new ObservabilityDashboardManager(bus);
+    const d1 = dm.createDashboard("D1"); dm.addWidget(d1.id, { title: "A", metric: "cpu", comparator: "gt", threshold: 80 });
+    const d2 = dm.createDashboard("D2"); dm.addWidget(d2.id, { title: "B", metric: "cpu", comparator: "gt", threshold: 90 });
+    assert.equal(dm.ingestMetric("cpu", 85), 2);
+  });
+
+  it("summary aggregates widget health", () => {
+    const bus = new EventBus();
+    const dm = new ObservabilityDashboardManager(bus);
+    const d = dm.createDashboard("D");
+    dm.addWidget(d.id, { title: "A", metric: "m1", comparator: "gt", threshold: 5 });
+    dm.addWidget(d.id, { title: "B", metric: "m2", comparator: "gt", threshold: 5 });
+    dm.ingestMetric("m1", 10); // breached
+    dm.ingestMetric("m2", 1);  // ok
+    const s = dm.summary();
+    assert.equal(s.totalWidgets, 2);
+    assert.equal(s.breachedWidgets, 1);
+    assert.equal(s.healthyWidgets, 1);
   });
 });
