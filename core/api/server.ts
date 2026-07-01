@@ -354,6 +354,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/change-freezes", handler: (_req, res) => res.json(200, { summary: this.olympus.changeFreeze.summary(), active: this.olympus.changeFreeze.listFreezes("active") }) },
       { method: "GET", pattern: "/v1/slos", handler: (_req, res) => res.json(200, { summary: this.olympus.slo.summary(), slos: this.olympus.slo.listSLOs() }) },
       { method: "GET", pattern: "/v1/runbooks", handler: (_req, res) => res.json(200, { summary: this.olympus.runbook.summary(), runbooks: this.olympus.runbook.listRunbooks() }) },
+      { method: "GET", pattern: "/v1/cloud-cost", handler: (_req, res) => res.json(200, { summary: this.olympus.cloudCost.summary() }) },
+      { method: "GET", pattern: "/v1/rightsizing", handler: (_req, res) => res.json(200, { summary: this.olympus.rightsizing.summary(), open: this.olympus.rightsizing.listRecommendations("open") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

@@ -152,6 +152,8 @@ import { MaintenanceWindowManager } from "../maintenance-window/maintenance-wind
 import { ChangeFreezeManager } from "../change-freeze/change-freeze-manager.js";
 import { SLOManager } from "../slo/slo-manager.js";
 import { RunbookManager } from "../runbook/runbook-manager.js";
+import { CloudCostManager } from "../cloud-cost/cloud-cost-manager.js";
+import { RightsizingManager } from "../rightsizing/rightsizing-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18071,5 +18073,129 @@ describe("RunbookManager", () => {
     assert.equal(s.totalExecutions, 2);
     assert.equal(s.successfulExecutions, 1);
     assert.equal(s.successRatePct, 50);
+  });
+});
+
+describe("CloudCostManager", () => {
+  it("record publishes recorded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cloudcost.recorded", (e) => { events.push(e.payload); });
+    const cm = new CloudCostManager(bus);
+    cm.record({ provider: "aws", account: "acct1", service: "ec2", team: "platform", amountUsd: 500, date: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("budget exceeded fires when month spend passes budget", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cloudcost.budget_exceeded", (e) => { events.push(e.payload); });
+    const cm = new CloudCostManager(bus);
+    cm.setBudget("acct1", 1000);
+    cm.record({ provider: "aws", account: "acct1", service: "ec2", team: "p", amountUsd: 600, date: "2026-06-01" });
+    cm.record({ provider: "aws", account: "acct1", service: "s3", team: "p", amountUsd: 500, date: "2026-06-02" });
+    assert.equal(events.length, 1);
+  });
+
+  it("anomaly fires on spend above baseline factor", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cloudcost.anomaly", (e) => { events.push(e.payload); });
+    const cm = new CloudCostManager(bus, 2);
+    cm.record({ provider: "aws", account: "a", service: "ec2", team: "p", amountUsd: 100, date: "2026-06-01" });
+    cm.record({ provider: "aws", account: "a", service: "ec2", team: "p", amountUsd: 100, date: "2026-06-02" });
+    cm.record({ provider: "aws", account: "a", service: "ec2", team: "p", amountUsd: 500, date: "2026-06-03" });
+    assert.equal(events.length, 1);
+  });
+
+  it("accountSpend sums by month", () => {
+    const bus = new EventBus();
+    const cm = new CloudCostManager(bus);
+    cm.record({ provider: "aws", account: "a", service: "ec2", team: "p", amountUsd: 100, date: "2026-06-01" });
+    cm.record({ provider: "aws", account: "a", service: "s3", team: "p", amountUsd: 50, date: "2026-06-15" });
+    cm.record({ provider: "aws", account: "a", service: "s3", team: "p", amountUsd: 999, date: "2026-07-01" });
+    assert.equal(cm.accountSpend("a", "2026-06"), 150);
+  });
+
+  it("serviceSpend sums across accounts", () => {
+    const bus = new EventBus();
+    const cm = new CloudCostManager(bus);
+    cm.record({ provider: "aws", account: "a", service: "ec2", team: "p", amountUsd: 100, date: "2026-06-01" });
+    cm.record({ provider: "gcp", account: "b", service: "ec2", team: "q", amountUsd: 200, date: "2026-06-01" });
+    assert.equal(cm.serviceSpend("ec2"), 300);
+  });
+
+  it("summary aggregates by service, team and provider", () => {
+    const bus = new EventBus();
+    const cm = new CloudCostManager(bus);
+    cm.record({ provider: "aws", account: "a", service: "ec2", team: "platform", amountUsd: 100, date: "2026-06-01" });
+    cm.record({ provider: "gcp", account: "b", service: "gke", team: "data", amountUsd: 200, date: "2026-06-01" });
+    const s = cm.summary();
+    assert.equal(s.totalSpendUsd, 300);
+    assert.equal(s.byService.ec2, 100);
+    assert.equal(s.byTeam.data, 200);
+    assert.equal(s.byProvider.aws, 100);
+  });
+});
+
+describe("RightsizingManager", () => {
+  it("analyze recommends downsize for underutilized resource", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rightsizing.recommendation", (e) => { events.push(e.payload); });
+    const rm = new RightsizingManager(bus, 20, 85);
+    const r = rm.registerResource({ name: "web-1", type: "compute", currentSize: "m5.large", monthlyCostUsd: 100, avgUtilizationPct: 10 });
+    const rec = rm.analyze(r.id)!;
+    assert.equal(rec.action, "downsize");
+    assert.equal(rec.monthlySavingsUsd, 40);
+    assert.equal(events.length, 1);
+  });
+
+  it("analyze recommends terminate for idle resource", () => {
+    const bus = new EventBus();
+    const rm = new RightsizingManager(bus);
+    const r = rm.registerResource({ name: "orphan", type: "compute", currentSize: "m5.large", monthlyCostUsd: 100, avgUtilizationPct: 2 });
+    const rec = rm.analyze(r.id)!;
+    assert.equal(rec.action, "terminate");
+    assert.equal(rec.monthlySavingsUsd, 100);
+  });
+
+  it("analyze recommends upsize for saturated resource", () => {
+    const bus = new EventBus();
+    const rm = new RightsizingManager(bus);
+    const r = rm.registerResource({ name: "hot", type: "database", currentSize: "db.large", monthlyCostUsd: 200, avgUtilizationPct: 95 });
+    assert.equal(rm.analyze(r.id)!.action, "upsize");
+  });
+
+  it("healthy resource yields no recommendation", () => {
+    const bus = new EventBus();
+    const rm = new RightsizingManager(bus);
+    const r = rm.registerResource({ name: "ok", type: "compute", currentSize: "m5", monthlyCostUsd: 100, avgUtilizationPct: 50 });
+    assert.equal(rm.analyze(r.id), undefined);
+  });
+
+  it("apply reduces resource cost and publishes applied", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rightsizing.applied", (e) => { events.push(e.payload); });
+    const rm = new RightsizingManager(bus);
+    const r = rm.registerResource({ name: "web", type: "compute", currentSize: "m5.large", monthlyCostUsd: 100, avgUtilizationPct: 10 });
+    const rec = rm.analyze(r.id)!;
+    rm.apply(rec.id);
+    assert.equal(rm.getResource(r.id)!.monthlyCostUsd, 60);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates potential and realized savings", () => {
+    const bus = new EventBus();
+    const rm = new RightsizingManager(bus);
+    const r1 = rm.registerResource({ name: "a", type: "compute", currentSize: "m5", monthlyCostUsd: 100, avgUtilizationPct: 10 });
+    const rec1 = rm.analyze(r1.id)!; rm.apply(rec1.id);
+    const r2 = rm.registerResource({ name: "b", type: "compute", currentSize: "m5", monthlyCostUsd: 100, avgUtilizationPct: 2 });
+    rm.analyze(r2.id);
+    const s = rm.summary();
+    assert.equal(s.appliedRecommendations, 1);
+    assert.equal(s.realizedMonthlySavingsUsd, 40);
+    assert.equal(s.potentialMonthlySavingsUsd, 100);
   });
 });

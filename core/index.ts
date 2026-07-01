@@ -249,6 +249,8 @@ import { MaintenanceWindowManager } from "./maintenance-window/maintenance-windo
 import { ChangeFreezeManager } from "./change-freeze/change-freeze-manager.js";
 import { SLOManager } from "./slo/slo-manager.js";
 import { RunbookManager } from "./runbook/runbook-manager.js";
+import { CloudCostManager } from "./cloud-cost/cloud-cost-manager.js";
+import { RightsizingManager } from "./rightsizing/rightsizing-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -586,6 +588,8 @@ export class Olympus {
   readonly changeFreeze: ChangeFreezeManager;
   readonly slo: SLOManager;
   readonly runbook: RunbookManager;
+  readonly cloudCost: CloudCostManager;
+  readonly rightsizing: RightsizingManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -827,6 +831,8 @@ export class Olympus {
     this.changeFreeze = new ChangeFreezeManager(this.bus);
     this.slo = new SLOManager(this.bus);
     this.runbook = new RunbookManager(this.bus);
+    this.cloudCost = new CloudCostManager(this.bus);
+    this.rightsizing = new RightsizingManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1074,3 +1080,5 @@ export { MaintenanceWindowManager, type WindowStatus, type WindowType, type Main
 export { ChangeFreezeManager, type FreezeStatus, type FreezeExemptionStatus, type FreezeExemption, type ChangeFreeze, type ChangeFreezeSummary } from "./change-freeze/index.js";
 export { SLOManager, type SLOWindow, type SLO, type SLOSummary } from "./slo/index.js";
 export { RunbookManager, type RunbookExecutionStatus, type RunbookProcedureStep, type Runbook, type StepExecution, type RunbookExecution, type RunbookSummary } from "./runbook/index.js";
+export { CloudCostManager, type CloudProvider, type CostEntry, type CloudCostSummary } from "./cloud-cost/index.js";
+export { RightsizingManager, type CloudResourceType, type RecAction, type RecStatus, type CloudResource, type RightsizingRecommendation, type RightsizingSummary } from "./rightsizing/index.js";
