@@ -166,6 +166,8 @@ import { KnowledgeGapManager } from "../knowledge-gap/knowledge-gap-manager.js";
 import { MacroManager } from "../macro/macro-manager.js";
 import { CSATManager } from "../csat/csat-manager.js";
 import { AgentPerformanceManager } from "../agent-performance/agent-performance-manager.js";
+import { PostmortemManager } from "../postmortem/postmortem-manager.js";
+import { ShiftHandoverManager } from "../shift-handover/shift-handover-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18951,5 +18953,132 @@ describe("AgentPerformanceManager", () => {
     assert.equal(s.totalAgents, 2);
     assert.equal(s.avgCsatPct, 85);
     assert.equal(s.totalTicketsResolved, 100);
+  });
+});
+
+describe("PostmortemManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("postmortem.created", (e) => { events.push(e.payload); });
+    const pm = new PostmortemManager(bus);
+    pm.create({ incidentRef: "INC-1", title: "API outage", severity: "sev1", summary: "..." });
+    assert.equal(events.length, 1);
+  });
+
+  it("setRootCause moves draft to in_review", () => {
+    const bus = new EventBus();
+    const pm = new PostmortemManager(bus);
+    const d = pm.create({ incidentRef: "INC-1", title: "X", severity: "sev2", summary: "s" });
+    pm.setRootCause(d.id, "bad deploy", ["missing test"]);
+    assert.equal(pm.getPostmortem(d.id)!.status, "in_review");
+  });
+
+  it("addAction publishes action_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("postmortem.action_added", (e) => { events.push(e.payload); });
+    const pm = new PostmortemManager(bus);
+    const d = pm.create({ incidentRef: "INC-1", title: "X", severity: "sev2", summary: "s" });
+    pm.addAction(d.id, "Add canary", "sre1", "2026-07-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("publish requires a root cause", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("postmortem.published", (e) => { events.push(e.payload); });
+    const pm = new PostmortemManager(bus);
+    const d = pm.create({ incidentRef: "INC-1", title: "X", severity: "sev2", summary: "s" });
+    assert.equal(pm.publish(d.id, "2026-06-05"), undefined);
+    pm.setRootCause(d.id, "rc");
+    pm.publish(d.id, "2026-06-05");
+    assert.equal(pm.getPostmortem(d.id)!.status, "published");
+    assert.equal(events.length, 1);
+  });
+
+  it("timeline events are sorted", () => {
+    const bus = new EventBus();
+    const pm = new PostmortemManager(bus);
+    const d = pm.create({ incidentRef: "INC-1", title: "X", severity: "sev3", summary: "s" });
+    pm.addTimelineEvent(d.id, "2026-06-01T10:00:00.000Z", "detected");
+    pm.addTimelineEvent(d.id, "2026-06-01T09:00:00.000Z", "started");
+    assert.equal(pm.getPostmortem(d.id)!.timeline[0]!.description, "started");
+  });
+
+  it("summary computes action completion", () => {
+    const bus = new EventBus();
+    const pm = new PostmortemManager(bus);
+    const d = pm.create({ incidentRef: "INC-1", title: "X", severity: "sev1", summary: "s" });
+    const a1 = pm.addAction(d.id, "A", "u1", "2026-07-01")!;
+    pm.addAction(d.id, "B", "u2", "2026-07-01");
+    pm.completeAction(d.id, a1.id);
+    const s = pm.summary();
+    assert.equal(s.completedActions, 1);
+    assert.equal(s.openActions, 1);
+    assert.equal(s.actionCompletionPct, 50);
+    assert.equal(s.bySeverity.sev1, 1);
+  });
+});
+
+describe("ShiftHandoverManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("handover.created", (e) => { events.push(e.payload); });
+    const hm = new ShiftHandoverManager(bus);
+    hm.create({ team: "sre", shift: "2026-06-01-night", fromOperator: "op1" });
+    assert.equal(events.length, 1);
+  });
+
+  it("acknowledge publishes acknowledged", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("handover.acknowledged", (e) => { events.push(e.payload); });
+    const hm = new ShiftHandoverManager(bus);
+    const h = hm.create({ team: "sre", shift: "s1", fromOperator: "op1" });
+    hm.acknowledge(h.id, "op2", "2026-06-02T08:00:00.000Z");
+    assert.equal(hm.getHandover(h.id)!.status, "acknowledged");
+    assert.equal(events.length, 1);
+  });
+
+  it("cannot add items after acknowledgement", () => {
+    const bus = new EventBus();
+    const hm = new ShiftHandoverManager(bus);
+    const h = hm.create({ team: "sre", shift: "s1", fromOperator: "op1" });
+    hm.acknowledge(h.id, "op2", "2026-06-02T08:00:00.000Z");
+    assert.equal(hm.addItem(h.id, "x", "info"), undefined);
+  });
+
+  it("openItems excludes resolved", () => {
+    const bus = new EventBus();
+    const hm = new ShiftHandoverManager(bus);
+    const h = hm.create({ team: "sre", shift: "s1", fromOperator: "op1" });
+    const i1 = hm.addItem(h.id, "disk filling", "watch")!;
+    hm.addItem(h.id, "cert expiring", "action_required");
+    hm.resolveItem(h.id, i1.id);
+    assert.equal(hm.openItems(h.id).length, 1);
+  });
+
+  it("carryForward moves unresolved items to next shift", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("handover.item_carried", (e) => { events.push(e.payload); });
+    const hm = new ShiftHandoverManager(bus);
+    const h = hm.create({ team: "sre", shift: "s1", fromOperator: "op1" });
+    hm.addItem(h.id, "watch db", "watch");
+    const next = hm.carryForward(h.id, "s2", "op2")!;
+    assert.equal(next.items.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates open handovers and action items", () => {
+    const bus = new EventBus();
+    const hm = new ShiftHandoverManager(bus);
+    const h = hm.create({ team: "sre", shift: "s1", fromOperator: "op1" });
+    hm.addItem(h.id, "fix cert", "action_required");
+    const s = hm.summary();
+    assert.equal(s.open, 1);
+    assert.equal(s.openActionItems, 1);
   });
 });

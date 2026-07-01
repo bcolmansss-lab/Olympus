@@ -368,6 +368,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/macros", handler: (_req, res) => res.json(200, { summary: this.olympus.macro.summary(), macros: this.olympus.macro.listMacros(undefined, "active") }) },
       { method: "GET", pattern: "/v1/csat", handler: (_req, res) => res.json(200, { summary: this.olympus.csat.summary() }) },
       { method: "GET", pattern: "/v1/agent-performance", handler: (_req, res) => res.json(200, { summary: this.olympus.agentPerformance.summary() }) },
+      { method: "GET", pattern: "/v1/postmortems", handler: (_req, res) => res.json(200, { summary: this.olympus.postmortem.summary(), postmortems: this.olympus.postmortem.listPostmortems() }) },
+      { method: "GET", pattern: "/v1/shift-handovers", handler: (_req, res) => res.json(200, { summary: this.olympus.shiftHandover.summary(), open: this.olympus.shiftHandover.listHandovers(undefined, "open") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
