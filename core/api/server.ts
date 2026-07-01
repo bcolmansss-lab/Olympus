@@ -350,6 +350,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/phishing-sim", handler: (_req, res) => res.json(200, { summary: this.olympus.phishingSim.summary(), campaigns: this.olympus.phishingSim.listCampaigns() }) },
       { method: "GET", pattern: "/v1/backups", handler: (_req, res) => res.json(200, { summary: this.olympus.backup.summary(), policies: this.olympus.backup.listPolicies() }) },
       { method: "GET", pattern: "/v1/disaster-recovery", handler: (_req, res) => res.json(200, { summary: this.olympus.disasterRecovery.summary(), plans: this.olympus.disasterRecovery.listPlans() }) },
+      { method: "GET", pattern: "/v1/maintenance-windows", handler: (_req, res) => res.json(200, { summary: this.olympus.maintenanceWindow.summary(), windows: this.olympus.maintenanceWindow.listWindows() }) },
+      { method: "GET", pattern: "/v1/change-freezes", handler: (_req, res) => res.json(200, { summary: this.olympus.changeFreeze.summary(), active: this.olympus.changeFreeze.listFreezes("active") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

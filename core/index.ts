@@ -245,6 +245,8 @@ import { PenTestManager } from "./pentest/pentest-manager.js";
 import { PhishingSimulationManager } from "./phishing-sim/phishing-simulation-manager.js";
 import { BackupManager } from "./backup/backup-manager.js";
 import { DisasterRecoveryManager } from "./disaster-recovery/disaster-recovery-manager.js";
+import { MaintenanceWindowManager } from "./maintenance-window/maintenance-window-manager.js";
+import { ChangeFreezeManager } from "./change-freeze/change-freeze-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -578,6 +580,8 @@ export class Olympus {
   readonly phishingSim: PhishingSimulationManager;
   readonly backup: BackupManager;
   readonly disasterRecovery: DisasterRecoveryManager;
+  readonly maintenanceWindow: MaintenanceWindowManager;
+  readonly changeFreeze: ChangeFreezeManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -815,6 +819,8 @@ export class Olympus {
     this.phishingSim = new PhishingSimulationManager(this.bus);
     this.backup = new BackupManager(this.bus);
     this.disasterRecovery = new DisasterRecoveryManager(this.bus);
+    this.maintenanceWindow = new MaintenanceWindowManager(this.bus);
+    this.changeFreeze = new ChangeFreezeManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1058,3 +1064,5 @@ export { PenTestManager, type PenTestSeverity, type PenTestEngagementStatus, typ
 export { PhishingSimulationManager, type PhishingCampaignStatus, type RecipientOutcome, type PhishingTarget, type PhishingCampaign, type PhishingSummary } from "./phishing-sim/index.js";
 export { BackupManager, type BackupFrequency, type RunResult, type BackupRun, type BackupPolicy, type BackupSummary } from "./backup/index.js";
 export { DisasterRecoveryManager, type DRPlanStatus, type DRTier, type RunbookStep, type DRTest, type DRPlan, type DRSummary } from "./disaster-recovery/index.js";
+export { MaintenanceWindowManager, type WindowStatus, type WindowType, type MaintenanceWindow, type MaintenanceWindowSummary } from "./maintenance-window/index.js";
+export { ChangeFreezeManager, type FreezeStatus, type FreezeExemptionStatus, type FreezeExemption, type ChangeFreeze, type ChangeFreezeSummary } from "./change-freeze/index.js";

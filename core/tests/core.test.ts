@@ -148,6 +148,8 @@ import { PenTestManager } from "../pentest/pentest-manager.js";
 import { PhishingSimulationManager } from "../phishing-sim/phishing-simulation-manager.js";
 import { BackupManager } from "../backup/backup-manager.js";
 import { DisasterRecoveryManager } from "../disaster-recovery/disaster-recovery-manager.js";
+import { MaintenanceWindowManager } from "../maintenance-window/maintenance-window-manager.js";
+import { ChangeFreezeManager } from "../change-freeze/change-freeze-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17821,5 +17823,118 @@ describe("DisasterRecoveryManager", () => {
     assert.equal(s.plansMeetingTargets, 1);
     assert.equal(s.readinessPct, 50);
     assert.equal(s.byTier.tier1, 1);
+  });
+});
+
+describe("MaintenanceWindowManager", () => {
+  it("schedule publishes scheduled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("maintwindow.scheduled", (e) => { events.push(e.payload); });
+    const mm = new MaintenanceWindowManager(bus);
+    mm.schedule({ title: "DB upgrade", type: "planned", services: ["db"], start: "2026-07-01T02:00:00.000Z", end: "2026-07-01T04:00:00.000Z" });
+    assert.equal(events.length, 1);
+  });
+
+  it("conflicts detects overlapping windows sharing a service", () => {
+    const bus = new EventBus();
+    const mm = new MaintenanceWindowManager(bus);
+    mm.schedule({ title: "A", type: "planned", services: ["db"], start: "2026-07-01T02:00:00.000Z", end: "2026-07-01T04:00:00.000Z" });
+    const c = mm.conflicts(["db"], "2026-07-01T03:00:00.000Z", "2026-07-01T05:00:00.000Z");
+    assert.equal(c.length, 1);
+  });
+
+  it("start then complete computes duration", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("maintwindow.completed", (e) => { events.push(e.payload); });
+    const mm = new MaintenanceWindowManager(bus);
+    const w = mm.schedule({ title: "A", type: "planned", services: ["db"], start: "2026-07-01T02:00:00.000Z", end: "2026-07-01T04:00:00.000Z" });
+    mm.start(w.id, "2026-07-01T02:00:00.000Z");
+    mm.complete(w.id, "2026-07-01T03:00:00.000Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].actualDurationMinutes, 60);
+  });
+
+  it("isServiceInMaintenance reflects in-progress window", () => {
+    const bus = new EventBus();
+    const mm = new MaintenanceWindowManager(bus);
+    const w = mm.schedule({ title: "A", type: "planned", services: ["api"], start: "2026-07-01T02:00:00.000Z", end: "2026-07-01T04:00:00.000Z" });
+    mm.start(w.id, "2026-07-01T02:00:00.000Z");
+    assert.equal(mm.isServiceInMaintenance("api", "2026-07-01T03:00:00.000Z"), true);
+  });
+
+  it("cancel blocks completed windows", () => {
+    const bus = new EventBus();
+    const mm = new MaintenanceWindowManager(bus);
+    const w = mm.schedule({ title: "A", type: "planned", services: ["db"], start: "2026-07-01T02:00:00.000Z", end: "2026-07-01T04:00:00.000Z" });
+    mm.start(w.id, "2026-07-01T02:00:00.000Z"); mm.complete(w.id, "2026-07-01T03:00:00.000Z");
+    assert.equal(mm.cancel(w.id), undefined);
+  });
+
+  it("summary aggregates affected services and emergencies", () => {
+    const bus = new EventBus();
+    const mm = new MaintenanceWindowManager(bus);
+    mm.schedule({ title: "A", type: "planned", services: ["db", "api"], start: "2026-07-01T02:00:00.000Z", end: "2026-07-01T04:00:00.000Z" });
+    mm.schedule({ title: "B", type: "emergency", services: ["cache"], start: "2026-07-02T02:00:00.000Z", end: "2026-07-02T03:00:00.000Z" });
+    const s = mm.summary();
+    assert.equal(s.totalWindows, 2);
+    assert.equal(s.emergencyCount, 1);
+    assert.equal(s.affectedServices, 3);
+  });
+});
+
+describe("ChangeFreezeManager", () => {
+  it("declare publishes declared", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("freeze.declared", (e) => { events.push(e.payload); });
+    const cm = new ChangeFreezeManager(bus);
+    cm.declare({ reason: "Holiday peak", scope: ["*"], start: "2026-12-20", end: "2027-01-02" });
+    assert.equal(events.length, 1);
+  });
+
+  it("isChangeAllowed blocks in-scope changes during freeze", () => {
+    const bus = new EventBus();
+    const cm = new ChangeFreezeManager(bus);
+    cm.declare({ reason: "peak", scope: ["checkout"], start: "2026-12-20", end: "2027-01-02" });
+    assert.equal(cm.isChangeAllowed("checkout", "2026-12-25"), false);
+    assert.equal(cm.isChangeAllowed("billing", "2026-12-25"), true); // out of scope
+  });
+
+  it("approved exemption permits the requester", () => {
+    const bus = new EventBus();
+    const cm = new ChangeFreezeManager(bus);
+    const f = cm.declare({ reason: "peak", scope: ["*"], start: "2026-12-20", end: "2027-01-02" });
+    const ex = cm.requestExemption(f.id, "u1", "critical hotfix")!;
+    cm.decideExemption(f.id, ex.id, "cto", true);
+    assert.equal(cm.isChangeAllowed("checkout", "2026-12-25", "u1"), true);
+    assert.equal(cm.isChangeAllowed("checkout", "2026-12-25", "u2"), false);
+  });
+
+  it("changes allowed outside the freeze window", () => {
+    const bus = new EventBus();
+    const cm = new ChangeFreezeManager(bus);
+    cm.declare({ reason: "peak", scope: ["*"], start: "2026-12-20", end: "2027-01-02" });
+    assert.equal(cm.isChangeAllowed("checkout", "2026-06-01"), true);
+  });
+
+  it("lifted freeze no longer blocks", () => {
+    const bus = new EventBus();
+    const cm = new ChangeFreezeManager(bus);
+    const f = cm.declare({ reason: "peak", scope: ["*"], start: "2026-12-20", end: "2027-01-02" });
+    cm.lift(f.id);
+    assert.equal(cm.isChangeAllowed("checkout", "2026-12-25"), true);
+  });
+
+  it("summary aggregates freezes and exemptions", () => {
+    const bus = new EventBus();
+    const cm = new ChangeFreezeManager(bus);
+    const f = cm.declare({ reason: "peak", scope: ["*"], start: "2026-12-20", end: "2027-01-02" });
+    const ex = cm.requestExemption(f.id, "u1", "x")!;
+    cm.decideExemption(f.id, ex.id, "cto", true);
+    const s = cm.summary();
+    assert.equal(s.active, 1);
+    assert.equal(s.approvedExemptions, 1);
   });
 });
