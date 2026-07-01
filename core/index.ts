@@ -265,6 +265,8 @@ import { CSATManager } from "./csat/csat-manager.js";
 import { AgentPerformanceManager } from "./agent-performance/agent-performance-manager.js";
 import { PostmortemManager } from "./postmortem/postmortem-manager.js";
 import { ShiftHandoverManager } from "./shift-handover/shift-handover-manager.js";
+import { PolicyAttestationManager } from "./policy-attestation/policy-attestation-manager.js";
+import { ConflictOfInterestManager } from "./conflict-of-interest/conflict-of-interest-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -618,6 +620,8 @@ export class Olympus {
   readonly agentPerformance: AgentPerformanceManager;
   readonly postmortem: PostmortemManager;
   readonly shiftHandover: ShiftHandoverManager;
+  readonly policyAttestation: PolicyAttestationManager;
+  readonly conflictOfInterest: ConflictOfInterestManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -875,6 +879,8 @@ export class Olympus {
     this.agentPerformance = new AgentPerformanceManager(this.bus);
     this.postmortem = new PostmortemManager(this.bus);
     this.shiftHandover = new ShiftHandoverManager(this.bus);
+    this.policyAttestation = new PolicyAttestationManager(this.bus);
+    this.conflictOfInterest = new ConflictOfInterestManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1138,3 +1144,5 @@ export { CSATManager, type CSATChannel, type CSATResponse, type CSATSummary } fr
 export { AgentPerformanceManager, type AgentPeriodMetrics, type SupportAgent, type AgentScore, type AgentPerformanceSummary } from "./agent-performance/index.js";
 export { PostmortemManager, type PostmortemStatus, type PostmortemSeverity, type TimelineEvent, type PostmortemAction, type PostmortemDoc, type PostmortemSummary } from "./postmortem/index.js";
 export { ShiftHandoverManager, type HandoverStatus, type HandoverItemPriority, type HandoverItem, type Handover, type HandoverSummary } from "./shift-handover/index.js";
+export { PolicyAttestationManager, type AttestationCampaignStatus, type AttestationRecord, type AttestationCampaign, type AttestationSummary } from "./policy-attestation/index.js";
+export { ConflictOfInterestManager, type COICategory, type COIStatus, type Disclosure, type COISummary } from "./conflict-of-interest/index.js";

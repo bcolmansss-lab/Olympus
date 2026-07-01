@@ -168,6 +168,8 @@ import { CSATManager } from "../csat/csat-manager.js";
 import { AgentPerformanceManager } from "../agent-performance/agent-performance-manager.js";
 import { PostmortemManager } from "../postmortem/postmortem-manager.js";
 import { ShiftHandoverManager } from "../shift-handover/shift-handover-manager.js";
+import { PolicyAttestationManager } from "../policy-attestation/policy-attestation-manager.js";
+import { ConflictOfInterestManager } from "../conflict-of-interest/conflict-of-interest-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19080,5 +19082,127 @@ describe("ShiftHandoverManager", () => {
     const s = hm.summary();
     assert.equal(s.open, 1);
     assert.equal(s.openActionItems, 1);
+  });
+});
+
+describe("PolicyAttestationManager", () => {
+  it("launch publishes campaign_launched and dedupes population", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("attestation.campaign_launched", (e) => { events.push(e.payload); });
+    const pm = new PolicyAttestationManager(bus);
+    const c = pm.launch({ policy: "Code of Conduct", version: "2026", dueDate: "2026-07-01", population: ["u1", "u2", "u1"] });
+    assert.equal(c.records.length, 2);
+    assert.equal(events.length, 1);
+  });
+
+  it("sign publishes signed and updates completion", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("attestation.signed", (e) => { events.push(e.payload); });
+    const pm = new PolicyAttestationManager(bus);
+    const c = pm.launch({ policy: "P", version: "1", dueDate: "2026-07-01", population: ["u1", "u2"] });
+    pm.sign(c.id, "u1", "2026-06-15");
+    assert.equal(pm.completionPct(c.id), 50);
+    assert.equal(events.length, 1);
+  });
+
+  it("double sign is rejected", () => {
+    const bus = new EventBus();
+    const pm = new PolicyAttestationManager(bus);
+    const c = pm.launch({ policy: "P", version: "1", dueDate: "2026-07-01", population: ["u1"] });
+    pm.sign(c.id, "u1", "2026-06-15");
+    assert.equal(pm.sign(c.id, "u1", "2026-06-16"), undefined);
+  });
+
+  it("outstanding lists unsigned users", () => {
+    const bus = new EventBus();
+    const pm = new PolicyAttestationManager(bus);
+    const c = pm.launch({ policy: "P", version: "1", dueDate: "2026-07-01", population: ["u1", "u2"] });
+    pm.sign(c.id, "u1", "2026-06-15");
+    assert.deepEqual(pm.outstanding(c.id), ["u2"]);
+  });
+
+  it("checkOverdue publishes overdue past due date", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("attestation.overdue", (e) => { events.push(e.payload); });
+    const pm = new PolicyAttestationManager(bus);
+    const c = pm.launch({ policy: "P", version: "1", dueDate: "2026-06-01", population: ["u1"] });
+    assert.equal(pm.checkOverdue(c.id, "2026-07-01"), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates signed and completion", () => {
+    const bus = new EventBus();
+    const pm = new PolicyAttestationManager(bus);
+    const c = pm.launch({ policy: "P", version: "1", dueDate: "2026-07-01", population: ["u1", "u2", "u3", "u4"] });
+    pm.sign(c.id, "u1", "2026-06-15"); pm.sign(c.id, "u2", "2026-06-15");
+    const s = pm.summary();
+    assert.equal(s.totalAssigned, 4);
+    assert.equal(s.totalSigned, 2);
+    assert.equal(s.completionPct, 50);
+  });
+});
+
+describe("ConflictOfInterestManager", () => {
+  it("disclose publishes disclosed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("coi.disclosed", (e) => { events.push(e.payload); });
+    const cm = new ConflictOfInterestManager(bus);
+    cm.disclose({ employeeId: "e1", category: "vendor_relationship", description: "spouse works at vendor", relatedParty: "Acme", disclosedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("clear publishes reviewed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("coi.reviewed", (e) => { events.push(e.payload); });
+    const cm = new ConflictOfInterestManager(bus);
+    const d = cm.disclose({ employeeId: "e1", category: "gifts", description: "x", relatedParty: "V", disclosedAt: "2026-06-01" });
+    cm.clear(d.id, "2026-06-05");
+    assert.equal(cm.getDisclosure(d.id)!.status, "cleared");
+    assert.equal(events.length, 1);
+  });
+
+  it("requireMitigation sets plan and fires mitigation_required", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("coi.mitigation_required", (e) => { events.push(e.payload); });
+    const cm = new ConflictOfInterestManager(bus);
+    const d = cm.disclose({ employeeId: "e1", category: "outside_employment", description: "x", relatedParty: "Y", disclosedAt: "2026-06-01" });
+    cm.requireMitigation(d.id, "recuse from vendor decisions", "2026-06-05");
+    assert.equal(cm.getDisclosure(d.id)!.mitigationPlan, "recuse from vendor decisions");
+    assert.equal(events.length, 1);
+  });
+
+  it("prohibit blocks further review", () => {
+    const bus = new EventBus();
+    const cm = new ConflictOfInterestManager(bus);
+    const d = cm.disclose({ employeeId: "e1", category: "financial_interest", description: "x", relatedParty: "Y", disclosedAt: "2026-06-01" });
+    cm.prohibit(d.id, "2026-06-05");
+    assert.equal(cm.clear(d.id, "2026-06-06"), undefined);
+  });
+
+  it("employeeDisclosures filters by employee", () => {
+    const bus = new EventBus();
+    const cm = new ConflictOfInterestManager(bus);
+    cm.disclose({ employeeId: "e1", category: "gifts", description: "x", relatedParty: "Y", disclosedAt: "2026-06-01" });
+    cm.disclose({ employeeId: "e2", category: "gifts", description: "x", relatedParty: "Y", disclosedAt: "2026-06-01" });
+    assert.equal(cm.employeeDisclosures("e1").length, 1);
+  });
+
+  it("summary aggregates statuses and categories", () => {
+    const bus = new EventBus();
+    const cm = new ConflictOfInterestManager(bus);
+    const d1 = cm.disclose({ employeeId: "e1", category: "board_membership", description: "x", relatedParty: "Y", disclosedAt: "2026-06-01" });
+    cm.clear(d1.id, "2026-06-05");
+    cm.disclose({ employeeId: "e2", category: "gifts", description: "x", relatedParty: "Y", disclosedAt: "2026-06-01" });
+    const s = cm.summary();
+    assert.equal(s.totalDisclosures, 2);
+    assert.equal(s.cleared, 1);
+    assert.equal(s.pendingReview, 1);
+    assert.equal(s.byCategory.gifts, 1);
   });
 });
