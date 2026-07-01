@@ -247,6 +247,8 @@ import { BackupManager } from "./backup/backup-manager.js";
 import { DisasterRecoveryManager } from "./disaster-recovery/disaster-recovery-manager.js";
 import { MaintenanceWindowManager } from "./maintenance-window/maintenance-window-manager.js";
 import { ChangeFreezeManager } from "./change-freeze/change-freeze-manager.js";
+import { SLOManager } from "./slo/slo-manager.js";
+import { RunbookManager } from "./runbook/runbook-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -582,6 +584,8 @@ export class Olympus {
   readonly disasterRecovery: DisasterRecoveryManager;
   readonly maintenanceWindow: MaintenanceWindowManager;
   readonly changeFreeze: ChangeFreezeManager;
+  readonly slo: SLOManager;
+  readonly runbook: RunbookManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -821,6 +825,8 @@ export class Olympus {
     this.disasterRecovery = new DisasterRecoveryManager(this.bus);
     this.maintenanceWindow = new MaintenanceWindowManager(this.bus);
     this.changeFreeze = new ChangeFreezeManager(this.bus);
+    this.slo = new SLOManager(this.bus);
+    this.runbook = new RunbookManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1066,3 +1072,5 @@ export { BackupManager, type BackupFrequency, type RunResult, type BackupRun, ty
 export { DisasterRecoveryManager, type DRPlanStatus, type DRTier, type RunbookStep, type DRTest, type DRPlan, type DRSummary } from "./disaster-recovery/index.js";
 export { MaintenanceWindowManager, type WindowStatus, type WindowType, type MaintenanceWindow, type MaintenanceWindowSummary } from "./maintenance-window/index.js";
 export { ChangeFreezeManager, type FreezeStatus, type FreezeExemptionStatus, type FreezeExemption, type ChangeFreeze, type ChangeFreezeSummary } from "./change-freeze/index.js";
+export { SLOManager, type SLOWindow, type SLO, type SLOSummary } from "./slo/index.js";
+export { RunbookManager, type RunbookExecutionStatus, type RunbookProcedureStep, type Runbook, type StepExecution, type RunbookExecution, type RunbookSummary } from "./runbook/index.js";

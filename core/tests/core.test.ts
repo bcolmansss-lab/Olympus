@@ -150,6 +150,8 @@ import { BackupManager } from "../backup/backup-manager.js";
 import { DisasterRecoveryManager } from "../disaster-recovery/disaster-recovery-manager.js";
 import { MaintenanceWindowManager } from "../maintenance-window/maintenance-window-manager.js";
 import { ChangeFreezeManager } from "../change-freeze/change-freeze-manager.js";
+import { SLOManager } from "../slo/slo-manager.js";
+import { RunbookManager } from "../runbook/runbook-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17936,5 +17938,138 @@ describe("ChangeFreezeManager", () => {
     const s = cm.summary();
     assert.equal(s.active, 1);
     assert.equal(s.approvedExemptions, 1);
+  });
+});
+
+describe("SLOManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("slo.created", (e) => { events.push(e.payload); });
+    const sm = new SLOManager(bus);
+    sm.create({ service: "api", indicator: "availability", targetPct: 99.9, window: "30d" });
+    assert.equal(events.length, 1);
+  });
+
+  it("attainment reflects good/total ratio", () => {
+    const bus = new EventBus();
+    const sm = new SLOManager(bus);
+    const slo = sm.create({ service: "api", indicator: "availability", targetPct: 99, window: "30d" });
+    sm.record(slo.id, 990, 10);
+    assert.equal(sm.attainmentPct(slo.id), 99);
+  });
+
+  it("error budget remaining computed from allowed errors", () => {
+    const bus = new EventBus();
+    const sm = new SLOManager(bus);
+    const slo = sm.create({ service: "api", indicator: "availability", targetPct: 99, window: "30d" });
+    sm.record(slo.id, 995, 5); // allowed errors = 1% of 1000 = 10; actual 5 -> 50% budget left
+    assert.equal(sm.errorBudgetRemainingPct(slo.id), 50);
+  });
+
+  it("breach publishes slo.breached once", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("slo.breached", (e) => { events.push(e.payload); });
+    const sm = new SLOManager(bus);
+    const slo = sm.create({ service: "api", indicator: "availability", targetPct: 99.9, window: "30d" });
+    sm.record(slo.id, 900, 100); // 90% << 99.9%
+    sm.record(slo.id, 900, 100);
+    assert.equal(events.length, 1);
+  });
+
+  it("resetWindow clears counters", () => {
+    const bus = new EventBus();
+    const sm = new SLOManager(bus);
+    const slo = sm.create({ service: "api", indicator: "availability", targetPct: 99, window: "7d" });
+    sm.record(slo.id, 900, 100);
+    sm.resetWindow(slo.id);
+    assert.equal(sm.attainmentPct(slo.id), 100);
+  });
+
+  it("summary aggregates breached and at-risk", () => {
+    const bus = new EventBus();
+    const sm = new SLOManager(bus);
+    const a = sm.create({ service: "a", indicator: "x", targetPct: 99, window: "30d" });
+    sm.record(a.id, 900, 100); // breached
+    const b = sm.create({ service: "b", indicator: "x", targetPct: 99, window: "30d" });
+    sm.record(b.id, 1000, 0); // healthy
+    const s = sm.summary();
+    assert.equal(s.totalSLOs, 2);
+    assert.equal(s.breached, 1);
+    assert.equal(s.byWindow["30d"], 2);
+  });
+});
+
+describe("RunbookManager", () => {
+  it("publish requires steps and publishes published", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("runbook.published", (e) => { events.push(e.payload); });
+    const rm = new RunbookManager(bus);
+    const empty = rm.create("Empty", "ops", []);
+    assert.equal(rm.publish(empty.id), undefined);
+    const rb = rm.create("Failover", "ops", [{ instruction: "step 1" }]);
+    rm.publish(rb.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("startExecution requires published runbook", () => {
+    const bus = new EventBus();
+    const rm = new RunbookManager(bus);
+    const rb = rm.create("R", "ops", [{ instruction: "s1" }]);
+    assert.equal(rm.startExecution(rb.id, "op1", "2026-06-01T00:00:00.000Z"), undefined);
+    rm.publish(rb.id);
+    assert.ok(rm.startExecution(rb.id, "op1", "2026-06-01T00:00:00.000Z"));
+  });
+
+  it("completing all steps finishes execution", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("runbook.execution_completed", (e) => { events.push(e.payload); });
+    const rm = new RunbookManager(bus);
+    const rb = rm.create("R", "ops", [{ instruction: "s1" }, { instruction: "s2" }]);
+    rm.publish(rb.id);
+    const ex = rm.startExecution(rb.id, "op1", "2026-06-01T00:00:00.000Z")!;
+    rm.completeStep(ex.id, 1, "2026-06-01T00:10:00.000Z");
+    rm.completeStep(ex.id, 2, "2026-06-01T00:20:00.000Z");
+    assert.equal(rm.getExecution(ex.id)!.status, "completed");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].durationMinutes, 20);
+  });
+
+  it("abort marks execution aborted", () => {
+    const bus = new EventBus();
+    const rm = new RunbookManager(bus);
+    const rb = rm.create("R", "ops", [{ instruction: "s1" }]);
+    rm.publish(rb.id);
+    const ex = rm.startExecution(rb.id, "op1", "2026-06-01T00:00:00.000Z")!;
+    rm.abort(ex.id, "2026-06-01T00:05:00.000Z");
+    assert.equal(rm.getExecution(ex.id)!.status, "aborted");
+  });
+
+  it("newVersion increments and unpublishes", () => {
+    const bus = new EventBus();
+    const rm = new RunbookManager(bus);
+    const rb = rm.create("R", "ops", [{ instruction: "s1" }]);
+    rm.publish(rb.id);
+    rm.newVersion(rb.id, [{ instruction: "s1" }, { instruction: "s2" }]);
+    assert.equal(rm.getRunbook(rb.id)!.version, 2);
+    assert.equal(rm.getRunbook(rb.id)!.published, false);
+  });
+
+  it("summary computes execution success rate", () => {
+    const bus = new EventBus();
+    const rm = new RunbookManager(bus);
+    const rb = rm.create("R", "ops", [{ instruction: "s1" }]);
+    rm.publish(rb.id);
+    const e1 = rm.startExecution(rb.id, "op1", "2026-06-01T00:00:00.000Z")!;
+    rm.completeStep(e1.id, 1, "2026-06-01T00:05:00.000Z");
+    const e2 = rm.startExecution(rb.id, "op2", "2026-06-01T00:00:00.000Z")!;
+    rm.abort(e2.id, "2026-06-01T00:05:00.000Z");
+    const s = rm.summary();
+    assert.equal(s.totalExecutions, 2);
+    assert.equal(s.successfulExecutions, 1);
+    assert.equal(s.successRatePct, 50);
   });
 });
