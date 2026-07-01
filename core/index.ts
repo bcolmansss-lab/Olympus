@@ -257,6 +257,8 @@ import { AlertRoutingManager } from "./alert-routing/alert-routing-manager.js";
 import { ObservabilityDashboardManager } from "./obs-dashboard/observability-dashboard-manager.js";
 import { ReleaseNotesManager } from "./release-notes/release-notes-manager.js";
 import { BetaProgramManager } from "./beta-program/beta-program-manager.js";
+import { AnnouncementManager } from "./announcement/announcement-manager.js";
+import { PollManager } from "./poll/poll-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -602,6 +604,8 @@ export class Olympus {
   readonly obsDashboard: ObservabilityDashboardManager;
   readonly releaseNotes: ReleaseNotesManager;
   readonly betaProgram: BetaProgramManager;
+  readonly announcement: AnnouncementManager;
+  readonly poll: PollManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -851,6 +855,8 @@ export class Olympus {
     this.obsDashboard = new ObservabilityDashboardManager(this.bus);
     this.releaseNotes = new ReleaseNotesManager(this.bus);
     this.betaProgram = new BetaProgramManager(this.bus);
+    this.announcement = new AnnouncementManager(this.bus);
+    this.poll = new PollManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1106,3 +1112,5 @@ export { AlertRoutingManager, type RoutedAlertSeverity, type AlertState, type Ro
 export { ObservabilityDashboardManager, type Comparator, type WidgetHealth, type Widget, type ObsDashboard, type DashboardSummary } from "./obs-dashboard/index.js";
 export { ReleaseNotesManager, type ChangeCategory, type ReleaseState, type Reaction, type ChangelogEntry, type ChangelogRelease, type ReleaseNotesSummary } from "./release-notes/index.js";
 export { BetaProgramManager, type BetaProgramStatus, type BetaFeedbackSeverity, type BetaParticipant, type BetaFeedback, type BetaProgram, type BetaSummary } from "./beta-program/index.js";
+export { AnnouncementManager, type AnnouncementPriority, type AnnouncementStatus, type Announcement as InternalAnnouncement, type AnnouncementSummary } from "./announcement/index.js";
+export { PollManager, type PollStatus, type PollOption, type Poll, type PollSummary } from "./poll/index.js";

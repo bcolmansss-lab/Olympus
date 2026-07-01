@@ -160,6 +160,8 @@ import { AlertRoutingManager } from "../alert-routing/alert-routing-manager.js";
 import { ObservabilityDashboardManager } from "../obs-dashboard/observability-dashboard-manager.js";
 import { ReleaseNotesManager } from "../release-notes/release-notes-manager.js";
 import { BetaProgramManager } from "../beta-program/beta-program-manager.js";
+import { AnnouncementManager } from "../announcement/announcement-manager.js";
+import { PollManager } from "../poll/poll-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18579,5 +18581,131 @@ describe("BetaProgramManager", () => {
     assert.equal(s.totalParticipants, 2);
     assert.equal(s.totalFeedback, 1);
     assert.equal(s.blockers, 1);
+  });
+});
+
+describe("AnnouncementManager", () => {
+  it("publish publishes published", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("announcement.published", (e) => { events.push(e.payload); });
+    const am = new AnnouncementManager(bus);
+    const a = am.create({ title: "All hands", body: "Friday 3pm", audience: "all", priority: "important" });
+    am.publish(a.id, "2026-06-01");
+    assert.equal(am.getAnnouncement(a.id)!.status, "published");
+    assert.equal(events.length, 1);
+  });
+
+  it("markRead only on published", () => {
+    const bus = new EventBus();
+    const am = new AnnouncementManager(bus);
+    const a = am.create({ title: "X", body: "y", audience: "eng" });
+    assert.equal(am.markRead(a.id, "u1"), undefined);
+    am.publish(a.id, "2026-06-01");
+    am.markRead(a.id, "u1");
+    assert.equal(am.getAnnouncement(a.id)!.reads.has("u1"), true);
+  });
+
+  it("acknowledge requires ack-required announcement", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("announcement.acknowledged", (e) => { events.push(e.payload); });
+    const am = new AnnouncementManager(bus);
+    const a = am.create({ title: "Policy", body: "y", audience: "all", requiresAck: true });
+    am.publish(a.id, "2026-06-01");
+    am.acknowledge(a.id, "u1");
+    assert.equal(am.hasAcknowledged(a.id, "u1"), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("expireStale publishes expired", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("announcement.expired", (e) => { events.push(e.payload); });
+    const am = new AnnouncementManager(bus);
+    const a = am.create({ title: "X", body: "y", audience: "all", expiresAt: "2026-06-05" });
+    am.publish(a.id, "2026-06-01");
+    const expired = am.expireStale("2026-06-10");
+    assert.equal(expired.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("ack requires-ack pending counted until acknowledged", () => {
+    const bus = new EventBus();
+    const am = new AnnouncementManager(bus);
+    const a = am.create({ title: "X", body: "y", audience: "all", requiresAck: true });
+    am.publish(a.id, "2026-06-01");
+    assert.equal(am.summary().ackRequiredPending, 1);
+    am.acknowledge(a.id, "u1");
+    assert.equal(am.summary().ackRequiredPending, 0);
+  });
+
+  it("summary aggregates reads, acks and priority", () => {
+    const bus = new EventBus();
+    const am = new AnnouncementManager(bus);
+    const a = am.create({ title: "X", body: "y", audience: "all", priority: "urgent" });
+    am.publish(a.id, "2026-06-01"); am.markRead(a.id, "u1"); am.markRead(a.id, "u2");
+    const s = am.summary();
+    assert.equal(s.published, 1);
+    assert.equal(s.totalReads, 2);
+    assert.equal(s.byPriority.urgent, 1);
+  });
+});
+
+describe("PollManager", () => {
+  it("create requires 2+ options and publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("poll.created", (e) => { events.push(e.payload); });
+    const pm = new PollManager(bus);
+    assert.equal(pm.create("One?", ["a"]), undefined);
+    pm.create("Lunch?", ["Pizza", "Sushi"]);
+    assert.equal(events.length, 1);
+  });
+
+  it("vote enforces one vote per user", () => {
+    const bus = new EventBus();
+    const pm = new PollManager(bus);
+    const p = pm.create("Q", ["a", "b"])!;
+    pm.vote(p.id, "u1", [p.options[0]!.id]);
+    assert.equal(pm.vote(p.id, "u1", [p.options[1]!.id]), undefined);
+  });
+
+  it("single-select rejects multiple options", () => {
+    const bus = new EventBus();
+    const pm = new PollManager(bus);
+    const p = pm.create("Q", ["a", "b"], false)!;
+    assert.equal(pm.vote(p.id, "u1", [p.options[0]!.id, p.options[1]!.id]), undefined);
+  });
+
+  it("multi-select allows multiple options", () => {
+    const bus = new EventBus();
+    const pm = new PollManager(bus);
+    const p = pm.create("Q", ["a", "b", "c"], true)!;
+    assert.ok(pm.vote(p.id, "u1", [p.options[0]!.id, p.options[1]!.id]));
+  });
+
+  it("results compute percentages", () => {
+    const bus = new EventBus();
+    const pm = new PollManager(bus);
+    const p = pm.create("Q", ["a", "b"])!;
+    pm.vote(p.id, "u1", [p.options[0]!.id]);
+    pm.vote(p.id, "u2", [p.options[0]!.id]);
+    pm.vote(p.id, "u3", [p.options[1]!.id]);
+    const r = pm.results(p.id);
+    assert.equal(r[0]!.pct, 67);
+  });
+
+  it("close publishes closed with winner", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("poll.closed", (e) => { events.push(e.payload); });
+    const pm = new PollManager(bus);
+    const p = pm.create("Q", ["a", "b"])!;
+    pm.vote(p.id, "u1", [p.options[0]!.id]);
+    pm.close(p.id, "2026-06-01");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].winningOption, "a");
+    assert.equal(pm.vote(p.id, "u2", [p.options[1]!.id]), undefined); // closed
   });
 });
