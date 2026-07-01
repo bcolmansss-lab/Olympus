@@ -170,6 +170,8 @@ import { PostmortemManager } from "../postmortem/postmortem-manager.js";
 import { ShiftHandoverManager } from "../shift-handover/shift-handover-manager.js";
 import { PolicyAttestationManager } from "../policy-attestation/policy-attestation-manager.js";
 import { ConflictOfInterestManager } from "../conflict-of-interest/conflict-of-interest-manager.js";
+import { AuditFindingManager } from "../audit-finding/audit-finding-manager.js";
+import { ControlTestManager } from "../control-test/control-test-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19204,5 +19206,130 @@ describe("ConflictOfInterestManager", () => {
     assert.equal(s.cleared, 1);
     assert.equal(s.pendingReview, 1);
     assert.equal(s.byCategory.gifts, 1);
+  });
+});
+
+describe("AuditFindingManager", () => {
+  it("raise publishes raised", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("auditfinding.raised", (e) => { events.push(e.payload); });
+    const am = new AuditFindingManager(bus);
+    am.raise({ auditRef: "A-1", area: "AP", title: "No 3-way match", rating: "high", raisedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("recordResponse accepted moves to management_response", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("auditfinding.response_recorded", (e) => { events.push(e.payload); });
+    const am = new AuditFindingManager(bus);
+    const f = am.raise({ auditRef: "A-1", area: "AP", title: "x", rating: "medium", raisedAt: "2026-06-01" });
+    am.recordResponse(f.id, "will implement", true);
+    assert.equal(am.getFinding(f.id)!.status, "management_response");
+    assert.equal(events.length, 1);
+  });
+
+  it("full workflow to close publishes closed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("auditfinding.closed", (e) => { events.push(e.payload); });
+    const am = new AuditFindingManager(bus);
+    const f = am.raise({ auditRef: "A-1", area: "AP", title: "x", rating: "high", raisedAt: "2026-06-01" });
+    am.recordResponse(f.id, "ok", true);
+    am.planRemediation(f.id, "owner1", "2026-08-01");
+    am.close(f.id, "2026-06-21");
+    assert.equal(am.getFinding(f.id)!.status, "closed");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].daysOpen, 20);
+  });
+
+  it("planRemediation requires management_response", () => {
+    const bus = new EventBus();
+    const am = new AuditFindingManager(bus);
+    const f = am.raise({ auditRef: "A-1", area: "AP", title: "x", rating: "low", raisedAt: "2026-06-01" });
+    assert.equal(am.planRemediation(f.id, "o", "2026-08-01"), undefined);
+  });
+
+  it("risk-accepted response is a distinct terminal state", () => {
+    const bus = new EventBus();
+    const am = new AuditFindingManager(bus);
+    const f = am.raise({ auditRef: "A-1", area: "AP", title: "x", rating: "low", raisedAt: "2026-06-01" });
+    am.recordResponse(f.id, "accept", false);
+    assert.equal(am.getFinding(f.id)!.status, "risk_accepted");
+  });
+
+  it("summary counts past-due remediations", () => {
+    const bus = new EventBus();
+    const am = new AuditFindingManager(bus);
+    const f = am.raise({ auditRef: "A-1", area: "AP", title: "x", rating: "high", raisedAt: "2026-06-01" });
+    am.recordResponse(f.id, "ok", true);
+    am.planRemediation(f.id, "o", "2026-06-15");
+    const s = am.summary("2026-07-01");
+    assert.equal(s.pastDue, 1);
+    assert.equal(s.byRating.high, 1);
+  });
+});
+
+describe("ControlTestManager", () => {
+  it("registerControl publishes control_registered", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("controltest.control_registered", (e) => { events.push(e.payload); });
+    const cm = new ControlTestManager(bus);
+    cm.registerControl({ name: "Access review", process: "ITGC", frequency: "quarterly" });
+    assert.equal(events.length, 1);
+  });
+
+  it("execute with no exceptions passes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("controltest.executed", (e) => { events.push(e.payload); });
+    const cm = new ControlTestManager(bus);
+    const c = cm.registerControl({ name: "X", process: "P", frequency: "monthly" });
+    const run = cm.execute(c.id, { period: "2026-06", sampleSize: 25, exceptions: 0, testedAt: "2026-06-30" })!;
+    assert.equal(run.result, "pass");
+    assert.equal(cm.isEffective(c.id), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("high exception rate is material weakness and fires deficiency", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("controltest.deficiency", (e) => { events.push(e.payload); });
+    const cm = new ControlTestManager(bus);
+    const c = cm.registerControl({ name: "X", process: "P", frequency: "monthly" });
+    const run = cm.execute(c.id, { period: "2026-06", sampleSize: 10, exceptions: 6, testedAt: "2026-06-30" })!;
+    assert.equal(run.severity, "material_weakness");
+    assert.equal(events.length, 1);
+  });
+
+  it("moderate exceptions are a significant deficiency", () => {
+    const bus = new EventBus();
+    const cm = new ControlTestManager(bus);
+    const c = cm.registerControl({ name: "X", process: "P", frequency: "monthly" });
+    const run = cm.execute(c.id, { period: "2026-06", sampleSize: 10, exceptions: 3, testedAt: "2026-06-30" })!;
+    assert.equal(run.severity, "significant");
+  });
+
+  it("latestResult returns most recent run", () => {
+    const bus = new EventBus();
+    const cm = new ControlTestManager(bus);
+    const c = cm.registerControl({ name: "X", process: "P", frequency: "monthly" });
+    cm.execute(c.id, { period: "2026-05", sampleSize: 25, exceptions: 1, testedAt: "2026-05-31" });
+    cm.execute(c.id, { period: "2026-06", sampleSize: 25, exceptions: 0, testedAt: "2026-06-30" });
+    assert.equal(cm.latestResult(c.id)!.period, "2026-06");
+  });
+
+  it("summary computes effectiveness", () => {
+    const bus = new EventBus();
+    const cm = new ControlTestManager(bus);
+    const c = cm.registerControl({ name: "X", process: "P", frequency: "monthly" });
+    cm.execute(c.id, { period: "2026-05", sampleSize: 25, exceptions: 0, testedAt: "2026-05-31" });
+    cm.execute(c.id, { period: "2026-06", sampleSize: 25, exceptions: 5, testedAt: "2026-06-30" });
+    const s = cm.summary();
+    assert.equal(s.totalTests, 2);
+    assert.equal(s.passedTests, 1);
+    assert.equal(s.effectivenessPct, 50);
   });
 });

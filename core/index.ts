@@ -267,6 +267,8 @@ import { PostmortemManager } from "./postmortem/postmortem-manager.js";
 import { ShiftHandoverManager } from "./shift-handover/shift-handover-manager.js";
 import { PolicyAttestationManager } from "./policy-attestation/policy-attestation-manager.js";
 import { ConflictOfInterestManager } from "./conflict-of-interest/conflict-of-interest-manager.js";
+import { AuditFindingManager } from "./audit-finding/audit-finding-manager.js";
+import { ControlTestManager } from "./control-test/control-test-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -622,6 +624,8 @@ export class Olympus {
   readonly shiftHandover: ShiftHandoverManager;
   readonly policyAttestation: PolicyAttestationManager;
   readonly conflictOfInterest: ConflictOfInterestManager;
+  readonly auditFinding: AuditFindingManager;
+  readonly controlTest: ControlTestManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -881,6 +885,8 @@ export class Olympus {
     this.shiftHandover = new ShiftHandoverManager(this.bus);
     this.policyAttestation = new PolicyAttestationManager(this.bus);
     this.conflictOfInterest = new ConflictOfInterestManager(this.bus);
+    this.auditFinding = new AuditFindingManager(this.bus);
+    this.controlTest = new ControlTestManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1146,3 +1152,5 @@ export { PostmortemManager, type PostmortemStatus, type PostmortemSeverity, type
 export { ShiftHandoverManager, type HandoverStatus, type HandoverItemPriority, type HandoverItem, type Handover, type HandoverSummary } from "./shift-handover/index.js";
 export { PolicyAttestationManager, type AttestationCampaignStatus, type AttestationRecord, type AttestationCampaign, type AttestationSummary } from "./policy-attestation/index.js";
 export { ConflictOfInterestManager, type COICategory, type COIStatus, type Disclosure, type COISummary } from "./conflict-of-interest/index.js";
+export { AuditFindingManager, type FindingRating, type AuditFindingStatus, type AuditFinding, type AuditFindingSummary } from "./audit-finding/index.js";
+export { ControlTestManager, type ControlFrequency, type TestResult, type DeficiencySeverity, type TestRun, type TestableControl, type ControlTestSummary } from "./control-test/index.js";

@@ -372,6 +372,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/shift-handovers", handler: (_req, res) => res.json(200, { summary: this.olympus.shiftHandover.summary(), open: this.olympus.shiftHandover.listHandovers(undefined, "open") }) },
       { method: "GET", pattern: "/v1/policy-attestations", handler: (_req, res) => res.json(200, { summary: this.olympus.policyAttestation.summary(), active: this.olympus.policyAttestation.listCampaigns("active").map(c => ({ id: c.id, policy: c.policy, version: c.version, completionPct: this.olympus.policyAttestation.completionPct(c.id) })) }) },
       { method: "GET", pattern: "/v1/conflict-of-interest", handler: (_req, res) => res.json(200, { summary: this.olympus.conflictOfInterest.summary(), pending: this.olympus.conflictOfInterest.listDisclosures("under_review") }) },
+      { method: "GET", pattern: "/v1/audit-findings", handler: (_req, res) => res.json(200, { summary: this.olympus.auditFinding.summary(), open: this.olympus.auditFinding.listFindings("open") }) },
+      { method: "GET", pattern: "/v1/control-tests", handler: (_req, res) => res.json(200, { summary: this.olympus.controlTest.summary(), controls: this.olympus.controlTest.listControls() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
