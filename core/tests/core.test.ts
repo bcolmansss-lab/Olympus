@@ -178,6 +178,8 @@ import { CreditLimitManager } from "../credit-limit/credit-limit-manager.js";
 import { LoanServicingManager } from "../loan-servicing/loan-servicing-manager.js";
 import { PaymentGatewayManager } from "../payment-gateway/payment-gateway-manager.js";
 import { RefundManager } from "../refund/refund-manager.js";
+import { PayoutManager } from "../payout/payout-manager.js";
+import { ReconciliationManager } from "../reconciliation/reconciliation-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19716,5 +19718,136 @@ describe("RefundManager", () => {
     assert.equal(s.processed, 1);
     assert.equal(s.totalRefundedUsd, 30);
     assert.equal(s.byReason.defective, 1);
+  });
+});
+
+describe("PayoutManager", () => {
+  it("accrueEarning nets platform fee and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("payout.earning_accrued", (e) => { events.push(e.payload); });
+    const pm = new PayoutManager(bus, 10, 50);
+    pm.accrueEarning("seller1", 100);
+    assert.equal(pm.getAccount("seller1")!.balanceUsd, 90);
+    assert.equal(events.length, 1);
+  });
+
+  it("schedulePayout requires minimum balance", () => {
+    const bus = new EventBus();
+    const pm = new PayoutManager(bus, 10, 50);
+    pm.accrueEarning("seller1", 40); // net 36 < 50
+    assert.equal(pm.schedulePayout("seller1", "2026-06-01"), undefined);
+    pm.accrueEarning("seller1", 40); // net now 72
+    assert.ok(pm.schedulePayout("seller1", "2026-06-01"));
+  });
+
+  it("schedulePayout zeroes balance and publishes scheduled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("payout.scheduled", (e) => { events.push(e.payload); });
+    const pm = new PayoutManager(bus, 0, 50);
+    pm.accrueEarning("seller1", 100);
+    pm.schedulePayout("seller1", "2026-06-01");
+    assert.equal(pm.getAccount("seller1")!.balanceUsd, 0);
+    assert.equal(events.length, 1);
+  });
+
+  it("markPaid updates lifetime paid and publishes paid", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("payout.paid", (e) => { events.push(e.payload); });
+    const pm = new PayoutManager(bus, 0, 50);
+    pm.accrueEarning("seller1", 100);
+    const po = pm.schedulePayout("seller1", "2026-06-01")!;
+    pm.markPaid(po.id, "2026-06-02");
+    assert.equal(pm.getAccount("seller1")!.lifetimePaidUsd, 100);
+    assert.equal(events.length, 1);
+  });
+
+  it("markFailed returns funds to balance", () => {
+    const bus = new EventBus();
+    const pm = new PayoutManager(bus, 0, 50);
+    pm.accrueEarning("seller1", 100);
+    const po = pm.schedulePayout("seller1", "2026-06-01")!;
+    pm.markFailed(po.id);
+    assert.equal(pm.getAccount("seller1")!.balanceUsd, 100);
+  });
+
+  it("summary aggregates balances and fees", () => {
+    const bus = new EventBus();
+    const pm = new PayoutManager(bus, 10, 50);
+    pm.accrueEarning("s1", 100);
+    pm.accrueEarning("s2", 200);
+    const s = pm.summary();
+    assert.equal(s.totalPayees, 2);
+    assert.equal(s.totalBalanceUsd, 270);
+    assert.equal(s.totalFeesCollectedUsd, 30);
+  });
+});
+
+describe("ReconciliationManager", () => {
+  it("reconcile matches internal and external by reference and amount", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("recon.matched", (e) => { events.push(e.payload); });
+    const rm = new ReconciliationManager(bus);
+    rm.add("internal", "TXN-1", 100, "2026-06-01");
+    rm.add("external", "TXN-1", 100, "2026-06-02");
+    const r = rm.reconcile();
+    assert.equal(r.matched, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("amount mismatch flags discrepancy", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("recon.discrepancy", (e) => { events.push(e.payload); });
+    const rm = new ReconciliationManager(bus);
+    rm.add("internal", "TXN-1", 100, "2026-06-01");
+    rm.add("external", "TXN-1", 95, "2026-06-02");
+    const r = rm.reconcile();
+    assert.equal(r.discrepancies, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("tolerance allows near matches", () => {
+    const bus = new EventBus();
+    const rm = new ReconciliationManager(bus, 1);
+    rm.add("internal", "TXN-1", 100, "2026-06-01");
+    rm.add("external", "TXN-1", 100.5, "2026-06-02");
+    assert.equal(rm.reconcile().matched, 1);
+  });
+
+  it("flagUnmatched publishes for orphan entries", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("recon.unmatched", (e) => { events.push(e.payload); });
+    const rm = new ReconciliationManager(bus);
+    rm.add("internal", "TXN-99", 100, "2026-06-01");
+    rm.reconcile();
+    const unmatched = rm.flagUnmatched();
+    assert.equal(unmatched.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("does not rematch already-matched entries", () => {
+    const bus = new EventBus();
+    const rm = new ReconciliationManager(bus);
+    rm.add("internal", "TXN-1", 100, "2026-06-01");
+    rm.add("external", "TXN-1", 100, "2026-06-02");
+    rm.reconcile();
+    assert.equal(rm.reconcile().matched, 0);
+  });
+
+  it("summary computes match rate", () => {
+    const bus = new EventBus();
+    const rm = new ReconciliationManager(bus);
+    rm.add("internal", "A", 100, "2026-06-01"); rm.add("external", "A", 100, "2026-06-02");
+    rm.add("internal", "B", 50, "2026-06-01"); // no external
+    rm.reconcile();
+    const s = rm.summary();
+    assert.equal(s.totalInternal, 2);
+    assert.equal(s.matched, 1);
+    assert.equal(s.matchRatePct, 50);
   });
 });

@@ -275,6 +275,8 @@ import { CreditLimitManager } from "./credit-limit/credit-limit-manager.js";
 import { LoanServicingManager } from "./loan-servicing/loan-servicing-manager.js";
 import { PaymentGatewayManager } from "./payment-gateway/payment-gateway-manager.js";
 import { RefundManager } from "./refund/refund-manager.js";
+import { PayoutManager } from "./payout/payout-manager.js";
+import { ReconciliationManager } from "./reconciliation/reconciliation-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -638,6 +640,8 @@ export class Olympus {
   readonly loanServicing: LoanServicingManager;
   readonly paymentGateway: PaymentGatewayManager;
   readonly refund: RefundManager;
+  readonly payout: PayoutManager;
+  readonly reconciliation: ReconciliationManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -905,6 +909,8 @@ export class Olympus {
     this.loanServicing = new LoanServicingManager(this.bus);
     this.paymentGateway = new PaymentGatewayManager(this.bus);
     this.refund = new RefundManager(this.bus);
+    this.payout = new PayoutManager(this.bus);
+    this.reconciliation = new ReconciliationManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1178,3 +1184,5 @@ export { CreditLimitManager, type CreditRiskTier, type CreditLine, type CreditLi
 export { LoanServicingManager, type ServicedLoanStatus, type LoanPayment, type ServicedLoan, type LoanServicingSummary } from "./loan-servicing/index.js";
 export { PaymentGatewayManager, type GatewayPaymentMethod, type GatewayPaymentStatus, type Payment, type PaymentGatewaySummary } from "./payment-gateway/index.js";
 export { RefundManager, type RefundReason, type RefundStatus, type PaymentInfo, type Refund, type RefundSummary } from "./refund/index.js";
+export { PayoutManager, type SellerPayoutStatus, type PayeeAccount, type SellerPayout, type PayoutSummary } from "./payout/index.js";
+export { ReconciliationManager, type EntrySource, type ReconMatchStatus, type LedgerEntry, type ReconciliationSummary } from "./reconciliation/index.js";
