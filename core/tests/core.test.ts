@@ -146,6 +146,8 @@ import { VulnerabilityManager } from "../vulnerability/vulnerability-manager.js"
 import { BugBountyManager } from "../bug-bounty/bug-bounty-manager.js";
 import { PenTestManager } from "../pentest/pentest-manager.js";
 import { PhishingSimulationManager } from "../phishing-sim/phishing-simulation-manager.js";
+import { BackupManager } from "../backup/backup-manager.js";
+import { DisasterRecoveryManager } from "../disaster-recovery/disaster-recovery-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -17687,5 +17689,137 @@ describe("PhishingSimulationManager", () => {
     assert.equal(s.totalTargets, 2);
     assert.equal(s.clickRatePct, 50);
     assert.equal(s.reportRatePct, 50);
+  });
+});
+
+describe("BackupManager", () => {
+  it("createPolicy publishes policy_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("backup.policy_created", (e) => { events.push(e.payload); });
+    const bm = new BackupManager(bus);
+    bm.createPolicy({ system: "postgres", frequency: "daily", retentionDays: 30 });
+    assert.equal(events.length, 1);
+  });
+
+  it("failed run publishes run_failed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("backup.run_failed", (e) => { events.push(e.payload); });
+    const bm = new BackupManager(bus);
+    const p = bm.createPolicy({ system: "s3", frequency: "hourly", retentionDays: 7 });
+    bm.recordRun(p.id, "failure", 0, "2026-06-01", "disk full");
+    assert.equal(events.length, 1);
+  });
+
+  it("lastSuccessfulRun returns most recent success", () => {
+    const bus = new EventBus();
+    const bm = new BackupManager(bus);
+    const p = bm.createPolicy({ system: "db", frequency: "daily", retentionDays: 30 });
+    bm.recordRun(p.id, "success", 10, "2026-06-01");
+    bm.recordRun(p.id, "failure", 0, "2026-06-02", "x");
+    bm.recordRun(p.id, "success", 12, "2026-06-03");
+    assert.equal(bm.lastSuccessfulRun(p.id)!.at, "2026-06-03");
+  });
+
+  it("pruneExpired removes old runs", () => {
+    const bus = new EventBus();
+    const bm = new BackupManager(bus);
+    const p = bm.createPolicy({ system: "db", frequency: "daily", retentionDays: 7 });
+    bm.recordRun(p.id, "success", 5, "2026-06-01");
+    bm.recordRun(p.id, "success", 5, "2026-06-20");
+    const pruned = bm.pruneExpired(p.id, "2026-06-25");
+    assert.equal(pruned, 1);
+  });
+
+  it("testRestore publishes restore_tested", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("backup.restore_tested", (e) => { events.push(e.payload); });
+    const bm = new BackupManager(bus);
+    const p = bm.createPolicy({ system: "db", frequency: "daily", retentionDays: 30 });
+    bm.testRestore(p.id, true, "2026-06-01");
+    assert.equal(bm.getPolicy(p.id)!.lastRestoreTestPassed, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes success rate and restore-test gaps", () => {
+    const bus = new EventBus();
+    const bm = new BackupManager(bus);
+    const p = bm.createPolicy({ system: "db", frequency: "daily", retentionDays: 30 });
+    bm.recordRun(p.id, "success", 10, "2026-06-01");
+    bm.recordRun(p.id, "failure", 0, "2026-06-02", "x");
+    const s = bm.summary("2026-06-25");
+    assert.equal(s.totalRuns, 2);
+    assert.equal(s.failedRuns, 1);
+    assert.equal(s.successRatePct, 50);
+    assert.equal(s.policiesNeedingRestoreTest, 1);
+    assert.equal(s.totalStoredGb, 10);
+  });
+});
+
+describe("DisasterRecoveryManager", () => {
+  it("createPlan publishes plan_created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dr.plan_created", (e) => { events.push(e.payload); });
+    const dm = new DisasterRecoveryManager(bus);
+    dm.createPlan({ system: "core-api", tier: "tier1", rtoMinutes: 60, rpoMinutes: 15 });
+    assert.equal(events.length, 1);
+  });
+
+  it("activate requires runbook steps", () => {
+    const bus = new EventBus();
+    const dm = new DisasterRecoveryManager(bus);
+    const p = dm.createPlan({ system: "x", tier: "tier2", rtoMinutes: 120, rpoMinutes: 30 });
+    assert.equal(dm.activate(p.id), undefined);
+    dm.addStep(p.id, "Failover to DR region", "sre");
+    assert.ok(dm.activate(p.id));
+  });
+
+  it("runTest evaluates against RTO/RPO and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dr.test_completed", (e) => { events.push(e.payload); });
+    const dm = new DisasterRecoveryManager(bus);
+    const p = dm.createPlan({ system: "x", tier: "tier1", rtoMinutes: 60, rpoMinutes: 15 });
+    const t = dm.runTest(p.id, 45, 10, "2026-06-01");
+    assert.equal(t!.metRto, true);
+    assert.equal(t!.metRpo, true);
+    assert.equal(events.length, 1);
+  });
+
+  it("failed RTO test does not meet targets", () => {
+    const bus = new EventBus();
+    const dm = new DisasterRecoveryManager(bus);
+    const p = dm.createPlan({ system: "x", tier: "tier1", rtoMinutes: 60, rpoMinutes: 15 });
+    dm.runTest(p.id, 90, 10, "2026-06-01");
+    assert.equal(dm.meetsTargets(p.id), false);
+  });
+
+  it("invoke requires active plan and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dr.invoked", (e) => { events.push(e.payload); });
+    const dm = new DisasterRecoveryManager(bus);
+    const p = dm.createPlan({ system: "x", tier: "tier1", rtoMinutes: 60, rpoMinutes: 15 });
+    assert.equal(dm.invoke(p.id, "region outage"), undefined);
+    dm.addStep(p.id, "Failover", "sre"); dm.activate(p.id);
+    dm.invoke(p.id, "region outage");
+    assert.equal(dm.getPlan(p.id)!.status, "invoked");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary computes readiness", () => {
+    const bus = new EventBus();
+    const dm = new DisasterRecoveryManager(bus);
+    const p1 = dm.createPlan({ system: "a", tier: "tier1", rtoMinutes: 60, rpoMinutes: 15 });
+    dm.runTest(p1.id, 45, 10, "2026-06-01"); // meets
+    dm.createPlan({ system: "b", tier: "tier3", rtoMinutes: 240, rpoMinutes: 60 }); // untested
+    const s = dm.summary();
+    assert.equal(s.totalPlans, 2);
+    assert.equal(s.plansMeetingTargets, 1);
+    assert.equal(s.readinessPct, 50);
+    assert.equal(s.byTier.tier1, 1);
   });
 });

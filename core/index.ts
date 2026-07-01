@@ -243,6 +243,8 @@ import { VulnerabilityManager } from "./vulnerability/vulnerability-manager.js";
 import { BugBountyManager } from "./bug-bounty/bug-bounty-manager.js";
 import { PenTestManager } from "./pentest/pentest-manager.js";
 import { PhishingSimulationManager } from "./phishing-sim/phishing-simulation-manager.js";
+import { BackupManager } from "./backup/backup-manager.js";
+import { DisasterRecoveryManager } from "./disaster-recovery/disaster-recovery-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -574,6 +576,8 @@ export class Olympus {
   readonly bugBounty: BugBountyManager;
   readonly penTest: PenTestManager;
   readonly phishingSim: PhishingSimulationManager;
+  readonly backup: BackupManager;
+  readonly disasterRecovery: DisasterRecoveryManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -809,6 +813,8 @@ export class Olympus {
     this.bugBounty = new BugBountyManager(this.bus);
     this.penTest = new PenTestManager(this.bus);
     this.phishingSim = new PhishingSimulationManager(this.bus);
+    this.backup = new BackupManager(this.bus);
+    this.disasterRecovery = new DisasterRecoveryManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1050,3 +1056,5 @@ export { VulnerabilityManager, type VulnSeverity, type VulnStatus, type Vulnerab
 export { BugBountyManager, type BountySeverity, type BountySubmissionStatus, type BountySubmission, type BugBountySummary } from "./bug-bounty/index.js";
 export { PenTestManager, type PenTestSeverity, type PenTestEngagementStatus, type PenTestFindingStatus, type PenTestFinding, type PenTestEngagement, type PenTestSummary } from "./pentest/index.js";
 export { PhishingSimulationManager, type PhishingCampaignStatus, type RecipientOutcome, type PhishingTarget, type PhishingCampaign, type PhishingSummary } from "./phishing-sim/index.js";
+export { BackupManager, type BackupFrequency, type RunResult, type BackupRun, type BackupPolicy, type BackupSummary } from "./backup/index.js";
+export { DisasterRecoveryManager, type DRPlanStatus, type DRTier, type RunbookStep, type DRTest, type DRPlan, type DRSummary } from "./disaster-recovery/index.js";
