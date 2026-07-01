@@ -154,6 +154,8 @@ import { SLOManager } from "../slo/slo-manager.js";
 import { RunbookManager } from "../runbook/runbook-manager.js";
 import { CloudCostManager } from "../cloud-cost/cloud-cost-manager.js";
 import { RightsizingManager } from "../rightsizing/rightsizing-manager.js";
+import { SecretsManager } from "../secrets/secrets-manager.js";
+import { CertificateManager } from "../certificate/certificate-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18197,5 +18199,128 @@ describe("RightsizingManager", () => {
     assert.equal(s.appliedRecommendations, 1);
     assert.equal(s.realizedMonthlySavingsUsd, 40);
     assert.equal(s.potentialMonthlySavingsUsd, 100);
+  });
+});
+
+describe("SecretsManager", () => {
+  it("create publishes created and sets next rotation", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("secret.created", (e) => { events.push(e.payload); });
+    const sm = new SecretsManager(bus);
+    const s = sm.create({ name: "db-pw", type: "password", rotationDays: 90, createdAt: "2026-06-01T00:00:00.000Z" });
+    assert.equal(s.nextRotationAt, "2026-08-30T00:00:00.000Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("rotate bumps version and resets schedule", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("secret.rotated", (e) => { events.push(e.payload); });
+    const sm = new SecretsManager(bus);
+    const s = sm.create({ name: "k", type: "api_key", rotationDays: 30, createdAt: "2026-06-01T00:00:00.000Z" });
+    sm.rotate(s.id, "2026-06-15T00:00:00.000Z");
+    assert.equal(sm.getSecret(s.id)!.version, 2);
+    assert.equal(events.length, 1);
+  });
+
+  it("grant and revoke manage access", () => {
+    const bus = new EventBus();
+    const sm = new SecretsManager(bus);
+    const s = sm.create({ name: "k", type: "token", rotationDays: 30, createdAt: "2026-06-01T00:00:00.000Z" });
+    sm.grant(s.id, "svc1");
+    assert.equal(sm.getSecret(s.id)!.grantedTo.has("svc1"), true);
+    sm.revoke(s.id, "svc1");
+    assert.equal(sm.getSecret(s.id)!.grantedTo.has("svc1"), false);
+  });
+
+  it("checkRotations publishes overdue", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("secret.rotation_overdue", (e) => { events.push(e.payload); });
+    const sm = new SecretsManager(bus);
+    sm.create({ name: "k", type: "api_key", rotationDays: 30, createdAt: "2026-01-01T00:00:00.000Z" });
+    const overdue = sm.checkRotations("2026-06-01T00:00:00.000Z");
+    assert.equal(overdue.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary counts due-soon and overdue", () => {
+    const bus = new EventBus();
+    const sm = new SecretsManager(bus);
+    sm.create({ name: "a", type: "api_key", rotationDays: 30, createdAt: "2026-01-01T00:00:00.000Z" }); // overdue
+    sm.create({ name: "b", type: "password", rotationDays: 30, createdAt: "2026-05-20T00:00:00.000Z" }); // due ~2026-06-19
+    const s = sm.summary("2026-06-10T00:00:00.000Z");
+    assert.equal(s.overdue, 1);
+    assert.equal(s.dueSoon, 1);
+    assert.equal(s.byType.api_key, 1);
+  });
+
+  it("summary aggregates by type", () => {
+    const bus = new EventBus();
+    const sm = new SecretsManager(bus);
+    sm.create({ name: "a", type: "ssh_key", rotationDays: 90, createdAt: "2026-06-01T00:00:00.000Z" });
+    assert.equal(sm.summary("2026-06-02T00:00:00.000Z").byType.ssh_key, 1);
+  });
+});
+
+describe("CertificateManager", () => {
+  it("issue publishes issued", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cert.issued", (e) => { events.push(e.payload); });
+    const cm = new CertificateManager(bus);
+    cm.issue({ domain: "example.com", authority: "lets_encrypt", issuedAt: "2026-06-01", expiresAt: "2026-09-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("checkExpiry warns and returns auto-renew candidates", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cert.expiring", (e) => { events.push(e.payload); });
+    const cm = new CertificateManager(bus);
+    cm.issue({ domain: "a.com", authority: "lets_encrypt", issuedAt: "2026-06-01", expiresAt: "2026-07-10", autoRenew: true });
+    const candidates = cm.checkExpiry("2026-06-25", 30);
+    assert.equal(candidates.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("expired cert is marked expired", () => {
+    const bus = new EventBus();
+    const cm = new CertificateManager(bus);
+    const c = cm.issue({ domain: "a.com", authority: "digicert", issuedAt: "2025-06-01", expiresAt: "2026-01-01" });
+    cm.checkExpiry("2026-06-25");
+    assert.equal(cm.getCert(c.id)!.status, "expired");
+  });
+
+  it("renew extends expiry and publishes renewed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cert.renewed", (e) => { events.push(e.payload); });
+    const cm = new CertificateManager(bus);
+    const c = cm.issue({ domain: "a.com", authority: "lets_encrypt", issuedAt: "2026-06-01", expiresAt: "2026-09-01" });
+    cm.renew(c.id, "2026-12-01");
+    assert.equal(cm.getCert(c.id)!.expiresAt, "2026-12-01");
+    assert.equal(cm.getCert(c.id)!.renewalCount, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("coversDomain checks domain and SANs", () => {
+    const bus = new EventBus();
+    const cm = new CertificateManager(bus);
+    cm.issue({ domain: "example.com", san: ["www.example.com"], authority: "lets_encrypt", issuedAt: "2026-06-01", expiresAt: "2026-12-01" });
+    assert.equal(cm.coversDomain("www.example.com", "2026-07-01"), true);
+    assert.equal(cm.coversDomain("other.com", "2026-07-01"), false);
+  });
+
+  it("summary aggregates authorities and expiring soon", () => {
+    const bus = new EventBus();
+    const cm = new CertificateManager(bus);
+    cm.issue({ domain: "a.com", authority: "lets_encrypt", issuedAt: "2026-06-01", expiresAt: "2026-07-10" });
+    cm.issue({ domain: "b.com", authority: "digicert", issuedAt: "2026-06-01", expiresAt: "2027-06-01" });
+    const s = cm.summary("2026-06-25");
+    assert.equal(s.totalCertificates, 2);
+    assert.equal(s.expiringIn30Days, 1);
+    assert.equal(s.byAuthority.lets_encrypt, 1);
   });
 });

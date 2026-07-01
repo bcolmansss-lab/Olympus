@@ -251,6 +251,8 @@ import { SLOManager } from "./slo/slo-manager.js";
 import { RunbookManager } from "./runbook/runbook-manager.js";
 import { CloudCostManager } from "./cloud-cost/cloud-cost-manager.js";
 import { RightsizingManager } from "./rightsizing/rightsizing-manager.js";
+import { SecretsManager } from "./secrets/secrets-manager.js";
+import { CertificateManager } from "./certificate/certificate-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -590,6 +592,8 @@ export class Olympus {
   readonly runbook: RunbookManager;
   readonly cloudCost: CloudCostManager;
   readonly rightsizing: RightsizingManager;
+  readonly secrets: SecretsManager;
+  readonly certificate: CertificateManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -833,6 +837,8 @@ export class Olympus {
     this.runbook = new RunbookManager(this.bus);
     this.cloudCost = new CloudCostManager(this.bus);
     this.rightsizing = new RightsizingManager(this.bus);
+    this.secrets = new SecretsManager(this.bus);
+    this.certificate = new CertificateManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1082,3 +1088,5 @@ export { SLOManager, type SLOWindow, type SLO, type SLOSummary } from "./slo/ind
 export { RunbookManager, type RunbookExecutionStatus, type RunbookProcedureStep, type Runbook, type StepExecution, type RunbookExecution, type RunbookSummary } from "./runbook/index.js";
 export { CloudCostManager, type CloudProvider, type CostEntry, type CloudCostSummary } from "./cloud-cost/index.js";
 export { RightsizingManager, type CloudResourceType, type RecAction, type RecStatus, type CloudResource, type RightsizingRecommendation, type RightsizingSummary } from "./rightsizing/index.js";
+export { SecretsManager, type SecretType, type SecretMeta, type SecretsSummary } from "./secrets/index.js";
+export { CertificateManager, type TLSCertStatus, type CertAuthority, type Certificate, type CertificateSummary } from "./certificate/index.js";

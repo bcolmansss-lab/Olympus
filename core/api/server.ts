@@ -356,6 +356,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/runbooks", handler: (_req, res) => res.json(200, { summary: this.olympus.runbook.summary(), runbooks: this.olympus.runbook.listRunbooks() }) },
       { method: "GET", pattern: "/v1/cloud-cost", handler: (_req, res) => res.json(200, { summary: this.olympus.cloudCost.summary() }) },
       { method: "GET", pattern: "/v1/rightsizing", handler: (_req, res) => res.json(200, { summary: this.olympus.rightsizing.summary(), open: this.olympus.rightsizing.listRecommendations("open") }) },
+      { method: "GET", pattern: "/v1/secrets", handler: (_req, res) => res.json(200, { summary: this.olympus.secrets.summary(), secrets: this.olympus.secrets.listSecrets().map(x => ({ id: x.id, name: x.name, type: x.type, version: x.version, nextRotationAt: x.nextRotationAt })) }) },
+      { method: "GET", pattern: "/v1/certificates", handler: (_req, res) => res.json(200, { summary: this.olympus.certificate.summary(), certificates: this.olympus.certificate.listCerts("active") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
