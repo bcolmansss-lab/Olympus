@@ -172,6 +172,8 @@ import { PolicyAttestationManager } from "../policy-attestation/policy-attestati
 import { ConflictOfInterestManager } from "../conflict-of-interest/conflict-of-interest-manager.js";
 import { AuditFindingManager } from "../audit-finding/audit-finding-manager.js";
 import { ControlTestManager } from "../control-test/control-test-manager.js";
+import { RegulatoryFilingManager } from "../regulatory-filing/regulatory-filing-manager.js";
+import { WhistleblowerHotlineManager } from "../whistleblower/whistleblower-hotline-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19331,5 +19333,135 @@ describe("ControlTestManager", () => {
     assert.equal(s.totalTests, 2);
     assert.equal(s.passedTests, 1);
     assert.equal(s.effectivenessPct, 50);
+  });
+});
+
+describe("RegulatoryFilingManager", () => {
+  it("schedule publishes scheduled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("filing.scheduled", (e) => { events.push(e.payload); });
+    const rm = new RegulatoryFilingManager(bus);
+    rm.schedule({ regulator: "SEC", form: "10-K", jurisdiction: "US", frequency: "annual", dueDate: "2027-03-31" });
+    assert.equal(events.length, 1);
+  });
+
+  it("submit on time publishes submitted", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("filing.submitted", (e) => { events.push(e.payload); });
+    const rm = new RegulatoryFilingManager(bus);
+    const f = rm.schedule({ regulator: "SEC", form: "10-Q", jurisdiction: "US", frequency: "quarterly", dueDate: "2026-08-01" });
+    rm.submit(f.id, "CONF-1", "2026-07-25");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].onTime, true);
+  });
+
+  it("late submission flagged not on time", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("filing.submitted", (e) => { events.push(e.payload); });
+    const rm = new RegulatoryFilingManager(bus);
+    const f = rm.schedule({ regulator: "IRS", form: "941", jurisdiction: "US", frequency: "quarterly", dueDate: "2026-07-31" });
+    rm.submit(f.id, "C-2", "2026-08-05");
+    assert.equal(events[0].onTime, false);
+  });
+
+  it("checkOverdue publishes overdue", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("filing.overdue", (e) => { events.push(e.payload); });
+    const rm = new RegulatoryFilingManager(bus);
+    rm.schedule({ regulator: "SEC", form: "10-K", jurisdiction: "US", frequency: "annual", dueDate: "2026-03-31" });
+    const overdue = rm.checkOverdue("2026-06-01");
+    assert.equal(overdue.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("setOutcome requires submitted state", () => {
+    const bus = new EventBus();
+    const rm = new RegulatoryFilingManager(bus);
+    const f = rm.schedule({ regulator: "SEC", form: "8-K", jurisdiction: "US", frequency: "one_time", dueDate: "2026-07-01" });
+    assert.equal(rm.setOutcome(f.id, true), undefined);
+    rm.submit(f.id, "C", "2026-06-15");
+    rm.setOutcome(f.id, true);
+    assert.equal(rm.getFiling(f.id)!.status, "accepted");
+  });
+
+  it("summary computes on-time rate and regulators", () => {
+    const bus = new EventBus();
+    const rm = new RegulatoryFilingManager(bus);
+    const a = rm.schedule({ regulator: "SEC", form: "10-Q", jurisdiction: "US", frequency: "quarterly", dueDate: "2026-08-01" });
+    rm.submit(a.id, "C1", "2026-07-25");
+    const b = rm.schedule({ regulator: "IRS", form: "941", jurisdiction: "US", frequency: "quarterly", dueDate: "2026-07-31" });
+    rm.submit(b.id, "C2", "2026-08-10");
+    const s = rm.summary("2026-08-15");
+    assert.equal(s.submitted, 2);
+    assert.equal(s.onTimeRatePct, 50);
+    assert.equal(s.byRegulator.SEC, 1);
+  });
+});
+
+describe("WhistleblowerHotlineManager", () => {
+  it("report publishes report_received and issues a reference code", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("hotline.report_received", (e) => { events.push(e.payload); });
+    const wm = new WhistleblowerHotlineManager(bus);
+    const r = wm.report({ category: "fraud", summary: "expense fraud", anonymous: true, receivedAt: "2026-06-01" });
+    assert.ok(r.referenceCode.startsWith("WB-"));
+    assert.equal(events.length, 1);
+  });
+
+  it("reporter can follow up anonymously via code", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("hotline.message_added", (e) => { events.push(e.payload); });
+    const wm = new WhistleblowerHotlineManager(bus);
+    const r = wm.report({ category: "safety", summary: "x", anonymous: true, receivedAt: "2026-06-01" });
+    wm.reporterMessage(r.referenceCode, "more info", "2026-06-02");
+    assert.equal(events.length, 1);
+    assert.equal(wm.getByCode(r.referenceCode)!.messages.length, 1);
+  });
+
+  it("triage and investigate advance status", () => {
+    const bus = new EventBus();
+    const wm = new WhistleblowerHotlineManager(bus);
+    const r = wm.report({ category: "corruption", summary: "x", anonymous: false, receivedAt: "2026-06-01" });
+    wm.triage(r.id, "inv1");
+    wm.investigate(r.id);
+    assert.equal(wm.getReport(r.id)!.status, "investigating");
+  });
+
+  it("close publishes closed with outcome", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("hotline.closed", (e) => { events.push(e.payload); });
+    const wm = new WhistleblowerHotlineManager(bus);
+    const r = wm.report({ category: "fraud", summary: "x", anonymous: true, receivedAt: "2026-06-01" });
+    wm.close(r.id, "substantiated", "2026-06-20");
+    assert.equal(wm.getReport(r.id)!.status, "closed");
+    assert.equal(events.length, 1);
+  });
+
+  it("messages blocked after close", () => {
+    const bus = new EventBus();
+    const wm = new WhistleblowerHotlineManager(bus);
+    const r = wm.report({ category: "other", summary: "x", anonymous: true, receivedAt: "2026-06-01" });
+    wm.close(r.id, "unsubstantiated", "2026-06-20");
+    assert.equal(wm.reporterMessage(r.referenceCode, "hi", "2026-06-21"), undefined);
+  });
+
+  it("summary computes anonymous pct and categories", () => {
+    const bus = new EventBus();
+    const wm = new WhistleblowerHotlineManager(bus);
+    wm.report({ category: "fraud", summary: "x", anonymous: true, receivedAt: "2026-06-01" });
+    const r2 = wm.report({ category: "harassment", summary: "y", anonymous: false, receivedAt: "2026-06-01" });
+    wm.close(r2.id, "substantiated", "2026-06-20");
+    const s = wm.summary();
+    assert.equal(s.totalReports, 2);
+    assert.equal(s.substantiated, 1);
+    assert.equal(s.anonymousPct, 50);
+    assert.equal(s.byCategory.fraud, 1);
   });
 });

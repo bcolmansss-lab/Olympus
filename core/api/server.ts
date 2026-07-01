@@ -374,6 +374,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/conflict-of-interest", handler: (_req, res) => res.json(200, { summary: this.olympus.conflictOfInterest.summary(), pending: this.olympus.conflictOfInterest.listDisclosures("under_review") }) },
       { method: "GET", pattern: "/v1/audit-findings", handler: (_req, res) => res.json(200, { summary: this.olympus.auditFinding.summary(), open: this.olympus.auditFinding.listFindings("open") }) },
       { method: "GET", pattern: "/v1/control-tests", handler: (_req, res) => res.json(200, { summary: this.olympus.controlTest.summary(), controls: this.olympus.controlTest.listControls() }) },
+      { method: "GET", pattern: "/v1/regulatory-filings", handler: (_req, res) => res.json(200, { summary: this.olympus.regulatoryFiling.summary(), upcoming: this.olympus.regulatoryFiling.listFilings("scheduled") }) },
+      { method: "GET", pattern: "/v1/whistleblower", handler: (_req, res) => res.json(200, { summary: this.olympus.whistleblower.summary() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

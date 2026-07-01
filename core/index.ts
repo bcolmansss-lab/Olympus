@@ -269,6 +269,8 @@ import { PolicyAttestationManager } from "./policy-attestation/policy-attestatio
 import { ConflictOfInterestManager } from "./conflict-of-interest/conflict-of-interest-manager.js";
 import { AuditFindingManager } from "./audit-finding/audit-finding-manager.js";
 import { ControlTestManager } from "./control-test/control-test-manager.js";
+import { RegulatoryFilingManager } from "./regulatory-filing/regulatory-filing-manager.js";
+import { WhistleblowerHotlineManager } from "./whistleblower/whistleblower-hotline-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -626,6 +628,8 @@ export class Olympus {
   readonly conflictOfInterest: ConflictOfInterestManager;
   readonly auditFinding: AuditFindingManager;
   readonly controlTest: ControlTestManager;
+  readonly regulatoryFiling: RegulatoryFilingManager;
+  readonly whistleblower: WhistleblowerHotlineManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -887,6 +891,8 @@ export class Olympus {
     this.conflictOfInterest = new ConflictOfInterestManager(this.bus);
     this.auditFinding = new AuditFindingManager(this.bus);
     this.controlTest = new ControlTestManager(this.bus);
+    this.regulatoryFiling = new RegulatoryFilingManager(this.bus);
+    this.whistleblower = new WhistleblowerHotlineManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1154,3 +1160,5 @@ export { PolicyAttestationManager, type AttestationCampaignStatus, type Attestat
 export { ConflictOfInterestManager, type COICategory, type COIStatus, type Disclosure, type COISummary } from "./conflict-of-interest/index.js";
 export { AuditFindingManager, type FindingRating, type AuditFindingStatus, type AuditFinding, type AuditFindingSummary } from "./audit-finding/index.js";
 export { ControlTestManager, type ControlFrequency, type TestResult, type DeficiencySeverity, type TestRun, type TestableControl, type ControlTestSummary } from "./control-test/index.js";
+export { RegulatoryFilingManager, type FilingFrequency, type FilingStatus, type RegulatoryFiling, type FilingSummary } from "./regulatory-filing/index.js";
+export { WhistleblowerHotlineManager, type HotlineCategory, type HotlineStatus, type HotlineOutcome, type HotlineMessage, type HotlineReport, type HotlineSummary } from "./whistleblower/index.js";
