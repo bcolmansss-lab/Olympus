@@ -164,6 +164,8 @@ import { AnnouncementManager } from "../announcement/announcement-manager.js";
 import { PollManager } from "../poll/poll-manager.js";
 import { KnowledgeGapManager } from "../knowledge-gap/knowledge-gap-manager.js";
 import { MacroManager } from "../macro/macro-manager.js";
+import { CSATManager } from "../csat/csat-manager.js";
+import { AgentPerformanceManager } from "../agent-performance/agent-performance-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -18831,5 +18833,123 @@ describe("MacroManager", () => {
     assert.equal(s.totalMacros, 2);
     assert.equal(s.byCategory.billing, 2);
     assert.equal(s.topUsed[0]!.name, "A");
+  });
+});
+
+describe("CSATManager", () => {
+  it("submit publishes response_received and rejects bad score", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("csat.response_received", (e) => { events.push(e.payload); });
+    const cm = new CSATManager(bus);
+    assert.equal(cm.submit({ ticketRef: "T1", customerId: "c1", agentId: "a1", channel: "chat", score: 6, respondedAt: "2026-06-01" }), undefined);
+    cm.submit({ ticketRef: "T1", customerId: "c1", agentId: "a1", channel: "chat", score: 5, respondedAt: "2026-06-01" });
+    assert.equal(events.length, 1);
+  });
+
+  it("score 4-5 marked satisfied", () => {
+    const bus = new EventBus();
+    const cm = new CSATManager(bus);
+    const r = cm.submit({ ticketRef: "T1", customerId: "c1", agentId: "a1", channel: "email", score: 4, respondedAt: "2026-06-01" })!;
+    assert.equal(r.satisfied, true);
+  });
+
+  it("low score fires low_score and follow_up_needed", () => {
+    const bus = new EventBus();
+    const low: any[] = [];
+    const follow: any[] = [];
+    bus.subscribe("csat.low_score", (e) => { low.push(e.payload); });
+    bus.subscribe("csat.follow_up_needed", (e) => { follow.push(e.payload); });
+    const cm = new CSATManager(bus);
+    cm.submit({ ticketRef: "T1", customerId: "c1", agentId: "a1", channel: "phone", score: 1, respondedAt: "2026-06-01" });
+    assert.equal(low.length, 1);
+    assert.equal(follow.length, 1);
+  });
+
+  it("agentCsatPct computes per agent", () => {
+    const bus = new EventBus();
+    const cm = new CSATManager(bus);
+    cm.submit({ ticketRef: "T1", customerId: "c1", agentId: "a1", channel: "chat", score: 5, respondedAt: "2026-06-01" });
+    cm.submit({ ticketRef: "T2", customerId: "c2", agentId: "a1", channel: "chat", score: 2, respondedAt: "2026-06-01" });
+    assert.equal(cm.agentCsatPct("a1"), 50);
+  });
+
+  it("summary computes CSAT% and avg score", () => {
+    const bus = new EventBus();
+    const cm = new CSATManager(bus);
+    cm.submit({ ticketRef: "T1", customerId: "c1", agentId: "a1", channel: "chat", score: 5, respondedAt: "2026-06-01" });
+    cm.submit({ ticketRef: "T2", customerId: "c2", agentId: "a2", channel: "email", score: 3, respondedAt: "2026-06-01" });
+    const s = cm.summary();
+    assert.equal(s.totalResponses, 2);
+    assert.equal(s.csatPct, 50);
+    assert.equal(s.avgScore, 4);
+  });
+
+  it("summary tracks low scores and channels", () => {
+    const bus = new EventBus();
+    const cm = new CSATManager(bus);
+    cm.submit({ ticketRef: "T1", customerId: "c1", agentId: "a1", channel: "phone", score: 1, respondedAt: "2026-06-01" });
+    const s = cm.summary();
+    assert.equal(s.lowScores, 1);
+    assert.equal(s.byChannel.phone, 1);
+  });
+});
+
+describe("AgentPerformanceManager", () => {
+  it("addAgent publishes agent_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("agentperf.agent_added", (e) => { events.push(e.payload); });
+    const am = new AgentPerformanceManager(bus);
+    am.addAgent("a1", "Jane", "tier1");
+    assert.equal(events.length, 1);
+  });
+
+  it("recordMetrics publishes metrics_recorded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("agentperf.metrics_recorded", (e) => { events.push(e.payload); });
+    const am = new AgentPerformanceManager(bus);
+    am.addAgent("a1", "Jane", "tier1");
+    am.recordMetrics("a1", { period: "2026-06", ticketsResolved: 100, avgResolutionHours: 4, csatPct: 90, slaAdherencePct: 95 });
+    assert.equal(events.length, 1);
+  });
+
+  it("compositeScore blends CSAT, SLA and speed", () => {
+    const bus = new EventBus();
+    const am = new AgentPerformanceManager(bus);
+    am.addAgent("a1", "Jane", "tier1");
+    am.recordMetrics("a1", { period: "2026-06", ticketsResolved: 50, avgResolutionHours: 5, csatPct: 100, slaAdherencePct: 100 });
+    // 100*0.4 + 100*0.4 + (100-10)*0.2 = 40+40+18 = 98
+    assert.equal(am.compositeScore("a1"), 98);
+  });
+
+  it("top performer fires above threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("agentperf.top_performer", (e) => { events.push(e.payload); });
+    const am = new AgentPerformanceManager(bus, 85);
+    am.addAgent("a1", "Jane", "tier1");
+    am.recordMetrics("a1", { period: "2026-06", ticketsResolved: 50, avgResolutionHours: 2, csatPct: 95, slaAdherencePct: 95 });
+    assert.equal(events.length, 1);
+  });
+
+  it("ranking sorts by composite score", () => {
+    const bus = new EventBus();
+    const am = new AgentPerformanceManager(bus);
+    am.addAgent("a1", "Low", "t"); am.recordMetrics("a1", { period: "2026-06", ticketsResolved: 10, avgResolutionHours: 40, csatPct: 60, slaAdherencePct: 60 });
+    am.addAgent("a2", "High", "t"); am.recordMetrics("a2", { period: "2026-06", ticketsResolved: 10, avgResolutionHours: 2, csatPct: 98, slaAdherencePct: 98 });
+    assert.equal(am.ranking()[0]!.name, "High");
+  });
+
+  it("summary aggregates avg CSAT and ticket totals", () => {
+    const bus = new EventBus();
+    const am = new AgentPerformanceManager(bus);
+    am.addAgent("a1", "A", "t"); am.recordMetrics("a1", { period: "2026-06", ticketsResolved: 40, avgResolutionHours: 3, csatPct: 90, slaAdherencePct: 92 });
+    am.addAgent("a2", "B", "t"); am.recordMetrics("a2", { period: "2026-06", ticketsResolved: 60, avgResolutionHours: 4, csatPct: 80, slaAdherencePct: 88 });
+    const s = am.summary();
+    assert.equal(s.totalAgents, 2);
+    assert.equal(s.avgCsatPct, 85);
+    assert.equal(s.totalTicketsResolved, 100);
   });
 });

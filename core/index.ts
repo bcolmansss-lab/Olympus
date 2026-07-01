@@ -261,6 +261,8 @@ import { AnnouncementManager } from "./announcement/announcement-manager.js";
 import { PollManager } from "./poll/poll-manager.js";
 import { KnowledgeGapManager } from "./knowledge-gap/knowledge-gap-manager.js";
 import { MacroManager } from "./macro/macro-manager.js";
+import { CSATManager } from "./csat/csat-manager.js";
+import { AgentPerformanceManager } from "./agent-performance/agent-performance-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -610,6 +612,8 @@ export class Olympus {
   readonly poll: PollManager;
   readonly knowledgeGap: KnowledgeGapManager;
   readonly macro: MacroManager;
+  readonly csat: CSATManager;
+  readonly agentPerformance: AgentPerformanceManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -863,6 +867,8 @@ export class Olympus {
     this.poll = new PollManager(this.bus);
     this.knowledgeGap = new KnowledgeGapManager(this.bus);
     this.macro = new MacroManager(this.bus);
+    this.csat = new CSATManager(this.bus);
+    this.agentPerformance = new AgentPerformanceManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1122,3 +1128,5 @@ export { AnnouncementManager, type AnnouncementPriority, type AnnouncementStatus
 export { PollManager, type PollStatus, type PollOption, type Poll, type PollSummary } from "./poll/index.js";
 export { KnowledgeGapManager, type GapStatus, type KnowledgeGap, type KnowledgeGapSummary } from "./knowledge-gap/index.js";
 export { MacroManager, type MacroStatus, type Macro, type MacroSummary } from "./macro/index.js";
+export { CSATManager, type CSATChannel, type CSATResponse, type CSATSummary } from "./csat/index.js";
+export { AgentPerformanceManager, type AgentPeriodMetrics, type SupportAgent, type AgentScore, type AgentPerformanceSummary } from "./agent-performance/index.js";
