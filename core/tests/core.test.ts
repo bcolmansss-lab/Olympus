@@ -174,6 +174,8 @@ import { AuditFindingManager } from "../audit-finding/audit-finding-manager.js";
 import { ControlTestManager } from "../control-test/control-test-manager.js";
 import { RegulatoryFilingManager } from "../regulatory-filing/regulatory-filing-manager.js";
 import { WhistleblowerHotlineManager } from "../whistleblower/whistleblower-hotline-manager.js";
+import { CreditLimitManager } from "../credit-limit/credit-limit-manager.js";
+import { LoanServicingManager } from "../loan-servicing/loan-servicing-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19463,5 +19465,130 @@ describe("WhistleblowerHotlineManager", () => {
     assert.equal(s.substantiated, 1);
     assert.equal(s.anonymousPct, 50);
     assert.equal(s.byCategory.fraud, 1);
+  });
+});
+
+describe("CreditLimitManager", () => {
+  it("assign publishes assigned", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("creditlimit.assigned", (e) => { events.push(e.payload); });
+    const cm = new CreditLimitManager(bus);
+    cm.assign("c1", 10000, "standard");
+    assert.equal(events.length, 1);
+  });
+
+  it("authorizeOrder approves within available credit", () => {
+    const bus = new EventBus();
+    const cm = new CreditLimitManager(bus);
+    cm.assign("c1", 10000, "prime");
+    assert.equal(cm.authorizeOrder("c1", 4000), true);
+    assert.equal(cm.available("c1"), 6000);
+  });
+
+  it("authorizeOrder declines and publishes over-available", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("creditlimit.order_declined", (e) => { events.push(e.payload); });
+    const cm = new CreditLimitManager(bus);
+    cm.assign("c1", 1000, "subprime");
+    assert.equal(cm.authorizeOrder("c1", 2000), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordPayment reduces outstanding", () => {
+    const bus = new EventBus();
+    const cm = new CreditLimitManager(bus);
+    cm.assign("c1", 10000, "standard");
+    cm.authorizeOrder("c1", 5000);
+    cm.recordPayment("c1", 2000);
+    assert.equal(cm.getLine("c1")!.outstandingUsd, 3000);
+  });
+
+  it("setLimit below exposure fires over_limit", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("creditlimit.over_limit", (e) => { events.push(e.payload); });
+    const cm = new CreditLimitManager(bus);
+    cm.assign("c1", 10000, "standard");
+    cm.authorizeOrder("c1", 8000);
+    cm.setLimit("c1", 5000);
+    assert.equal(events.length, 1);
+  });
+
+  it("hold blocks authorization and summary computes utilization", () => {
+    const bus = new EventBus();
+    const cm = new CreditLimitManager(bus);
+    cm.assign("c1", 10000, "watch");
+    cm.authorizeOrder("c1", 4000);
+    cm.setHold("c1", true);
+    assert.equal(cm.authorizeOrder("c1", 100), false);
+    const s = cm.summary();
+    assert.equal(s.utilizationPct, 40);
+    assert.equal(s.byRiskTier.watch, 1);
+  });
+});
+
+describe("LoanServicingManager", () => {
+  it("originate computes payment and publishes originated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("loan.originated", (e) => { events.push(e.payload); });
+    const lm = new LoanServicingManager(bus);
+    const l = lm.originate({ borrowerId: "b1", principalUsd: 12000, annualRatePct: 0, termMonths: 12, originatedAt: "2026-01-01" });
+    assert.equal(l.monthlyPaymentUsd, 1000);
+    assert.equal(events.length, 1);
+  });
+
+  it("applyPayment splits interest and principal", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("loan.payment_applied", (e) => { events.push(e.payload); });
+    const lm = new LoanServicingManager(bus);
+    const l = lm.originate({ borrowerId: "b1", principalUsd: 1200, annualRatePct: 12, termMonths: 12, originatedAt: "2026-01-01" });
+    const p = lm.applyPayment(l.id, 200, "2026-02-01")!;
+    // monthly interest = 1200 * 1% = 12; principal = 188
+    assert.equal(p.interestPaid, 12);
+    assert.equal(p.principalPaid, 188);
+    assert.equal(events.length, 1);
+  });
+
+  it("full payoff publishes paid_off", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("loan.paid_off", (e) => { events.push(e.payload); });
+    const lm = new LoanServicingManager(bus);
+    const l = lm.originate({ borrowerId: "b1", principalUsd: 1000, annualRatePct: 0, termMonths: 2, originatedAt: "2026-01-01" });
+    lm.applyPayment(l.id, 1000, "2026-02-01");
+    assert.equal(lm.getLoan(l.id)!.status, "paid_off");
+    assert.equal(events.length, 1);
+  });
+
+  it("delinquent then payment restores current", () => {
+    const bus = new EventBus();
+    const lm = new LoanServicingManager(bus);
+    const l = lm.originate({ borrowerId: "b1", principalUsd: 1000, annualRatePct: 0, termMonths: 10, originatedAt: "2026-01-01" });
+    lm.markDelinquent(l.id);
+    lm.applyPayment(l.id, 100, "2026-02-01");
+    assert.equal(lm.getLoan(l.id)!.status, "current");
+  });
+
+  it("payment blocked on paid-off loan", () => {
+    const bus = new EventBus();
+    const lm = new LoanServicingManager(bus);
+    const l = lm.originate({ borrowerId: "b1", principalUsd: 500, annualRatePct: 0, termMonths: 1, originatedAt: "2026-01-01" });
+    lm.applyPayment(l.id, 500, "2026-02-01");
+    assert.equal(lm.applyPayment(l.id, 100, "2026-03-01"), undefined);
+  });
+
+  it("summary aggregates outstanding and interest", () => {
+    const bus = new EventBus();
+    const lm = new LoanServicingManager(bus);
+    const l = lm.originate({ borrowerId: "b1", principalUsd: 1200, annualRatePct: 12, termMonths: 12, originatedAt: "2026-01-01" });
+    lm.applyPayment(l.id, 200, "2026-02-01");
+    const s = lm.summary();
+    assert.equal(s.totalLoans, 1);
+    assert.equal(s.current, 1);
+    assert.equal(s.totalInterestCollectedUsd, 12);
   });
 });

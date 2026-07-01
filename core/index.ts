@@ -271,6 +271,8 @@ import { AuditFindingManager } from "./audit-finding/audit-finding-manager.js";
 import { ControlTestManager } from "./control-test/control-test-manager.js";
 import { RegulatoryFilingManager } from "./regulatory-filing/regulatory-filing-manager.js";
 import { WhistleblowerHotlineManager } from "./whistleblower/whistleblower-hotline-manager.js";
+import { CreditLimitManager } from "./credit-limit/credit-limit-manager.js";
+import { LoanServicingManager } from "./loan-servicing/loan-servicing-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -630,6 +632,8 @@ export class Olympus {
   readonly controlTest: ControlTestManager;
   readonly regulatoryFiling: RegulatoryFilingManager;
   readonly whistleblower: WhistleblowerHotlineManager;
+  readonly creditLimit: CreditLimitManager;
+  readonly loanServicing: LoanServicingManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -893,6 +897,8 @@ export class Olympus {
     this.controlTest = new ControlTestManager(this.bus);
     this.regulatoryFiling = new RegulatoryFilingManager(this.bus);
     this.whistleblower = new WhistleblowerHotlineManager(this.bus);
+    this.creditLimit = new CreditLimitManager(this.bus);
+    this.loanServicing = new LoanServicingManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1162,3 +1168,5 @@ export { AuditFindingManager, type FindingRating, type AuditFindingStatus, type 
 export { ControlTestManager, type ControlFrequency, type TestResult, type DeficiencySeverity, type TestRun, type TestableControl, type ControlTestSummary } from "./control-test/index.js";
 export { RegulatoryFilingManager, type FilingFrequency, type FilingStatus, type RegulatoryFiling, type FilingSummary } from "./regulatory-filing/index.js";
 export { WhistleblowerHotlineManager, type HotlineCategory, type HotlineStatus, type HotlineOutcome, type HotlineMessage, type HotlineReport, type HotlineSummary } from "./whistleblower/index.js";
+export { CreditLimitManager, type CreditRiskTier, type CreditLine, type CreditLimitSummary } from "./credit-limit/index.js";
+export { LoanServicingManager, type ServicedLoanStatus, type LoanPayment, type ServicedLoan, type LoanServicingSummary } from "./loan-servicing/index.js";
