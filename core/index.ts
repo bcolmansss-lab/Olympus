@@ -323,6 +323,8 @@ import { SandboxManager } from "./sandbox/sandbox-manager.js";
 import { DevRelManager } from "./devrel/devrel-manager.js";
 import { LoadTestManager } from "./load-test/load-test-manager.js";
 import { ChaosEngineeringManager } from "./chaos/chaos-manager.js";
+import { SyntheticMonitoringManager } from "./synthetic-monitoring/synthetic-monitoring-manager.js";
+import { BenchmarkManager } from "./benchmark/benchmark-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -734,6 +736,8 @@ export class Olympus {
   readonly devRel: DevRelManager;
   readonly loadTest: LoadTestManager;
   readonly chaos: ChaosEngineeringManager;
+  readonly syntheticMonitoring: SyntheticMonitoringManager;
+  readonly benchmark: BenchmarkManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1049,6 +1053,8 @@ export class Olympus {
     this.devRel = new DevRelManager(this.bus);
     this.loadTest = new LoadTestManager(this.bus);
     this.chaos = new ChaosEngineeringManager(this.bus);
+    this.syntheticMonitoring = new SyntheticMonitoringManager(this.bus);
+    this.benchmark = new BenchmarkManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1370,3 +1376,5 @@ export { SandboxManager, type SandboxStatus, type SandboxTier, type Sandbox, typ
 export { DevRelManager, type DevRelActivityKind, type DevRelActivity, type DevRelSummary } from "./devrel/index.js";
 export { LoadTestManager, type LoadTestPlan, type LoadTestRun, type LoadTestSummary } from "./load-test/index.js";
 export { ChaosEngineeringManager, type ChaosFaultKind, type ChaosExperimentStatus, type ChaosExperiment, type ChaosSummary } from "./chaos/index.js";
+export { SyntheticMonitoringManager, type SyntheticCheck, type ProbeResult, type SyntheticMonitoringSummary } from "./synthetic-monitoring/index.js";
+export { BenchmarkManager, type BenchmarkDirection, type BenchmarkMetric, type BenchmarkEntry, type BenchmarkScorecard, type BenchmarkSummary } from "./benchmark/index.js";

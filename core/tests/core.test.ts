@@ -226,6 +226,8 @@ import { SandboxManager } from "../sandbox/sandbox-manager.js";
 import { DevRelManager } from "../devrel/devrel-manager.js";
 import { LoadTestManager } from "../load-test/load-test-manager.js";
 import { ChaosEngineeringManager } from "../chaos/chaos-manager.js";
+import { SyntheticMonitoringManager } from "../synthetic-monitoring/synthetic-monitoring-manager.js";
+import { BenchmarkManager } from "../benchmark/benchmark-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -22877,5 +22879,145 @@ describe("ChaosEngineeringManager", () => {
     assert.equal(s.concluded, 2);
     assert.equal(s.aborted, 1);
     assert.equal(s.hypothesisHoldRatePct, 50);
+  });
+});
+
+describe("SyntheticMonitoringManager", () => {
+  it("probe fails on latency over budget even if up", () => {
+    const sm = new SyntheticMonitoringManager(new EventBus());
+    const c = sm.defineCheck("home", "https://x.com", 500);
+    const r = sm.recordProbe(c.id, true, 800, "2026-07-06T00:00:00Z")!;
+    assert.equal(r.ok, false);
+  });
+
+  it("alerts after consecutive failure threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("synthetic.check_failing", (e) => { events.push(e.payload); });
+    const sm = new SyntheticMonitoringManager(bus, 2);
+    const c = sm.defineCheck("api", "https://x.com/api");
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:00:00Z");
+    assert.equal(events.length, 0);
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:01:00Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].consecutiveFailures, 2);
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:02:00Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("recovery publishes once and resets counter", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("synthetic.check_recovered", (e) => { events.push(e.payload); });
+    const sm = new SyntheticMonitoringManager(bus, 1);
+    const c = sm.defineCheck("api", "https://x.com/api");
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:00:00Z");
+    sm.recordProbe(c.id, true, 100, "2026-07-06T00:01:00Z");
+    assert.equal(events.length, 1);
+    assert.equal(sm.getCheck(c.id)!.consecutiveFailures, 0);
+    assert.equal(sm.getCheck(c.id)!.alerting, false);
+  });
+
+  it("success resets failure streak below threshold", () => {
+    const sm = new SyntheticMonitoringManager(new EventBus(), 3);
+    const c = sm.defineCheck("api", "https://x.com/api");
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:00:00Z");
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:01:00Z");
+    sm.recordProbe(c.id, true, 100, "2026-07-06T00:02:00Z");
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:03:00Z");
+    assert.equal(sm.getCheck(c.id)!.alerting, false);
+  });
+
+  it("availabilityPct per check", () => {
+    const sm = new SyntheticMonitoringManager(new EventBus());
+    const c = sm.defineCheck("api", "https://x.com/api");
+    sm.recordProbe(c.id, true, 100, "2026-07-06T00:00:00Z");
+    sm.recordProbe(c.id, true, 100, "2026-07-06T00:01:00Z");
+    sm.recordProbe(c.id, false, 0, "2026-07-06T00:02:00Z");
+    sm.recordProbe(c.id, true, 100, "2026-07-06T00:03:00Z");
+    assert.equal(sm.availabilityPct(c.id), 75);
+    assert.equal(sm.availabilityPct("ghost"), 100);
+  });
+
+  it("summary counts alerting checks and overall availability", () => {
+    const sm = new SyntheticMonitoringManager(new EventBus(), 1);
+    const a = sm.defineCheck("a", "https://a");
+    const b = sm.defineCheck("b", "https://b");
+    sm.recordProbe(a.id, true, 100, "2026-07-06T00:00:00Z");
+    sm.recordProbe(b.id, false, 0, "2026-07-06T00:00:00Z");
+    const s = sm.summary();
+    assert.equal(s.totalChecks, 2);
+    assert.equal(s.alertingChecks, 1);
+    assert.equal(s.totalProbes, 2);
+    assert.equal(s.overallAvailabilityPct, 50);
+  });
+});
+
+describe("BenchmarkManager", () => {
+  it("record requires known metric", () => {
+    const bm = new BenchmarkManager(new EventBus());
+    assert.equal(bm.record("ghost", "us", 1, "2026-Q3"), undefined);
+    const m = bm.defineMetric("p95 latency", "ms", "lower_is_better");
+    assert.notEqual(bm.record(m.id, "us", 120, "2026-Q3"), undefined);
+  });
+
+  it("scorecard win for lower_is_better", () => {
+    const bm = new BenchmarkManager(new EventBus());
+    const m = bm.defineMetric("p95 latency", "ms", "lower_is_better");
+    bm.record(m.id, "us", 120, "2026-Q3");
+    bm.record(m.id, "CompetitorX", 200, "2026-Q3");
+    bm.record(m.id, "CompetitorY", 150, "2026-Q3");
+    const sc = bm.scorecard("2026-Q3");
+    assert.equal(sc.wins, 1);
+    assert.equal(sc.details[0]!.bestCompetitor, "CompetitorY");
+  });
+
+  it("scorecard loss for higher_is_better", () => {
+    const bm = new BenchmarkManager(new EventBus());
+    const m = bm.defineMetric("uptime", "pct", "higher_is_better");
+    bm.record(m.id, "us", 99.5, "2026-Q3");
+    bm.record(m.id, "CompetitorX", 99.9, "2026-Q3");
+    const sc = bm.scorecard("2026-Q3");
+    assert.equal(sc.losses, 1);
+    assert.equal(sc.details[0]!.verdict, "loss");
+  });
+
+  it("scorecard tie and skipped incomplete metrics", () => {
+    const bm = new BenchmarkManager(new EventBus());
+    const tie = bm.defineMetric("nps", "score", "higher_is_better");
+    const incomplete = bm.defineMetric("cost", "usd", "lower_is_better");
+    bm.record(tie.id, "us", 50, "2026-Q3");
+    bm.record(tie.id, "X", 50, "2026-Q3");
+    bm.record(incomplete.id, "us", 10, "2026-Q3");
+    const sc = bm.scorecard("2026-Q3");
+    assert.equal(sc.ties, 1);
+    assert.equal(sc.details.length, 1);
+  });
+
+  it("scorecard publishes event and scopes to period", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("benchmark.scorecard", (e) => { events.push(e.payload); });
+    const bm = new BenchmarkManager(bus);
+    const m = bm.defineMetric("latency", "ms", "lower_is_better");
+    bm.record(m.id, "us", 100, "2026-Q2");
+    bm.record(m.id, "X", 90, "2026-Q2");
+    bm.record(m.id, "us", 80, "2026-Q3");
+    bm.record(m.id, "X", 90, "2026-Q3");
+    const sc = bm.scorecard("2026-Q3");
+    assert.equal(sc.wins, 1);
+    assert.equal(events[0].period, "2026-Q3");
+  });
+
+  it("summary counts competitors distinctly", () => {
+    const bm = new BenchmarkManager(new EventBus());
+    const m = bm.defineMetric("latency", "ms", "lower_is_better");
+    bm.record(m.id, "us", 100, "2026-Q3");
+    bm.record(m.id, "X", 90, "2026-Q3");
+    bm.record(m.id, "X", 95, "2026-Q2");
+    bm.record(m.id, "Y", 85, "2026-Q3");
+    const s = bm.summary();
+    assert.equal(s.totalEntries, 4);
+    assert.equal(s.competitorsTracked, 2);
   });
 });
