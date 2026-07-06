@@ -299,6 +299,8 @@ import { ConsignmentManager } from "./consignment/consignment-manager.js";
 import { RentalManager } from "./rental/rental-manager.js";
 import { WholesaleManager } from "./wholesale/wholesale-manager.js";
 import { FranchiseManager } from "./franchise/franchise-manager.js";
+import { RouteOptimizerManager } from "./route-optimizer/route-optimizer-manager.js";
+import { SustainabilityManager } from "./sustainability/sustainability-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -686,6 +688,8 @@ export class Olympus {
   readonly rental: RentalManager;
   readonly wholesale: WholesaleManager;
   readonly franchise: FranchiseManager;
+  readonly routeOptimizer: RouteOptimizerManager;
+  readonly sustainability: SustainabilityManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -977,6 +981,8 @@ export class Olympus {
     this.rental = new RentalManager(this.bus);
     this.wholesale = new WholesaleManager(this.bus);
     this.franchise = new FranchiseManager(this.bus);
+    this.routeOptimizer = new RouteOptimizerManager(this.bus);
+    this.sustainability = new SustainabilityManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1274,3 +1280,5 @@ export { ConsignmentManager, type ConsignmentStatus, type ConsignmentItem, type 
 export { RentalManager, type RentalStatus, type RentableAsset, type Rental, type RentalSummary } from "./rental/index.js";
 export { WholesaleManager, type WholesaleOrderStatus, type WholesaleTier, type WholesaleAccount, type WholesaleOrder, type WholesaleSummary } from "./wholesale/index.js";
 export { FranchiseManager, type FranchiseStatus, type Franchise, type FranchiseSalesReport, type FranchiseSummary } from "./franchise/index.js";
+export { RouteOptimizerManager, type RoutePlanStatus, type DeliveryStop, type RoutePlan, type RouteOptimizerSummary } from "./route-optimizer/index.js";
+export { SustainabilityManager, type SustainabilityScope, type SustainabilityEmissionRecord, type ReductionTarget, type SustainabilitySummary } from "./sustainability/index.js";

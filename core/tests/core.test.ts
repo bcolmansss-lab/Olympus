@@ -202,6 +202,8 @@ import { ConsignmentManager } from "../consignment/consignment-manager.js";
 import { RentalManager } from "../rental/rental-manager.js";
 import { WholesaleManager } from "../wholesale/wholesale-manager.js";
 import { FranchiseManager } from "../franchise/franchise-manager.js";
+import { RouteOptimizerManager } from "../route-optimizer/route-optimizer-manager.js";
+import { SustainabilityManager } from "../sustainability/sustainability-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21302,5 +21304,129 @@ describe("FranchiseManager", () => {
     assert.equal(s.totalGrossSalesUsd, 30000);
     assert.equal(s.totalRoyaltiesDueUsd, 2000);
     assert.equal(s.totalRoyaltiesCollectedUsd, 500);
+  });
+});
+
+describe("RouteOptimizerManager", () => {
+  const depot = { lat: 40.0, lon: -75.0 };
+  const stops = [
+    { address: "Far", lat: 41.0, lon: -75.0 },
+    { address: "Near", lat: 40.1, lon: -75.0 },
+    { address: "Mid", lat: 40.5, lon: -75.0 },
+  ];
+
+  it("orders stops nearest-neighbor from depot", () => {
+    const rm = new RouteOptimizerManager(new EventBus());
+    const route = rm.planRoute("driver-1", depot, stops, "2026-07-01T00:00:00Z")!;
+    assert.deepEqual(route.stops.map(s => s.address), ["Near", "Mid", "Far"]);
+    assert.ok(route.totalDistanceKm > 100);
+  });
+
+  it("rejects empty stop list", () => {
+    const rm = new RouteOptimizerManager(new EventBus());
+    assert.equal(rm.planRoute("d1", depot, [], "2026-07-01T00:00:00Z"), undefined);
+  });
+
+  it("publishes route.planned with stop count", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("route.planned", (e) => { events.push(e.payload); });
+    const rm = new RouteOptimizerManager(bus);
+    rm.planRoute("d1", depot, stops, "2026-07-01T00:00:00Z");
+    assert.equal(events[0].stopCount, 3);
+  });
+
+  it("completing all stops completes the route with event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("route.completed", (e) => { events.push(e.payload); });
+    const rm = new RouteOptimizerManager(bus);
+    const route = rm.planRoute("d1", depot, stops, "2026-07-01T00:00:00Z")!;
+    rm.start(route.id);
+    for (const s of route.stops) rm.completeStop(route.id, s.id);
+    assert.equal(rm.getRoute(route.id)!.status, "completed");
+    assert.equal(events.length, 1);
+  });
+
+  it("cannot complete stops before starting", () => {
+    const rm = new RouteOptimizerManager(new EventBus());
+    const route = rm.planRoute("d1", depot, stops, "2026-07-01T00:00:00Z")!;
+    assert.equal(rm.completeStop(route.id, route.stops[0]!.id), undefined);
+  });
+
+  it("summary aggregates stops and distance", () => {
+    const rm = new RouteOptimizerManager(new EventBus());
+    const route = rm.planRoute("d1", depot, stops, "2026-07-01T00:00:00Z")!;
+    rm.start(route.id);
+    rm.completeStop(route.id, route.stops[0]!.id);
+    const s = rm.summary();
+    assert.equal(s.totalRoutes, 1);
+    assert.equal(s.totalStops, 3);
+    assert.equal(s.stopsCompleted, 1);
+    assert.equal(s.completedRoutes, 0);
+  });
+});
+
+describe("SustainabilityManager", () => {
+  it("records emissions via factors", () => {
+    const sm = new SustainabilityManager(new EventBus());
+    sm.setFactor("diesel_liter", 1, 2.68);
+    const rec = sm.record("diesel_liter", 100, 2026)!;
+    assert.equal(rec.co2eKg, 268);
+    assert.equal(rec.scope, 1);
+  });
+
+  it("rejects unknown activity or negative quantity", () => {
+    const sm = new SustainabilityManager(new EventBus());
+    assert.equal(sm.record("unknown", 10, 2026), undefined);
+    sm.setFactor("kwh", 2, 0.4);
+    assert.equal(sm.record("kwh", -5, 2026), undefined);
+  });
+
+  it("emissionsForYear sums only that year", () => {
+    const sm = new SustainabilityManager(new EventBus());
+    sm.setFactor("kwh", 2, 0.5);
+    sm.record("kwh", 100, 2025);
+    sm.record("kwh", 200, 2026);
+    assert.equal(sm.emissionsForYear(2026), 100);
+  });
+
+  it("evaluateTarget publishes target_met once", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sustainability.target_met", (e) => { events.push(e.payload); });
+    const sm = new SustainabilityManager(bus);
+    sm.setFactor("kwh", 2, 0.5);
+    sm.record("kwh", 100, 2026);
+    sm.setTarget(2026, 60);
+    const r = sm.evaluateTarget(2026)!;
+    assert.equal(r.met, true);
+    sm.evaluateTarget(2026);
+    assert.equal(events.length, 1);
+  });
+
+  it("evaluateTarget reports miss when over target", () => {
+    const sm = new SustainabilityManager(new EventBus());
+    sm.setFactor("kwh", 2, 1);
+    sm.record("kwh", 100, 2026);
+    sm.setTarget(2026, 50);
+    assert.equal(sm.evaluateTarget(2026)!.met, false);
+    assert.equal(sm.evaluateTarget(2030), undefined);
+  });
+
+  it("summary breaks totals down by scope", () => {
+    const sm = new SustainabilityManager(new EventBus());
+    sm.setFactor("diesel", 1, 2);
+    sm.setFactor("kwh", 2, 0.5);
+    sm.setFactor("freight", 3, 10);
+    sm.record("diesel", 10, 2026);
+    sm.record("kwh", 100, 2026);
+    sm.record("freight", 5, 2026);
+    const s = sm.summary();
+    assert.equal(s.totalCo2eKg, 120);
+    assert.equal(s.byScope[1], 20);
+    assert.equal(s.byScope[2], 50);
+    assert.equal(s.byScope[3], 50);
+    assert.equal(s.recordCount, 3);
   });
 });
