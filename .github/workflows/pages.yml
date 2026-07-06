@@ -29,20 +29,10 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Compile TypeScript
-        run: npx tsc --outDir dist
-
       - name: Build site
         run: |
-          node --input-type=module -e "
-          import { DASHBOARD_HTML } from './dist/core/api/dashboard.js';
-          import { writeFileSync, mkdirSync } from 'fs';
-          mkdirSync('_site', { recursive: true });
-          writeFileSync('_site/index.html', DASHBOARD_HTML);
-          "
+          mkdir -p _site
+          cp docs/index.html _site/index.html
 
       - name: Configure Pages (auto-enable if possible)
         uses: actions/configure-pages@v5

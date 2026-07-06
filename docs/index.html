@@ -5,585 +5,516 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Olympus — Operator Console</title>
 <style>
-  :root {
-    --bg: #0f0f1a; --panel: #1a1a2e; --line: #252540; --ink: #e8e8f0;
-    --dim: #8888aa; --accent: #6366f1; --accent2: #818cf8; --good: #22d3a5; --warn: #f59e0b; --bad: #ef4444;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--sans); }
-  header {
-    display: flex; align-items: center; gap: 14px; padding: 14px 24px;
-    border-bottom: 1px solid var(--line); background: var(--panel);
-    position: sticky; top: 0; z-index: 5;
-    box-shadow: 0 1px 16px rgba(0,0,0,.4);
-  }
-  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; font-weight: 700; }
-  header h1 span { color: var(--accent2); }
-  header .sub { color: var(--dim); font-size: 12px; }
-  .pill { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); transition: background .3s; }
-  .dot.live { background: var(--good); box-shadow: 0 0 8px var(--good); }
-  main { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
-  @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
-  .panel {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
-    transition: box-shadow .2s;
-  }
-  .panel:hover { box-shadow: 0 4px 24px rgba(99,102,241,.1); }
-  .panel h2 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim);
-    margin: 0; padding: 13px 18px; border-bottom: 1px solid var(--line);
-    display: flex; justify-content: space-between; align-items: center; font-weight: 600;
-  }
-  .panel h2 .icon { font-size: 14px; }
-  .panel .body { padding: 6px 0; max-height: 62vh; overflow-y: auto; }
-  .stats { display: flex; gap: 20px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
-  .stat { display: flex; flex-direction: column; }
-  .stat b { font-size: 24px; font-weight: 700; color: var(--ink); }
-  .stat span { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; margin-top: 1px; }
-  .item { padding: 12px 18px; border-bottom: 1px solid var(--line); }
-  .item:last-child { border-bottom: 0; }
-  .item .q { font-weight: 600; font-size: 13px; }
-  .item .note { color: var(--dim); font-size: 12px; margin-top: 3px; }
-  .tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .5px; padding: 2px 7px; border-radius: 5px; margin-right: 8px; vertical-align: middle; }
-  .tag.auto_executed { background: rgba(34,211,165,.14); color: var(--good); }
-  .tag.needs_approval { background: rgba(245,158,11,.14); color: var(--warn); }
-  .tag.escalated { background: rgba(239,68,68,.14); color: var(--bad); }
-  .tag.resolved { background: rgba(99,102,241,.16); color: var(--accent2); }
-  .ev { font-family: var(--mono); font-size: 11.5px; padding: 5px 18px; border-bottom: 1px solid var(--line);
-    display: flex; gap: 10px; animation: flash .9s ease-out; }
-  .ev .t { color: var(--dim); white-space: nowrap; }
-  .ev .topic { color: var(--accent2); }
-  @keyframes flash { from { background: rgba(99,102,241,.14); } to { background: transparent; } }
-  @keyframes shimmer { 0%,100% { opacity:.35; } 50% { opacity:.7; } }
-  .skeleton { animation: shimmer 1.6s infinite; background: var(--line); border-radius: 4px; }
-  .empty { color: var(--dim); padding: 18px 18px; font-style: italic; font-size: 13px; }
-  .diag { grid-column: 1 / -1; }
-  .diag .controls { display: flex; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--line); }
-  .diag input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink);
-    border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: var(--sans); }
-  .diag input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,102,241,.15); }
-  .fact { display: grid; grid-template-columns: 92px 56px 1fr; gap: 12px; align-items: baseline;
-    padding: 8px 18px; border-bottom: 1px solid var(--line); font-size: 13px; }
-  .fact:last-child { border-bottom: 0; }
-  .src { font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .5px; padding: 2px 6px; border-radius: 5px; text-align: center; }
-  .src.graph { background: rgba(99,102,241,.16); color: var(--accent2); }
-  .src.vector { background: rgba(34,211,165,.14); color: var(--good); }
-  .src.semantic { background: rgba(245,158,11,.14); color: var(--warn); }
-  .src.aggregate { background: rgba(136,136,170,.14); color: var(--dim); }
-  .score { font-family: var(--mono); color: var(--dim); font-size: 12px; }
-  .grounded { font-size: 11px; color: var(--good); }
-  .briefing { padding: 11px 24px; border-bottom: 1px solid var(--line); font-size: 13.5px;
-    background: linear-gradient(90deg, rgba(99,102,241,.12), transparent); }
-  .briefing.urgent { background: linear-gradient(90deg, rgba(239,68,68,.16), transparent); }
-  .briefing.attention { background: linear-gradient(90deg, rgba(245,158,11,.14), transparent); }
-  .briefing b { color: var(--accent2); }
-  button.demo {
-    margin-left: 8px; background: var(--accent); color: #fff; border: 0; font-weight: 600;
-    padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; font-family: var(--sans);
-    transition: filter .15s, transform .1s;
-  }
-  button.demo:hover { filter: brightness(1.15); transform: translateY(-1px); }
-  button.demo:active { transform: translateY(0); filter: brightness(.95); }
-  button.demo:disabled { opacity: .45; cursor: default; transform: none; }
-  /* Company Health hero */
-  .health { grid-column: 1 / -1; }
-  .health .body { max-height: none; padding: 16px 18px; }
-  .health-top { display: flex; align-items: center; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
-  .health-ring { position: relative; width: 90px; height: 90px; flex-shrink: 0; }
-  .health-ring svg { transform: rotate(-90deg); }
-  .health-ring .ring-bg { fill: none; stroke: var(--line); stroke-width: 7; }
-  .health-ring .ring-fill { fill: none; stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset .6s cubic-bezier(.4,0,.2,1), stroke .3s; }
-  .health-ring .ring-label { position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; font-family: var(--mono); }
-  .health-ring .ring-num { font-size: 20px; font-weight: 700; line-height: 1; }
-  .health-ring .ring-max { font-size: 9px; color: var(--dim); }
-  .health-headline { color: var(--dim); font-size: 13px; flex: 1; min-width: 200px; line-height: 1.5; }
-  .grade { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
-    padding: 4px 11px; border-radius: 6px; }
-  .grade.excellent { background: rgba(34,211,165,.16); color: var(--good); }
-  .grade.good { background: rgba(99,102,241,.16); color: var(--accent2); }
-  .grade.fair { background: rgba(245,158,11,.16); color: var(--warn); }
-  .grade.poor { background: rgba(245,158,11,.16); color: #f59e42; }
-  .grade.critical { background: rgba(239,68,68,.16); color: var(--bad); }
-  .dim-row { margin: 9px 0; }
-  .dim-row .lbl { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
-  .dim-row .lbl .nm { color: var(--ink); font-weight: 500; }
-  .dim-row .lbl .sc { font-family: var(--mono); color: var(--dim); }
-  .dim-row .track { background: var(--bg); border-radius: 6px; height: 7px; overflow: hidden; }
-  .dim-row .fill { height: 100%; border-radius: 6px; background: var(--accent); transition: width .5s cubic-bezier(.4,0,.2,1); }
-  .dim-row .detail { font-size: 11px; color: var(--dim); margin-top: 3px; }
-  /* Core business modules (finance/pipeline/etc.) */
-  .modules { grid-column: 1 / -1; }
-  .module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 12px; padding: 16px 18px; }
-  .module-card {
-    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 13px 15px;
-    transition: border-color .2s, transform .15s;
-  }
-  .module-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-  .module-card .mt { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--dim); font-weight: 600; }
-  .module-card .mv { font-family: var(--mono); font-size: 21px; font-weight: 700; margin: 5px 0 3px; color: var(--ink); }
-  .module-card .ms { font-size: 11px; color: var(--dim); }
-  /* Business Operations section */
-  .biz-ops { grid-column: 1 / -1; }
-  .biz-ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 14px; padding: 16px 18px; }
-  .biz-card {
-    background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px;
-    display: flex; flex-direction: column; gap: 12px;
-    transition: border-color .2s, transform .15s, box-shadow .2s;
-    cursor: default;
-  }
-  .biz-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 24px rgba(99,102,241,.12); }
-  .biz-card-head { display: flex; align-items: center; justify-content: space-between; }
-  .biz-card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--dim); display: flex; align-items: center; gap: 7px; }
-  .biz-card-title .ic { font-size: 16px; }
-  .biz-status { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-  .biz-status.green { background: var(--good); box-shadow: 0 0 6px var(--good); }
-  .biz-status.yellow { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
-  .biz-status.red { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
-  .biz-metrics { display: flex; gap: 18px; }
-  .biz-metric { display: flex; flex-direction: column; }
-  .biz-metric .bm-val { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--ink); line-height: 1.1; }
-  .biz-metric .bm-lbl { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
-  .biz-skeleton { display: flex; gap: 12px; }
-  .biz-skeleton .sk { height: 32px; border-radius: 6px; }
-  /* Board Report modal */
-  .overlay { position: fixed; inset: 0; background: rgba(0,0,4,.75); display: none;
-    align-items: center; justify-content: center; z-index: 20; padding: 24px; backdrop-filter: blur(4px); }
-  .overlay.open { display: flex; }
-  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-    width: 100%; max-width: 880px; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden;
-    box-shadow: 0 24px 64px rgba(0,0,0,.6); }
-  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 22px;
-    border-bottom: 1px solid var(--line); }
-  .modal-head h2 { margin: 0; font-size: 15px; letter-spacing: .2px; color: var(--ink); font-weight: 700; }
-  .modal-close { background: transparent; border: 0; color: var(--dim); font-size: 24px; line-height: 1;
-    cursor: pointer; padding: 0 4px; transition: color .15s; }
-  .modal-close:hover { color: var(--ink); }
-  .report-body { padding: 20px 26px; overflow-y: auto; font-size: 13.5px; }
-  .report-body h1 { font-size: 22px; color: var(--accent2); margin: 0 0 12px; }
-  .report-body h2 { font-size: 17px; color: var(--ink); margin: 22px 0 9px; padding: 0;
-    border: 0; text-transform: none; letter-spacing: 0; }
-  .report-body h3 { font-size: 14px; color: var(--accent2); margin: 16px 0 6px; }
-  .report-body p { margin: 8px 0; }
-  .report-body ul { margin: 8px 0; padding-left: 22px; }
-  .report-body li { margin: 3px 0; }
-  .report-body strong { color: var(--ink); font-weight: 700; }
-  .report-body table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 12.5px; }
-  .report-body th, .report-body td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; }
-  .report-body th { color: var(--dim); text-transform: uppercase; letter-spacing: .4px; font-size: 11px; }
+:root {
+  --bg:#0f0f1a; --panel:#1a1a2e; --panel2:#20203a; --line:#252540; --ink:#e8e8f0;
+  --dim:#8888aa; --accent:#6366f1; --accent2:#818cf8; --good:#22d3a5; --warn:#f59e0b; --bad:#ef4444;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 var(--sans);overflow:hidden}
+header{display:flex;align-items:center;gap:14px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:relative;z-index:50}
+header h1{font-size:16px;margin:0;font-weight:700}
+header h1 span{color:var(--accent2)}
+header .sub{color:var(--dim);font-size:12px}
+#search{margin-left:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:6px 12px;width:260px;font:13px var(--sans)}
+#search:focus{outline:none;border-color:var(--accent)}
+#layout{display:flex;height:calc(100vh - 53px)}
+nav{width:200px;background:var(--panel);border-right:1px solid var(--line);padding:12px 0;overflow-y:auto;flex-shrink:0}
+nav a{display:block;padding:8px 20px;color:var(--dim);text-decoration:none;font-size:13px;border-left:3px solid transparent;cursor:pointer}
+nav a:hover{color:var(--ink);background:var(--panel2)}
+nav a.active{color:var(--ink);border-left-color:var(--accent);background:var(--panel2)}
+nav .navgroup{padding:14px 20px 4px;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);opacity:.7}
+main{flex:1;overflow-y:auto;padding:22px 26px;position:relative}
+h2{font-size:18px;margin:0 0 4px}
+.crumb{color:var(--dim);font-size:12px;margin-bottom:16px}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px}
+.card .v{font-size:22px;font-weight:700;font-family:var(--mono);margin-top:2px}
+.card .d{font-size:11px;color:var(--dim);margin-top:2px}
+.pos{color:var(--good)} .neg{color:var(--bad)} .wrn{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--dim);text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.6px;padding:8px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.row:hover{background:var(--panel2);cursor:pointer}
+.num{font-family:var(--mono);text-align:right;white-space:nowrap}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.tag.src-quickbooks{color:#2ca01c;border-color:#2ca01c44}
+.tag.src-stripe{color:#8f7fff;border-color:#8f7fff44}
+.tag.src-csv{color:var(--warn);border-color:#f59e0b44}
+.tag.src-manual{color:var(--accent2);border-color:#818cf844}
+.tag.src-seed{color:var(--dim)}
+.tag.st-paid,.tag.st-active,.tag.st-connected{color:var(--good);border-color:#22d3a544}
+.tag.st-overdue,.tag.st-error{color:var(--bad);border-color:#ef444444}
+.tag.st-sent,.tag.st-pending{color:var(--warn);border-color:#f59e0b44}
+.toolbar{display:flex;gap:8px;align-items:center;margin:0 0 14px;flex-wrap:wrap}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 14px;font:13px var(--sans);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger{color:var(--bad)}
+select,input[type=text],input[type=number],input[type=date],textarea{background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:6px 10px;font:13px var(--sans)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.editable{border-bottom:1px dashed var(--line);cursor:text;min-width:30px;display:inline-block}
+.editable:hover{border-bottom-color:var(--accent2);color:var(--accent2)}
+.editable:focus{outline:none;border-bottom:1px solid var(--accent);color:var(--ink)}
+.win{position:absolute;background:var(--panel);border:1px solid var(--accent);border-radius:12px;box-shadow:0 12px 48px rgba(0,0,0,.6);min-width:420px;max-width:660px;max-height:76vh;display:flex;flex-direction:column;z-index:100}
+.win header{cursor:move;border-radius:12px 12px 0 0;padding:9px 14px;background:var(--panel2);border-bottom:1px solid var(--line);user-select:none}
+.win header b{font-size:13px}
+.win header .x{margin-left:auto;cursor:pointer;color:var(--dim);font-size:16px;padding:0 4px}
+.win header .x:hover{color:var(--bad)}
+.win .body{padding:14px 16px;overflow-y:auto}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:5px 12px;font-size:13px;margin-bottom:12px}
+.kv .k{color:var(--dim)}
+.hist{font-size:12px;color:var(--dim);border-left:2px solid var(--line);padding-left:10px;margin:4px 0}
+.section-title{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:14px 0 6px;font-weight:600}
+.intcard{display:flex;gap:12px;align-items:center}
+.intcard .logo{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:#fff;flex-shrink:0}
+.formrow{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.formrow label{font-size:12px;color:var(--dim)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--good);border-radius:10px;padding:10px 18px;z-index:999;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.empty{color:var(--dim);padding:30px;text-align:center}
+.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:calc(100vh - 240px)}
+a.link{color:var(--accent2);cursor:pointer;text-decoration:none}
+a.link:hover{text-decoration:underline}
 </style>
 </head>
 <body>
 <header>
-  <h1>Olympus <span>OS</span></h1>
-  <span class="sub">Autonomous Business Operating System</span>
-  <button class="demo" id="run">Run decision</button>
-  <button class="demo" id="report-btn">Board Report</button>
-  <span class="pill"><span class="dot" id="dot"></span><span id="status">connecting…</span></span>
+  <h1>OLYMPUS <span>◆</span> Operator Console</h1>
+  <div class="sub" id="companyName"></div>
+  <input id="search" placeholder="Search everything…  (name, memo, amount)" />
 </header>
-<div id="briefing" class="briefing"></div>
-<main>
-  <section class="panel health">
-    <h2><span class="icon">◎</span> Company Health <span id="health-grade-slot" class="sub"></span></h2>
-    <div class="body" id="health"><div class="empty">Loading company health…</div></div>
-  </section>
-  <section class="panel modules">
-    <h2><span class="icon">▦</span> Business Modules <span class="sub">live</span></h2>
-    <div class="module-grid" id="modules"><div class="empty">Loading modules…</div></div>
-  </section>
-  <section class="panel biz-ops">
-    <h2><span class="icon">⚙</span> Business Operations <span class="sub">live · refreshes 30s</span></h2>
-    <div class="biz-ops-grid" id="biz-ops">
-      <div class="biz-card"><div class="biz-skeleton"><div class="skeleton sk" style="width:60px"></div><div class="skeleton sk" style="width:90px"></div></div></div>
-    </div>
-  </section>
-  <section class="panel">
-    <h2><span class="icon">✉</span> Decision Inbox <span id="inbox-count" class="sub"></span></h2>
-    <div class="stats" id="stats"></div>
-    <div class="body" id="inbox"><div class="empty">No decisions yet.</div></div>
-  </section>
-  <section class="panel">
-    <h2><span class="icon">∿</span> Event Spine <span class="sub">live</span></h2>
-    <div class="body" id="events"><div class="empty">Waiting for events…</div></div>
-  </section>
-  <section class="panel diag">
-    <h2><span class="icon">◈</span> GraphRAG Diagnosis <span id="grounded" class="grounded"></span></h2>
-    <div class="controls">
-      <input id="q" type="text" value="why did mid-market churn rise onboarding"
-        placeholder="Ask a grounded question…" />
-      <button class="demo" id="diagnose">Diagnose</button>
-    </div>
-    <div class="body" id="facts"><div class="empty">Run a diagnosis to see the grounded context bundle.</div></div>
-  </section>
-</main>
-<div class="overlay" id="report-overlay">
-  <div class="modal">
-    <div class="modal-head">
-      <h2>Executive Board Report</h2>
-      <button class="modal-close" id="report-close" aria-label="Close">×</button>
-    </div>
-    <div class="report-body" id="report-body"><div class="empty">Loading report…</div></div>
-  </div>
+<div id="layout">
+  <nav id="nav"></nav>
+  <main id="main"></main>
 </div>
+<div id="windows"></div>
 <script>
-const $ = (id) => document.getElementById(id);
-const fmt = (ts) => new Date(ts).toLocaleTimeString();
+"use strict";
+/* ============================ data layer ============================ */
+const LS_KEY = "olympus-console-v1";
+const uid = () => Math.random().toString(36).slice(2, 10);
+const today = () => new Date().toISOString().slice(0, 10);
+const now = () => new Date().toISOString();
+const fmt$ = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
-async function refreshInbox() {
-  try {
-    const r = await fetch('/v1/inbox');
-    const { stats, items } = await r.json();
-    $('stats').innerHTML = [
-      ['total', stats.total], ['pending', stats.pending],
-      ['auto', stats.autoExecuted], ['resolved', stats.resolved],
-    ].map(([k, v]) => '<div class="stat"><b>' + v + '</b><span>' + k + '</span></div>').join('');
-    $('inbox-count').textContent = items.length ? '(' + items.length + ')' : '';
-    $('inbox').innerHTML = items.length
-      ? items.map((i) =>
-          '<div class="item"><div class="q"><span class="tag ' + i.status + '">' +
-          i.status.replace('_', ' ') + '</span>' + esc(i.question) + '</div>' +
-          '<div class="note">' + esc(i.note) +
-          (i.consensusScore != null ? ' · consensus ' + i.consensusScore : '') + '</div></div>'
-        ).join('')
-      : '<div class="empty">No decisions yet.</div>';
-  } catch (e) { /* server may be briefly unavailable */ }
-}
-
-function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
-
-let evCount = 0;
-function addEvent(ev) {
-  const list = $('events');
-  if (evCount === 0) list.innerHTML = '';
-  const row = document.createElement('div');
-  row.className = 'ev';
-  row.innerHTML = '<span class="t">' + fmt(ev.ts) + '</span><span class="topic">' + esc(ev.topic) + '</span>';
-  list.prepend(row);
-  evCount++;
-  while (list.children.length > 60) list.removeChild(list.lastChild);
-}
-
-function connect() {
-  const es = new EventSource('/v1/stream?topic=*');
-  es.onopen = () => { $('dot').classList.add('live'); $('status').textContent = 'live'; };
-  es.onerror = () => { $('dot').classList.remove('live'); $('status').textContent = 'reconnecting…'; };
-  es.onmessage = () => {};
-  ['decision.opened','decision.session.opened','decision.session.resolved','decision.reconciled',
-   'agent.proposed','agent.challenged','agent.supported','agent.escalated',
-   'sim.requested','sim.completed','action.gated','action.executed',
-   'autonomy.granted','autonomy.revoked','okg.node.versioned','okg.edge.added',
-   'memory.episode.recorded','audit.recorded']
-    .forEach((t) => es.addEventListener(t, (e) => {
-      try { addEvent(JSON.parse(e.data)); } catch (_) {}
-      if (t.startsWith('decision.') || t === 'action.gated') { refreshInbox(); refreshBriefing(); refreshHealth(); refreshModules(); refreshBizOps(); }
-    }));
-}
-
-$('run').onclick = async () => {
-  const btn = $('run'); btn.disabled = true; btn.textContent = 'running…';
-  try {
-    await fetch('/v1/autonomy/grants', { method: 'PUT', body: JSON.stringify({
-      domain: 'finance', capability: 'reallocate_budget', level: 5,
-      blast_radius: { max_amount: 250000, max_per_day: 10 } }) });
-    await fetch('/v1/ask', { method: 'POST', body: JSON.stringify({
-      question: 'Cut Q3 marketing spend ' + (10 + Math.floor(Math.random() * 15)) + '% to extend runway?',
-      domain: 'finance', options: ['cut-spend', 'hold'], capability: 'reallocate_budget',
-      intervention: { variable: 'marketing_spend', delta: -0.18 },
-      exposureAmount: 120000 + Math.floor(Math.random() * 200000), simSeed: Date.now() % 1000 }) });
-  } finally { btn.disabled = false; btn.textContent = 'Run decision'; refreshInbox(); }
-};
-
-async function refreshBriefing() {
-  try {
-    const b = await (await fetch('/v1/briefing')).json();
-    const sev = b.sections.some((s) => s.severity === 'urgent') ? 'urgent'
-      : b.sections.some((s) => s.severity === 'attention') ? 'attention' : '';
-    const el = $('briefing');
-    el.className = 'briefing ' + sev;
-    el.innerHTML = '<b>Briefing.</b> ' + esc(b.headline);
-  } catch (e) { /* ignore */ }
-}
-
-const GRADE_COLOR = { excellent: 'var(--good)', good: 'var(--accent2)', fair: 'var(--warn)',
-  poor: '#f59e42', critical: 'var(--bad)' };
-
-async function refreshHealth() {
-  try {
-    const h = await (await fetch('/v1/health')).json();
-    const grade = String(h.grade || '').toLowerCase();
-    const color = GRADE_COLOR[grade] || 'var(--accent2)';
-    const composite = (typeof h.composite === 'number') ? h.composite : 0;
-    const compositeStr = composite.toFixed(1);
-    $('health-grade-slot').innerHTML = grade
-      ? '<span class="grade ' + esc(grade) + '">' + esc(grade) + '</span>' : '';
-
-    // SVG ring: circumference of r=36 circle ≈ 226.2
-    const r = 36; const circ = 2 * Math.PI * r;
-    const offset = circ - (composite / 100) * circ;
-    const ring =
-      '<svg width="90" height="90" viewBox="0 0 90 90">' +
-        '<circle class="ring-bg" cx="45" cy="45" r="' + r + '"/>' +
-        '<circle class="ring-fill" cx="45" cy="45" r="' + r + '"' +
-          ' stroke="' + color + '"' +
-          ' stroke-dasharray="' + circ.toFixed(1) + '"' +
-          ' stroke-dashoffset="' + offset.toFixed(1) + '"/>' +
-      '</svg>' +
-      '<div class="ring-label">' +
-        '<span class="ring-num" style="color:' + color + '">' + compositeStr + '</span>' +
-        '<span class="ring-max">/100</span>' +
-      '</div>';
-
-    const dims = Array.isArray(h.dimensions) ? h.dimensions : [];
-    $('health').innerHTML =
-      '<div class="health-top">' +
-        '<div class="health-ring">' + ring + '</div>' +
-        '<div class="health-headline">' + esc(h.headline || '') + '</div>' +
-      '</div>' +
-      (dims.length
-        ? dims.map((d) => {
-            const score = Math.max(0, Math.min(100, Number(d.score) || 0));
-            return '<div class="dim-row">' +
-              '<div class="lbl"><span class="nm">' + esc(d.name) + '</span>' +
-              '<span class="sc">' + score.toFixed(0) + '</span></div>' +
-              '<div class="track"><div class="fill" style="width:' + score + '%;background:' + color + '"></div></div>' +
-              (d.detail ? '<div class="detail">' + esc(d.detail) + '</div>' : '') +
-            '</div>';
-          }).join('')
-        : '<div class="empty">No dimension data.</div>');
-  } catch (e) {
-    $('health').innerHTML = '<div class="empty">Health unavailable.</div>';
-  }
-}
-
-function money(n) {
-  if (typeof n !== 'number' || !isFinite(n)) return '—';
-  const a = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (a >= 1e9) return sign + '$' + (a / 1e9).toFixed(1) + 'B';
-  if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1) + 'M';
-  if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(1) + 'K';
-  return sign + '$' + a.toFixed(0);
-}
-function pct(n) { return (typeof n === 'number' && isFinite(n)) ? n.toFixed(1) + '%' : '—'; }
-function num(n) { return (typeof n === 'number' && isFinite(n)) ? String(n) : '—'; }
-
-function card(title, value, sub) {
-  return '<div class="module-card"><div class="mt">' + esc(title) + '</div>' +
-    '<div class="mv">' + value + '</div><div class="ms">' + sub + '</div></div>';
-}
-
-async function refreshModules() {
-  const get = async (path) => { try { return await (await fetch(path)).json(); } catch (e) { return null; } };
-  const [fin, pipe, risk, sla, cap] = await Promise.all([
-    get('/v1/finance'), get('/v1/pipeline'), get('/v1/risks'), get('/v1/sla'), get('/v1/capacity'),
-  ]);
-  const cards = [];
-  if (fin && fin.burnRate) {
-    const rw = (typeof fin.burnRate.runwayMonths === 'number') ? fin.burnRate.runwayMonths.toFixed(1) + ' mo' : '—';
-    cards.push(card('Finance', rw, 'net income ' + money(fin.netIncome)));
-  } else cards.push(card('Finance', '—', 'no data'));
-  if (pipe && pipe.summary) {
-    cards.push(card('Pipeline', money(pipe.summary.weightedArrUsd),
-      (pipe.summary.openDeals != null ? pipe.summary.openDeals : '—') + ' open deals'));
-  } else cards.push(card('Pipeline', '—', 'no data'));
-  if (risk && Array.isArray(risk.top)) {
-    const hi = risk.top.length ? (Number(risk.top[0].residualScore) || 0).toFixed(2) : '—';
-    cards.push(card('Risk', String(risk.top.length), 'top residual ' + hi));
-  } else cards.push(card('Risk', '—', 'no data'));
-  if (sla && Array.isArray(sla.slas)) {
-    const atRisk = Array.isArray(sla.atRisk) ? sla.atRisk.length : 0;
-    const healthy = sla.slas.length - atRisk;
-    cards.push(card('SLA', healthy + '/' + sla.slas.length,
-      'penalties ' + money(sla.totalPenalties)));
-  } else cards.push(card('SLA', '—', 'no data'));
-  if (cap && Array.isArray(cap.overallocated)) {
-    cards.push(card('Capacity', String(cap.overallocated.length), 'overallocated'));
-  } else cards.push(card('Capacity', '—', 'no data'));
-  $('modules').innerHTML = cards.join('');
-}
-
-function bizCard(icon, title, metrics, statusColor) {
-  const mHtml = metrics.map((m) =>
-    '<div class="biz-metric"><div class="bm-val">' + m[0] + '</div><div class="bm-lbl">' + esc(m[1]) + '</div></div>'
-  ).join('');
-  return '<div class="biz-card">' +
-    '<div class="biz-card-head">' +
-      '<div class="biz-card-title"><span class="ic">' + icon + '</span>' + esc(title) + '</div>' +
-      '<span class="biz-status ' + statusColor + '"></span>' +
-    '</div>' +
-    '<div class="biz-metrics">' + mHtml + '</div>' +
-  '</div>';
-}
-
-async function refreshBizOps() {
-  const get = async (path) => { try { return await (await fetch(path)).json(); } catch (e) { return null; } };
-  const [support, pipeline, marketing, forecast, comms, incidents] = await Promise.all([
-    get('/v1/support'), get('/v1/data-pipeline'), get('/v1/marketing'),
-    get('/v1/forecast'), get('/v1/comms'), get('/v1/incidents'),
-  ]);
-  const cards = [];
-
-  // Support Tickets
-  if (support && support.metrics) {
-    const m = support.metrics;
-    const open = m.openTickets != null ? num(m.openTickets) : (m.byStatus && m.byStatus.open != null ? num(m.byStatus.open) : '—');
-    const csat = (typeof m.avgCsat === 'number') ? m.avgCsat.toFixed(1) : '—';
-    const status = (typeof m.openTickets === 'number' && m.openTickets > 10) ? 'yellow' : 'green';
-    cards.push(bizCard('🎫', 'Support Tickets', [[open, 'open tickets'], [csat, 'avg CSAT']], status));
-  } else { cards.push(bizCard('🎫', 'Support Tickets', [['—', 'no data']], 'yellow')); }
-
-  // Data Pipeline
-  if (pipeline && pipeline.summary) {
-    const s = pipeline.summary;
-    const total = num(s.totalPipelines);
-    const healthy = num(s.healthyPipelines != null ? s.healthyPipelines : s.activePipelines);
-    const status = (s.failedPipelines > 0) ? 'red' : 'green';
-    cards.push(bizCard('⚡', 'Data Pipeline', [[total, 'pipelines'], [healthy, 'healthy']], status));
-  } else { cards.push(bizCard('⚡', 'Data Pipeline', [['—', 'no data']], 'yellow')); }
-
-  // Marketing Attribution
-  if (marketing && marketing.summary) {
-    const s = marketing.summary;
-    const conv = num(s.totalConversions);
-    const roi = (typeof s.overallRoi === 'number') ? s.overallRoi.toFixed(1) + 'x' : '—';
-    const status = (typeof s.overallRoi === 'number' && s.overallRoi >= 2) ? 'green' : 'yellow';
-    cards.push(bizCard('📣', 'Marketing', [[conv, 'conversions'], [roi, 'ROI']], status));
-  } else { cards.push(bizCard('📣', 'Marketing', [['—', 'no data']], 'yellow')); }
-
-  // Forecasting
-  if (Array.isArray(forecast) && forecast.length > 0) {
-    const f = forecast[0];
-    const endArr = (f.projections && f.projections.length)
-      ? money(f.projections[f.projections.length - 1].arrUsd) : '—';
-    cards.push(bizCard('📈', 'Forecasting', [[num(forecast.length), 'scenarios'], [endArr, 'end ARR']], 'green'));
-  } else { cards.push(bizCard('📈', 'Forecasting', [['—', 'no data']], 'yellow')); }
-
-  // Communications
-  if (comms && comms.summary) {
-    const s = comms.summary;
-    const active = num(s.activeSequences);
-    const replyRate = pct(s.avgReplyRate);
-    const status = (typeof s.avgReplyRate === 'number' && s.avgReplyRate >= 5) ? 'green' : 'yellow';
-    cards.push(bizCard('✉', 'Comms', [[active, 'active sequences'], [replyRate, 'avg reply rate']], status));
-  } else { cards.push(bizCard('✉', 'Comms', [['—', 'no data']], 'yellow')); }
-
-  // Incidents
-  if (incidents) {
-    const open = Array.isArray(incidents.open) ? num(incidents.open.length) : '—';
-    const mttr = (incidents.metrics && typeof incidents.metrics.mttrMs === 'number')
-      ? (incidents.metrics.mttrMs / 3600000).toFixed(1) + 'h' : '—';
-    const status = (Array.isArray(incidents.open) && incidents.open.length > 0) ? 'yellow' : 'green';
-    cards.push(bizCard('🚨', 'Incidents', [[open, 'open'], [mttr, 'MTTR']], status));
-  } else { cards.push(bizCard('🚨', 'Incidents', [['—', 'no data']], 'yellow')); }
-
-  $('biz-ops').innerHTML = cards.join('');
-}
-
-async function diagnose() {
-  const btn = $('diagnose'); const q = $('q').value.trim();
-  if (!q) return;
-  btn.disabled = true; btn.textContent = '…';
-  try {
-    const r = await fetch('/v1/diagnose', { method: 'POST', body: JSON.stringify({
-      query: q, embedding: [0.85, 0.25, 0.3, 0.48], topK: 12 }) });
-    const ctx = await r.json();
-    $('grounded').textContent = ctx.fullyGrounded ? '✓ fully grounded · ' + ctx.facts.length + ' facts' : '';
-    $('facts').innerHTML = (ctx.facts || []).length
-      ? ctx.facts.map((f) =>
-          '<div class="fact"><span class="src ' + f.source + '">' + f.source + '</span>' +
-          '<span class="score">' + f.score + '</span>' +
-          '<span>' + esc(f.claim) + '</span></div>'
-        ).join('')
-      : '<div class="empty">No grounded facts for that query.</div>';
-  } catch (e) {
-    $('facts').innerHTML = '<div class="empty">Diagnosis failed.</div>';
-  } finally { btn.disabled = false; btn.textContent = 'Diagnose'; }
-}
-$('diagnose').onclick = diagnose;
-$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') diagnose(); });
-
-function mdInline(s) {
-  let out = esc(s);
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
-  return out;
-}
-
-function renderMarkdown(md) {
-  const lines = String(md).replace(/\r\n/g, '\n').split('\n');
-  const out = [];
-  let para = [];
-  let list = [];
-  const flushPara = () => {
-    if (para.length) { out.push('<p>' + para.map(mdInline).join(' ') + '</p>'); para = []; }
+function seedData() {
+  const mk = (extra) => ({ id: uid(), source: "seed", createdAt: now(), history: [], ...extra });
+  return {
+    company: { name: "Acme Rentals LLC" },
+    accounts: [
+      mk({ name: "Operating Checking", type: "bank", balance: 84210.55 }),
+      mk({ name: "Payroll Account", type: "bank", balance: 22040.00 }),
+      mk({ name: "Business Credit Card", type: "credit", balance: -4315.22 }),
+    ],
+    customers: [
+      mk({ name: "Northwind Traders", email: "ap@northwind.com", phone: "555-0102", terms: "Net 30" }),
+      mk({ name: "Fabrikam Inc", email: "billing@fabrikam.com", phone: "555-0177", terms: "Net 15" }),
+    ],
+    vendors: [
+      mk({ name: "Metro Office Supply", email: "sales@metro-os.com", category: "Supplies" }),
+      mk({ name: "CloudHost Pro", email: "billing@cloudhost.pro", category: "Software" }),
+    ],
+    employees: [
+      mk({ name: "Jordan Ellis", role: "Operations Manager", salary: 78000, startDate: "2024-03-11" }),
+      mk({ name: "Sam Rivera", role: "Field Technician", salary: 54000, startDate: "2025-01-06" }),
+    ],
+    projects: [
+      mk({ name: "Warehouse Expansion", budget: 45000, spent: 12800, status: "active" }),
+    ],
+    invoices: [
+      mk({ number: "INV-1041", customer: "Northwind Traders", amount: 6200, issued: "2026-06-10", due: "2026-07-10", status: "sent" }),
+      mk({ number: "INV-1042", customer: "Fabrikam Inc", amount: 3450, issued: "2026-06-18", due: "2026-07-03", status: "overdue" }),
+      mk({ number: "INV-1039", customer: "Northwind Traders", amount: 8800, issued: "2026-05-02", due: "2026-06-01", status: "paid" }),
+    ],
+    transactions: [
+      mk({ date: "2026-07-01", amount: 8800, direction: "in", account: "Operating Checking", category: "Sales", counterparty: "Northwind Traders", memo: "Payment for INV-1039", ref: "INV-1039" }),
+      mk({ date: "2026-07-02", amount: -1249.99, direction: "out", account: "Business Credit Card", category: "Software", counterparty: "CloudHost Pro", memo: "Annual hosting renewal" }),
+      mk({ date: "2026-07-03", amount: -6500, direction: "out", account: "Payroll Account", category: "Payroll", counterparty: "Payroll run 2026-07-A", memo: "Semi-monthly payroll" }),
+      mk({ date: "2026-07-05", amount: -312.4, direction: "out", account: "Operating Checking", category: "Supplies", counterparty: "Metro Office Supply", memo: "Packing materials" }),
+    ],
+    integrations: [
+      { key: "quickbooks", name: "QuickBooks Online", color: "#2ca01c", desc: "Chart of accounts, invoices, bills, payments", status: "disconnected", config: {} },
+      { key: "xero", name: "Xero", color: "#13b5ea", desc: "Accounting sync — ledgers and contacts", status: "disconnected", config: {} },
+      { key: "stripe", name: "Stripe", color: "#635bff", desc: "Payments, payouts, subscriptions", status: "disconnected", config: {} },
+      { key: "plaid", name: "Plaid", color: "#111", desc: "Live bank feeds and balance checks", status: "disconnected", config: {} },
+      { key: "gusto", name: "Gusto", color: "#f45d48", desc: "Payroll runs and benefits", status: "disconnected", config: {} },
+      { key: "salesforce", name: "Salesforce", color: "#00a1e0", desc: "CRM pipeline and accounts", status: "disconnected", config: {} },
+      { key: "hubspot", name: "HubSpot", color: "#ff7a59", desc: "Marketing and deal flow", status: "disconnected", config: {} },
+      { key: "shopify", name: "Shopify", color: "#95bf47", desc: "Orders, products, storefront revenue", status: "disconnected", config: {} },
+      { key: "asana", name: "Asana", color: "#f06a6a", desc: "Project and task planning", status: "disconnected", config: {} },
+      { key: "netsuite", name: "NetSuite", color: "#125580", desc: "ERP master records", status: "disconnected", config: {} },
+    ],
+    audit: [],
   };
-  const flushList = () => {
-    if (list.length) { out.push('<ul>' + list.map((li) => '<li>' + mdInline(li) + '</li>').join('') + '</ul>'); list = []; }
-  };
-  const isTableSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(l);
-  const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const t = line.trim();
-    if (t.startsWith('|') && i + 1 < lines.length && isTableSep(lines[i + 1])) {
-      flushPara(); flushList();
-      const header = cells(t);
-      i += 2;
-      const rows = [];
-      while (i < lines.length && lines[i].trim().startsWith('|')) { rows.push(cells(lines[i].trim())); i++; }
-      i--;
-      out.push('<table><thead><tr>' + header.map((c) => '<th>' + mdInline(c) + '</th>').join('') + '</tr></thead><tbody>' +
-        rows.map((r) => '<tr>' + r.map((c) => '<td>' + mdInline(c) + '</td>').join('') + '</tr>').join('') +
-        '</tbody></table>');
-      continue;
-    }
-    if (t === '') { flushPara(); flushList(); continue; }
-    let m;
-    if ((m = /^(#{1,3})\s+(.*)$/.exec(t))) {
-      flushPara(); flushList();
-      const lvl = m[1].length;
-      out.push('<h' + lvl + '>' + mdInline(m[2]) + '</h' + lvl + '>');
-      continue;
-    }
-    if ((m = /^[-*]\s+(.*)$/.exec(t))) { flushPara(); list.push(m[1]); continue; }
-    flushList();
-    para.push(t);
-  }
-  flushPara(); flushList();
-  return out.join('\n');
+}
+let db = (() => { try { const raw = localStorage.getItem(LS_KEY); if (raw) return JSON.parse(raw); } catch (e) {} return seedData(); })();
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(db)); }
+function audit(action, detail) {
+  db.audit.unshift({ at: now(), action, detail });
+  if (db.audit.length > 500) db.audit.pop();
+  save();
+}
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
 }
 
-const reportOverlay = $('report-overlay');
-function closeReport() { reportOverlay.classList.remove('open'); }
-$('report-btn').onclick = async () => {
-  reportOverlay.classList.add('open');
-  $('report-body').innerHTML = '<div class="empty">Loading report…</div>';
-  try {
-    const res = await fetch('/v1/report');
-    const md = await res.text();
-    $('report-body').innerHTML = renderMarkdown(md);
-  } catch (e) {
-    $('report-body').innerHTML = '<div class="empty">Report unavailable.</div>';
-  }
-};
-$('report-close').onclick = closeReport;
-reportOverlay.onclick = (e) => { if (e.target === reportOverlay) closeReport(); };
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeReport(); });
+/* ============================ edit-in-place ============================ */
+/* Any field on any record is editable: renders a contenteditable span that
+   writes back to the record, stamps provenance history, and logs to audit. */
+function editable(coll, rec, field, opts = {}) {
+  const isNum = opts.num;
+  const val = rec[field] ?? "";
+  const shown = isNum && val !== "" ? fmt$(Number(val)) : String(val);
+  return `<span class="editable" contenteditable="true" data-coll="${coll}" data-id="${rec.id}" data-field="${field}" data-num="${isNum ? 1 : 0}">${shown}</span>`;
+}
+document.addEventListener("blur", (ev) => {
+  const el = ev.target;
+  if (!el.classList || !el.classList.contains("editable")) return;
+  const { coll, id, field } = el.dataset;
+  const rec = db[coll].find((r) => r.id === id);
+  if (!rec) return;
+  let nv = el.textContent.trim();
+  if (el.dataset.num === "1") nv = Number(nv.replace(/[$,]/g, "")) || 0;
+  const old = rec[field];
+  if (String(old) === String(nv)) { el.textContent = el.dataset.num === "1" ? fmt$(Number(old)) : String(old ?? ""); return; }
+  rec.history = rec.history || [];
+  rec.history.push({ at: now(), field, from: old, to: nv, by: "operator" });
+  rec[field] = nv;
+  if (rec.source === "seed") rec.source = "manual";
+  audit("edit", `${coll}/${rec.name || rec.number || rec.memo || rec.id}: ${field} ${JSON.stringify(old)} → ${JSON.stringify(nv)}`);
+  toast("Saved — change logged to audit trail");
+  render();
+}, true);
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.classList && ev.target.classList.contains("editable") && ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); }
+});
 
-refreshInbox();
-refreshBriefing();
-refreshHealth();
-refreshModules();
-refreshBizOps();
-setInterval(() => { refreshHealth(); refreshModules(); refreshBizOps(); }, 30000);
-connect();
+/* ============================ floating windows ============================ */
+let zTop = 100;
+function openWindow(title, bodyHtml) {
+  const host = document.getElementById("windows");
+  const w = document.createElement("div");
+  w.className = "win";
+  const n = host.children.length;
+  w.style.left = (120 + n * 34) + "px";
+  w.style.top = (90 + n * 30) + "px";
+  w.style.zIndex = ++zTop;
+  w.innerHTML = `<header><b>${title}</b><span class="x" title="Close">✕</span></header><div class="body">${bodyHtml}</div>`;
+  w.querySelector(".x").onclick = () => w.remove();
+  w.onmousedown = () => { w.style.zIndex = ++zTop; };
+  const h = w.querySelector("header");
+  h.onmousedown = (e) => {
+    if (e.target.classList.contains("x")) return;
+    const sx = e.clientX - w.offsetLeft, sy = e.clientY - w.offsetTop;
+    const mv = (e2) => { w.style.left = (e2.clientX - sx) + "px"; w.style.top = Math.max(56, e2.clientY - sy) + "px"; };
+    const up = () => { document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); };
+    document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
+  };
+  host.appendChild(w);
+  return w;
+}
+function provenanceHtml(rec) {
+  const hist = (rec.history || []).slice().reverse().map((h) =>
+    `<div class="hist">${new Date(h.at).toLocaleString()} — <b>${h.field}</b> changed from <i>${h.from ?? "—"}</i> to <i>${h.to}</i> (${h.by})</div>`).join("") || `<div class="hist">No edits since creation.</div>`;
+  return `<div class="section-title">Provenance</div>
+    <div class="kv"><div class="k">Source</div><div><span class="tag src-${(rec.source||"manual").split(":")[0]}">${rec.source}</span></div>
+    <div class="k">Created</div><div>${new Date(rec.createdAt).toLocaleString()}</div>
+    <div class="k">Record ID</div><div style="font-family:var(--mono)">${rec.id}</div></div>
+    <div class="section-title">Change history</div>${hist}`;
+}
+function drill(coll, id) {
+  const rec = db[coll].find((r) => r.id === id);
+  if (!rec) return;
+  const skip = new Set(["id", "source", "createdAt", "history"]);
+  const rows = Object.keys(rec).filter((k) => !skip.has(k)).map((k) => {
+    const isNum = typeof rec[k] === "number" && /amount|balance|salary|budget|spent/.test(k);
+    return `<div class="k">${k}</div><div>${editable(coll, rec, k, { num: isNum })}</div>`;
+  }).join("");
+  let related = "";
+  const nm = rec.name || rec.number;
+  if (nm) {
+    const rel = db.transactions.filter((t) => t.id !== rec.id && (t.counterparty === nm || t.ref === nm || t.account === nm));
+    if (rel.length) {
+      related = `<div class="section-title">Linked money movement</div>` + rel.map((t) =>
+        `<div class="hist"><a class="link" onclick="drill('transactions','${t.id}')">${t.date} · ${fmt$(t.amount)} · ${t.memo}</a></div>`).join("");
+    }
+  }
+  openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.memo || rec.id}`,
+    `<div class="kv">${rows}</div>${related}${provenanceHtml(rec)}
+     <div style="margin-top:14px"><button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete record</button></div>`);
+}
+function delRec(coll, id, btn) {
+  const rec = db[coll].find((r) => r.id === id);
+  if (!rec) return;
+  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Click again to confirm delete"; return; }
+  db[coll] = db[coll].filter((r) => r.id !== id);
+  audit("delete", `${coll}: removed ${rec.name || rec.number || rec.memo || id}`);
+  btn.closest(".win").remove();
+  toast("Deleted — logged to audit trail");
+  render();
+}
+
+/* ============================ add records ============================ */
+const SCHEMAS = {
+  transactions: [["date","date",""],["amount","number",""],["account","select:accounts"],["category","text","General"],["counterparty","text",""],["memo","text",""],["ref","text",""]],
+  invoices: [["number","text","INV-"],["customer","select:customers"],["amount","number",""],["issued","date",""],["due","date",""],["status","choice:draft,sent,paid,overdue"]],
+  customers: [["name","text",""],["email","text",""],["phone","text",""],["terms","text","Net 30"]],
+  vendors: [["name","text",""],["email","text",""],["category","text",""]],
+  employees: [["name","text",""],["role","text",""],["salary","number",""],["startDate","date",""]],
+  accounts: [["name","text",""],["type","choice:bank,credit,cash,loan"],["balance","number","0"]],
+  projects: [["name","text",""],["budget","number",""],["spent","number","0"],["status","choice:active,paused,done"]],
+};
+function addForm(coll) {
+  const rows = SCHEMAS[coll].map(([f, kind, dflt]) => {
+    let input;
+    if (kind.startsWith("select:")) {
+      const src = kind.split(":")[1];
+      input = `<select data-f="${f}">${db[src].map((r) => `<option>${r.name}</option>`).join("")}</select>`;
+    } else if (kind.startsWith("choice:")) {
+      input = `<select data-f="${f}">${kind.split(":")[1].split(",").map((o) => `<option>${o}</option>`).join("")}</select>`;
+    } else {
+      const dv = kind === "date" && !dflt ? today() : (dflt ?? "");
+      input = `<input type="${kind}" data-f="${f}" value="${dv}" ${kind === "number" ? 'step="0.01"' : ""}/>`;
+    }
+    return `<div class="formrow"><label>${f}</label>${input}</div>`;
+  }).join("");
+  const w = openWindow(`New ${coll.slice(0, -1)}`, `${rows}<button class="primary" style="margin-top:6px">Create</button>`);
+  w.querySelector("button.primary").onclick = () => {
+    const rec = { id: uid(), source: "manual", createdAt: now(), history: [] };
+    w.querySelectorAll("[data-f]").forEach((el) => {
+      rec[el.dataset.f] = el.type === "number" ? Number(el.value) || 0 : el.value;
+    });
+    if (coll === "transactions") rec.direction = rec.amount >= 0 ? "in" : "out";
+    db[coll].unshift(rec);
+    audit("create", `${coll}: added ${rec.name || rec.number || rec.memo || rec.id}`);
+    w.remove(); toast("Created"); render();
+  };
+}
+
+/* ============================ CSV import (real) ============================ */
+function importCsv() {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".csv";
+  inp.onchange = () => {
+    const file = inp.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const lines = String(reader.result).split(/\r?\n/).filter((l) => l.trim());
+      const head = lines[0].split(",").map((h) => h.trim().toLowerCase());
+      const col = (names) => head.findIndex((h) => names.includes(h));
+      const ci = { date: col(["date","transaction date"]), amount: col(["amount","value"]), memo: col(["memo","description","desc"]), cp: col(["counterparty","payee","name","merchant"]), cat: col(["category"]) };
+      if (ci.date < 0 || ci.amount < 0) { toast("CSV needs at least 'date' and 'amount' columns"); return; }
+      let added = 0;
+      for (const line of lines.slice(1)) {
+        const c = line.split(",");
+        const amount = Number(String(c[ci.amount]).replace(/[$," ]/g, ""));
+        if (isNaN(amount)) continue;
+        db.transactions.unshift({ id: uid(), source: "csv:" + file.name, createdAt: now(), history: [],
+          date: c[ci.date].trim(), amount, direction: amount >= 0 ? "in" : "out",
+          account: db.accounts[0] ? db.accounts[0].name : "Imported",
+          category: ci.cat >= 0 ? (c[ci.cat] || "Imported").trim() : "Imported",
+          counterparty: ci.cp >= 0 ? (c[ci.cp] || "").trim() : "", memo: ci.memo >= 0 ? (c[ci.memo] || "").trim() : "" });
+        added++;
+      }
+      audit("import", `CSV ${file.name}: ${added} transactions`);
+      toast(`Imported ${added} transactions from ${file.name}`); render();
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
+}
+
+/* ============================ integrations ============================ */
+function connectIntegration(key) {
+  const integ = db.integrations.find((i) => i.key === key);
+  const w = openWindow(`Connect ${integ.name}`, `
+    <p style="color:var(--dim);font-size:13px;margin-top:0">${integ.desc}. Credentials are stored only in this browser (localStorage). Live two-way sync activates when this console is served by the Olympus API server; until then the connection is registered and used to label imported data.</p>
+    <div class="formrow"><label>Account / Company ID</label><input type="text" data-f="companyId" placeholder="e.g. 9341823647"/></div>
+    <div class="formrow"><label>API key / token</label><input type="text" data-f="apiKey" placeholder="sk_… or OAuth token"/></div>
+    <div class="formrow"><label>Environment</label><select data-f="env"><option>production</option><option>sandbox</option></select></div>
+    <button class="primary">Connect</button>`);
+  w.querySelector("button.primary").onclick = () => {
+    integ.config = {};
+    w.querySelectorAll("[data-f]").forEach((el) => integ.config[el.dataset.f] = el.value);
+    if (!integ.config.apiKey) { toast("An API key/token is required"); return; }
+    integ.status = "connected"; integ.connectedAt = now();
+    audit("integration", `${integ.name} connected (${integ.config.env})`);
+    w.remove(); toast(`${integ.name} connected`); render();
+  };
+}
+function disconnectIntegration(key) {
+  const integ = db.integrations.find((i) => i.key === key);
+  integ.status = "disconnected"; integ.config = {};
+  audit("integration", `${integ.name} disconnected`); render();
+}
+
+/* ============================ views ============================ */
+const VIEWS = {
+  overview: { label: "Overview", group: "Company" },
+  ledger: { label: "Ledger", group: "Money" },
+  invoices: { label: "Invoices", group: "Money" },
+  accounts: { label: "Accounts", group: "Money" },
+  customers: { label: "Customers", group: "Relationships" },
+  vendors: { label: "Vendors", group: "Relationships" },
+  employees: { label: "Employees", group: "Operations" },
+  projects: { label: "Projects", group: "Operations" },
+  integrations: { label: "Integrations", group: "System" },
+  auditlog: { label: "Audit trail", group: "System" },
+  data: { label: "Data / backup", group: "System" },
+};
+let view = location.hash.slice(1) || "overview";
+let query = "";
+document.getElementById("search").addEventListener("input", (e) => { query = e.target.value.toLowerCase(); render(); });
+window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "overview"; render(); });
+
+function match(rec) {
+  if (!query) return true;
+  return JSON.stringify(rec).toLowerCase().includes(query);
+}
+function tbl(coll, cols, renderRow) {
+  const rows = db[coll].filter(match);
+  if (!rows.length) return `<div class="tablewrap"><div class="empty">Nothing here${query ? " matching “" + query + "”" : ""} — click “+ Add” above.</div></div>`;
+  return `<div class="tablewrap"><table><thead><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map((r) => `<tr class="row" onclick="if(!event.target.classList.contains('editable')&&event.target.tagName!=='A')drill('${coll}','${r.id}')">${renderRow(r)}</tr>`).join("") +
+    `</tbody></table></div>`;
+}
+const srcTag = (r) => `<span class="tag src-${(r.source||"manual").split(":")[0]}" title="${r.source}">${(r.source||"").split(":")[0]}</span>`;
+
+function renderView() {
+  if (view === "overview") {
+    const cashIn = db.transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+    const cashOut = db.transactions.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+    const ar = db.invoices.filter((i) => i.status === "sent" || i.status === "overdue").reduce((s, i) => s + i.amount, 0);
+    const bal = db.accounts.reduce((s, a) => s + a.balance, 0);
+    const overdue = db.invoices.filter((i) => i.status === "overdue");
+    return `<h2>${editable("companyMeta", dbCompanyRec(), "name")}</h2><div class="crumb">Live picture assembled from ${db.transactions.length} transactions · ${db.invoices.length} invoices · ${db.integrations.filter(i=>i.status==="connected").length} connected integrations</div>
+    <div class="grid g4">
+      <div class="card"><div class="k">Cash position</div><div class="v">${fmt$(bal)}</div><div class="d">across ${db.accounts.length} accounts — <a class="link" href="#accounts">open</a></div></div>
+      <div class="card"><div class="k">Money in</div><div class="v pos">${fmt$(cashIn)}</div><div class="d">recorded inflows</div></div>
+      <div class="card"><div class="k">Money out</div><div class="v neg">${fmt$(cashOut)}</div><div class="d">recorded outflows</div></div>
+      <div class="card"><div class="k">Outstanding A/R</div><div class="v ${overdue.length ? "wrn" : ""}">${fmt$(ar)}</div><div class="d">${overdue.length} overdue — <a class="link" href="#invoices">open invoices</a></div></div>
+    </div>
+    <div class="section-title" style="margin-top:22px">Latest money movement (click any row to drill into where it came from)</div>
+    ${tbl("transactions", ["Date","Amount","Counterparty","Category","Memo","Source"], (t) =>
+      `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.memo||""}</td><td>${srcTag(t)}</td>`)}`;
+  }
+  if (view === "ledger") {
+    const total = db.transactions.filter(match).reduce((s, t) => s + t.amount, 0);
+    return `<h2>Ledger</h2><div class="crumb">Every dollar with its origin. Click a row to drill in and edit. Net of ${db.transactions.filter(match).length} shown: <b class="${total>=0?"pos":"neg"}">${fmt$(total)}</b></div>
+    <div class="toolbar"><button class="primary" onclick="addForm('transactions')">+ Add transaction</button><button onclick="importCsv()">⬆ Import CSV (bank/QuickBooks export)</button></div>
+    ${tbl("transactions", ["Date","Amount","Direction","Account","Counterparty","Category","Memo","Ref","Source"], (t) =>
+      `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.direction}</td><td>${t.account}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.memo||""}</td><td>${t.ref||"—"}</td><td>${srcTag(t)}</td>`)}`;
+  }
+  if (view === "invoices") {
+    return `<h2>Invoices</h2><div class="crumb">Click a row to open it in a window — edit amounts, mark paid, see linked payments.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('invoices')">+ Add invoice</button></div>
+    ${tbl("invoices", ["Number","Customer","Amount","Issued","Due","Status","Source"], (i) =>
+      `<td>${i.number}</td><td><a class="link" onclick="event.stopPropagation();drillByName('customers','${i.customer}')">${i.customer}</a></td><td class="num">${fmt$(i.amount)}</td><td>${i.issued}</td><td>${i.due}</td><td><span class="tag st-${i.status}">${i.status}</span></td><td>${srcTag(i)}</td>`)}`;
+  }
+  if (view === "accounts") {
+    return `<h2>Accounts</h2><div class="crumb">Balances are editable inline — click a number.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('accounts')">+ Add account</button></div>
+    ${tbl("accounts", ["Name","Type","Balance","Source"], (a) =>
+      `<td>${editable("accounts",a,"name")}</td><td>${a.type}</td><td class="num">${editable("accounts",a,"balance",{num:true})}</td><td>${srcTag(a)}</td>`)}`;
+  }
+  if (view === "customers") {
+    return `<h2>Customers</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('customers')">+ Add customer</button></div>
+    ${tbl("customers", ["Name","Email","Phone","Terms","Source"], (c) =>
+      `<td>${editable("customers",c,"name")}</td><td>${editable("customers",c,"email")}</td><td>${editable("customers",c,"phone")}</td><td>${editable("customers",c,"terms")}</td><td>${srcTag(c)}</td>`)}`;
+  }
+  if (view === "vendors") {
+    return `<h2>Vendors</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('vendors')">+ Add vendor</button></div>
+    ${tbl("vendors", ["Name","Email","Category","Source"], (v) =>
+      `<td>${editable("vendors",v,"name")}</td><td>${editable("vendors",v,"email")}</td><td>${editable("vendors",v,"category")}</td><td>${srcTag(v)}</td>`)}`;
+  }
+  if (view === "employees") {
+    return `<h2>Employees</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('employees')">+ Add employee</button></div>
+    ${tbl("employees", ["Name","Role","Salary","Start date","Source"], (e) =>
+      `<td>${editable("employees",e,"name")}</td><td>${editable("employees",e,"role")}</td><td class="num">${editable("employees",e,"salary",{num:true})}</td><td>${e.startDate}</td><td>${srcTag(e)}</td>`)}`;
+  }
+  if (view === "projects") {
+    return `<h2>Projects</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('projects')">+ Add project</button></div>
+    ${tbl("projects", ["Name","Budget","Spent","Remaining","Status","Source"], (p) =>
+      `<td>${editable("projects",p,"name")}</td><td class="num">${editable("projects",p,"budget",{num:true})}</td><td class="num">${editable("projects",p,"spent",{num:true})}</td><td class="num ${p.budget-p.spent<0?"neg":"pos"}">${fmt$(p.budget-p.spent)}</td><td><span class="tag st-${p.status}">${p.status}</span></td><td>${srcTag(p)}</td>`)}`;
+  }
+  if (view === "integrations") {
+    return `<h2>Integrations</h2><div class="crumb">Connect the tools this company already runs on. Keys stay in your browser; imports are labeled with their source so every number is traceable.</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">` +
+      db.integrations.map((i) => `<div class="card intcard">
+        <div class="logo" style="background:${i.color}">${i.name[0]}</div>
+        <div style="flex:1"><b>${i.name}</b><div style="font-size:12px;color:var(--dim)">${i.desc}</div>
+        <div style="margin-top:6px"><span class="tag st-${i.status}">${i.status}</span>${i.connectedAt ? ` <span class="tag">${i.config.env||""}</span>` : ""}</div></div>
+        ${i.status === "connected"
+          ? `<button onclick="disconnectIntegration('${i.key}')">Disconnect</button>`
+          : `<button class="primary" onclick="connectIntegration('${i.key}')">Connect</button>`}
+      </div>`).join("") + `</div>`;
+  }
+  if (view === "auditlog") {
+    return `<h2>Audit trail</h2><div class="crumb">Every create, edit, delete, import, and integration change — newest first.</div>
+    <div class="tablewrap"><table><thead><tr><th>When</th><th>Action</th><th>Detail</th></tr></thead><tbody>` +
+      (db.audit.filter((a) => !query || JSON.stringify(a).toLowerCase().includes(query)).map((a) =>
+        `<tr><td style="white-space:nowrap">${new Date(a.at).toLocaleString()}</td><td><span class="tag">${a.action}</span></td><td>${a.detail}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No activity yet.</td></tr>`) +
+    `</tbody></table></div>`;
+  }
+  if (view === "data") {
+    return `<h2>Data & backup</h2><div class="crumb">Your data lives in this browser (localStorage). Export it to a file to move machines or feed the Olympus API server.</div>
+    <div class="toolbar">
+      <button class="primary" onclick="exportJson()">⬇ Export everything (JSON)</button>
+      <button onclick="importJson()">⬆ Restore from JSON</button>
+      <button class="danger" onclick="resetAll(this)">Reset to demo data</button>
+    </div>
+    <div class="card"><div class="k">Current dataset</div><div class="d" style="font-size:13px;margin-top:6px">
+      ${db.transactions.length} transactions · ${db.invoices.length} invoices · ${db.customers.length} customers · ${db.vendors.length} vendors · ${db.employees.length} employees · ${db.projects.length} projects · ${db.audit.length} audit entries
+    </div></div>`;
+  }
+  return `<div class="empty">Unknown view</div>`;
+}
+function dbCompanyRec() {
+  if (!db.companyMeta) db.companyMeta = [{ id: "company", name: db.company.name, source: "seed", createdAt: now(), history: [] }];
+  return db.companyMeta[0];
+}
+function drillByName(coll, name) {
+  const rec = db[coll].find((r) => r.name === name);
+  if (rec) drill(coll, rec.id);
+}
+function exportJson() {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "olympus-data-" + today() + ".json";
+  a.click();
+  audit("export", "Full dataset exported to JSON");
+}
+function importJson() {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json";
+  inp.onchange = () => {
+    const f = inp.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { try { db = JSON.parse(String(r.result)); save(); toast("Dataset restored"); render(); } catch (e) { toast("Not a valid Olympus JSON export"); } };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function resetAll(btn) {
+  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Click again to wipe & reset"; return; }
+  db = seedData(); save(); toast("Reset to demo data"); render();
+}
+
+/* ============================ shell ============================ */
+function render() {
+  save();
+  document.getElementById("companyName").textContent = (db.companyMeta ? db.companyMeta[0].name : db.company.name);
+  const groups = {};
+  for (const [key, v] of Object.entries(VIEWS)) (groups[v.group] = groups[v.group] || []).push([key, v.label]);
+  document.getElementById("nav").innerHTML = Object.entries(groups).map(([g, items]) =>
+    `<div class="navgroup">${g}</div>` + items.map(([k, label]) =>
+      `<a href="#${k}" class="${view === k ? "active" : ""}">${label}</a>`).join("")).join("");
+  document.getElementById("main").innerHTML = renderView();
+}
+render();
 </script>
 </body>
 </html>
