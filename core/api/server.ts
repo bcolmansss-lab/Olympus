@@ -432,6 +432,7 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/benchmarks", handler: (_req, res) => res.json(200, { summary: this.olympus.benchmark.summary() }) },
       { method: "GET", pattern: "/v1/devices", handler: (_req, res) => res.json(200, { summary: this.olympus.deviceFleet.summary(), offline: this.olympus.deviceFleet.listDevices("offline") }) },
       { method: "GET", pattern: "/v1/firmware", handler: (_req, res) => res.json(200, { summary: this.olympus.firmware.summary(), rollingOut: this.olympus.firmware.listReleases("rolling_out") }) },
+      { method: "GET", pattern: "/v1/automations", handler: (_req, res) => res.json(200, { summary: this.olympus.automation.summary(), rules: this.olympus.automation.listRules(), deadLetters: this.olympus.automation.deadLetters() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

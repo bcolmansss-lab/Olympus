@@ -327,6 +327,7 @@ import { SyntheticMonitoringManager } from "./synthetic-monitoring/synthetic-mon
 import { BenchmarkManager } from "./benchmark/benchmark-manager.js";
 import { DeviceFleetManager } from "./device-fleet/device-fleet-manager.js";
 import { FirmwareManager } from "./firmware/firmware-manager.js";
+import { ProcessAutomationEngine } from "./automation/process-automation-engine.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -742,6 +743,8 @@ export class Olympus {
   readonly benchmark: BenchmarkManager;
   readonly deviceFleet: DeviceFleetManager;
   readonly firmware: FirmwareManager;
+  /** Cross-module automation: declarative event-to-action rules over the bus. */
+  readonly automation: ProcessAutomationEngine;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1061,6 +1064,14 @@ export class Olympus {
     this.benchmark = new BenchmarkManager(this.bus);
     this.deviceFleet = new DeviceFleetManager(this.bus);
     this.firmware = new FirmwareManager(this.bus);
+    this.automation = new ProcessAutomationEngine(this.bus);
+    // Default automations: expired sandboxes are reclaimed automatically, and
+    // a halted firmware rollout marks its release's devices for re-audit via
+    // an outdated-device sweep event.
+    this.automation.addRule("sandbox-reclaim", "sandbox.expired", (event) => {
+      const { sandboxId } = event.payload as { sandboxId: string };
+      this.sandbox.destroy(sandboxId);
+    });
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1386,3 +1397,4 @@ export { SyntheticMonitoringManager, type SyntheticCheck, type ProbeResult, type
 export { BenchmarkManager, type BenchmarkDirection, type BenchmarkMetric, type BenchmarkEntry, type BenchmarkScorecard, type BenchmarkSummary } from "./benchmark/index.js";
 export { DeviceFleetManager, type DeviceStatus, type FleetDevice, type DeviceFleetSummary } from "./device-fleet/index.js";
 export { FirmwareManager, type RolloutStatus, type FirmwareRelease, type FirmwareSummary } from "./firmware/index.js";
+export { ProcessAutomationEngine, type AutomationAction, type AutomationRule, type AutomationExecution, type AutomationSummary } from "./automation/index.js";

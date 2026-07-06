@@ -230,6 +230,7 @@ import { SyntheticMonitoringManager } from "../synthetic-monitoring/synthetic-mo
 import { BenchmarkManager } from "../benchmark/benchmark-manager.js";
 import { DeviceFleetManager } from "../device-fleet/device-fleet-manager.js";
 import { FirmwareManager } from "../firmware/firmware-manager.js";
+import { ProcessAutomationEngine } from "../automation/process-automation-engine.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -23157,5 +23158,90 @@ describe("FirmwareManager", () => {
     assert.equal(s.totalReleases, 1);
     assert.equal(s.rollingOut, 1);
     assert.equal(s.overallSuccessRatePct, 75);
+  });
+});
+
+describe("ProcessAutomationEngine", () => {
+  it("executes matching rules and logs", () => {
+    const bus = new EventBus();
+    const engine = new ProcessAutomationEngine(bus);
+    const seen: any[] = [];
+    const rule = engine.addRule("collect", "orders.created", (e) => { seen.push(e.payload); });
+    bus.publish("orders.created", { orderId: "o1" });
+    bus.publish("orders.cancelled", { orderId: "o2" });
+    assert.equal(seen.length, 1);
+    assert.equal(engine.getRule(rule.id)!.executions, 1);
+    assert.equal(engine.executions(rule.id).length, 1);
+  });
+
+  it("supports wildcard patterns", () => {
+    const bus = new EventBus();
+    const engine = new ProcessAutomationEngine(bus);
+    const seen: string[] = [];
+    engine.addRule("all-orders", "orders.*", (e) => { seen.push(e.topic); });
+    bus.publish("orders.created", {});
+    bus.publish("orders.cancelled", {});
+    bus.publish("billing.invoiced", {});
+    assert.deepEqual(seen, ["orders.created", "orders.cancelled"]);
+  });
+
+  it("disabled rules do not fire and can be re-enabled", () => {
+    const bus = new EventBus();
+    const engine = new ProcessAutomationEngine(bus);
+    const seen: any[] = [];
+    const rule = engine.addRule("r", "x.y", () => { seen.push(1); });
+    engine.setEnabled(rule.id, false);
+    bus.publish("x.y", {});
+    assert.equal(seen.length, 0);
+    engine.setEnabled(rule.id, true);
+    bus.publish("x.y", {});
+    assert.equal(seen.length, 1);
+  });
+
+  it("throwing actions dead-letter instead of crashing", () => {
+    const bus = new EventBus();
+    const deadLetterEvents: any[] = [];
+    bus.subscribe("automation.dead_letter", (e) => { deadLetterEvents.push(e.payload); });
+    const engine = new ProcessAutomationEngine(bus);
+    const rule = engine.addRule("boom", "x.y", () => { throw new Error("kaput"); });
+    bus.publish("x.y", {});
+    assert.equal(engine.deadLetters().length, 1);
+    assert.equal(engine.deadLetters()[0]!.error, "kaput");
+    assert.equal(engine.getRule(rule.id)!.failures, 1);
+    assert.equal(deadLetterEvents[0].error, "kaput");
+  });
+
+  it("automation meta-events never trigger rules (no feedback loops)", () => {
+    const bus = new EventBus();
+    const engine = new ProcessAutomationEngine(bus);
+    const seen: string[] = [];
+    engine.addRule("everything", "*", (e) => { seen.push(e.topic); });
+    bus.publish("orders.created", {});
+    assert.deepEqual(seen, ["orders.created"]);
+    assert.equal(engine.summary().totalExecutions, 1);
+  });
+
+  it("summary counts rules, executions, and dead letters", () => {
+    const bus = new EventBus();
+    const engine = new ProcessAutomationEngine(bus);
+    const ok = engine.addRule("ok", "a.b", () => {});
+    engine.addRule("bad", "a.b", () => { throw new Error("x"); });
+    const off = engine.addRule("off", "a.b", () => {});
+    engine.setEnabled(off.id, false);
+    bus.publish("a.b", {});
+    const s = engine.summary();
+    assert.equal(s.totalRules, 3);
+    assert.equal(s.enabledRules, 2);
+    assert.equal(s.totalExecutions, 2);
+    assert.equal(s.deadLetters, 1);
+    assert.equal(engine.getRule(ok.id)!.executions, 1);
+  });
+
+  it("default sandbox-reclaim automation destroys expired sandboxes end-to-end", () => {
+    const olympus = new Olympus();
+    const sb = olympus.sandbox.provision("dev-1", "small", "2026-07-01T00:00:00Z", 24)!;
+    olympus.sandbox.sweep("2026-07-06T00:00:00Z");
+    assert.equal(olympus.sandbox.getSandbox(sb.id)!.status, "destroyed");
+    assert.equal(olympus.automation.executions().some(e => e.ok), true);
   });
 });
