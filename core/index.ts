@@ -301,6 +301,8 @@ import { WholesaleManager } from "./wholesale/wholesale-manager.js";
 import { FranchiseManager } from "./franchise/franchise-manager.js";
 import { RouteOptimizerManager } from "./route-optimizer/route-optimizer-manager.js";
 import { SustainabilityManager } from "./sustainability/sustainability-manager.js";
+import { ParkingManager } from "./parking/parking-manager.js";
+import { MailroomManager } from "./mailroom/mailroom-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -690,6 +692,8 @@ export class Olympus {
   readonly franchise: FranchiseManager;
   readonly routeOptimizer: RouteOptimizerManager;
   readonly sustainability: SustainabilityManager;
+  readonly parking: ParkingManager;
+  readonly mailroom: MailroomManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -983,6 +987,8 @@ export class Olympus {
     this.franchise = new FranchiseManager(this.bus);
     this.routeOptimizer = new RouteOptimizerManager(this.bus);
     this.sustainability = new SustainabilityManager(this.bus);
+    this.parking = new ParkingManager(this.bus);
+    this.mailroom = new MailroomManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1282,3 +1288,5 @@ export { WholesaleManager, type WholesaleOrderStatus, type WholesaleTier, type W
 export { FranchiseManager, type FranchiseStatus, type Franchise, type FranchiseSalesReport, type FranchiseSummary } from "./franchise/index.js";
 export { RouteOptimizerManager, type RoutePlanStatus, type DeliveryStop, type RoutePlan, type RouteOptimizerSummary } from "./route-optimizer/index.js";
 export { SustainabilityManager, type SustainabilityScope, type SustainabilityEmissionRecord, type ReductionTarget, type SustainabilitySummary } from "./sustainability/index.js";
+export { ParkingManager, type ParkingSpace, type ParkingSummary } from "./parking/index.js";
+export { MailroomManager, type PackageStatus, type InboundPackage, type MailroomSummary } from "./mailroom/index.js";

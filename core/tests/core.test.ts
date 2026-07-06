@@ -204,6 +204,8 @@ import { WholesaleManager } from "../wholesale/wholesale-manager.js";
 import { FranchiseManager } from "../franchise/franchise-manager.js";
 import { RouteOptimizerManager } from "../route-optimizer/route-optimizer-manager.js";
 import { SustainabilityManager } from "../sustainability/sustainability-manager.js";
+import { ParkingManager } from "../parking/parking-manager.js";
+import { MailroomManager } from "../mailroom/mailroom-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21428,5 +21430,128 @@ describe("SustainabilityManager", () => {
     assert.equal(s.byScope[2], 50);
     assert.equal(s.byScope[3], 50);
     assert.equal(s.recordCount, 3);
+  });
+});
+
+describe("ParkingManager", () => {
+  it("assigns a free space on request", () => {
+    const pm = new ParkingManager(new EventBus());
+    pm.addSpace("A1", "north");
+    const r = pm.request("emp-1");
+    assert.equal(r.waitlisted, false);
+    assert.equal(r.space!.assignedTo, "emp-1");
+  });
+
+  it("waitlists when full and reports position", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("parking.waitlisted", (e) => { events.push(e.payload); });
+    const pm = new ParkingManager(bus);
+    pm.addSpace("A1", "north");
+    pm.request("emp-1");
+    const r = pm.request("emp-2");
+    assert.equal(r.waitlisted, true);
+    assert.equal(pm.waitlistPosition("emp-2"), 1);
+    assert.equal(events[0].position, 1);
+  });
+
+  it("request is idempotent for holders", () => {
+    const pm = new ParkingManager(new EventBus());
+    pm.addSpace("A1", "north");
+    pm.addSpace("A2", "north");
+    pm.request("emp-1");
+    pm.request("emp-1");
+    const s = pm.summary();
+    assert.equal(s.occupied, 1);
+  });
+
+  it("release promotes head of waitlist", () => {
+    const pm = new ParkingManager(new EventBus());
+    const space = pm.addSpace("A1", "north");
+    pm.request("emp-1");
+    pm.request("emp-2");
+    pm.request("emp-3");
+    pm.release(space.id);
+    assert.equal(pm.getSpace(space.id)!.assignedTo, "emp-2");
+    assert.equal(pm.waitlistPosition("emp-3"), 1);
+  });
+
+  it("release of unassigned space returns undefined", () => {
+    const pm = new ParkingManager(new EventBus());
+    const space = pm.addSpace("A1", "north");
+    assert.equal(pm.release(space.id), undefined);
+  });
+
+  it("summary breaks occupancy down by zone", () => {
+    const pm = new ParkingManager(new EventBus());
+    pm.addSpace("A1", "north");
+    pm.addSpace("B1", "south");
+    pm.request("emp-1");
+    const s = pm.summary();
+    assert.equal(s.totalSpaces, 2);
+    assert.equal(s.occupancyPct, 50);
+    assert.equal(s.byZone["north"]!.occupied, 1);
+    assert.equal(s.byZone["south"]!.occupied, 0);
+  });
+});
+
+describe("MailroomManager", () => {
+  it("receive logs package and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("mailroom.package_received", (e) => { events.push(e.payload); });
+    const mm = new MailroomManager(bus);
+    const pkg = mm.receive("emp-1", "UPS", "1Z999", "2026-07-01T09:00:00Z");
+    assert.equal(pkg.status, "received");
+    assert.equal(events[0].carrier, "UPS");
+  });
+
+  it("pickup records signature and time", () => {
+    const mm = new MailroomManager(new EventBus());
+    const pkg = mm.receive("emp-1", "UPS", "1Z999", "2026-07-01T09:00:00Z");
+    mm.notify(pkg.id);
+    const done = mm.pickup(pkg.id, "J. Doe", "2026-07-01T13:00:00Z")!;
+    assert.equal(done.status, "picked_up");
+    assert.equal(done.signature, "J. Doe");
+  });
+
+  it("cannot pick up twice", () => {
+    const mm = new MailroomManager(new EventBus());
+    const pkg = mm.receive("emp-1", "UPS", "1Z999", "2026-07-01T09:00:00Z");
+    mm.pickup(pkg.id, "J", "2026-07-01T10:00:00Z");
+    assert.equal(mm.pickup(pkg.id, "J", "2026-07-01T11:00:00Z"), undefined);
+  });
+
+  it("returnToSender blocks picked-up packages", () => {
+    const mm = new MailroomManager(new EventBus());
+    const pkg = mm.receive("emp-1", "FedEx", "F123", "2026-07-01T09:00:00Z");
+    mm.pickup(pkg.id, "J", "2026-07-01T10:00:00Z");
+    assert.equal(mm.returnToSender(pkg.id), undefined);
+  });
+
+  it("stalePackages flags only old unclaimed packages", () => {
+    const mm = new MailroomManager(new EventBus());
+    const old = mm.receive("emp-1", "UPS", "A", "2026-07-01T00:00:00Z");
+    mm.receive("emp-2", "UPS", "B", "2026-07-03T00:00:00Z");
+    const claimed = mm.receive("emp-3", "UPS", "C", "2026-07-01T00:00:00Z");
+    mm.pickup(claimed.id, "S", "2026-07-01T05:00:00Z");
+    const stale = mm.stalePackages("2026-07-03T12:00:00Z", 48);
+    assert.equal(stale.length, 1);
+    assert.equal(stale[0]!.id, old.id);
+  });
+
+  it("summary computes avg pickup hours and carrier counts", () => {
+    const mm = new MailroomManager(new EventBus());
+    const a = mm.receive("emp-1", "UPS", "A", "2026-07-01T00:00:00Z");
+    const b = mm.receive("emp-2", "FedEx", "B", "2026-07-01T00:00:00Z");
+    mm.pickup(a.id, "S", "2026-07-01T02:00:00Z");
+    mm.pickup(b.id, "S", "2026-07-01T06:00:00Z");
+    mm.receive("emp-3", "UPS", "C", "2026-07-02T00:00:00Z");
+    const s = mm.summary();
+    assert.equal(s.totalPackages, 3);
+    assert.equal(s.pickedUp, 2);
+    assert.equal(s.awaitingPickup, 1);
+    assert.equal(s.avgPickupHours, 4);
+    assert.equal(s.byCarrier["UPS"], 2);
   });
 });
