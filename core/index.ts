@@ -313,6 +313,8 @@ import { IPPortfolioManager } from "./ip-portfolio/ip-portfolio-manager.js";
 import { ScholarshipManager } from "./scholarship/scholarship-manager.js";
 import { CafeteriaManager } from "./cafeteria/cafeteria-manager.js";
 import { TradeShowManager } from "./trade-show/trade-show-manager.js";
+import { SpeakerBureauManager } from "./speaker-bureau/speaker-bureau-manager.js";
+import { PodcastManager } from "./podcast/podcast-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -714,6 +716,8 @@ export class Olympus {
   readonly scholarship: ScholarshipManager;
   readonly cafeteria: CafeteriaManager;
   readonly tradeShow: TradeShowManager;
+  readonly speakerBureau: SpeakerBureauManager;
+  readonly podcast: PodcastManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1019,6 +1023,8 @@ export class Olympus {
     this.scholarship = new ScholarshipManager(this.bus);
     this.cafeteria = new CafeteriaManager(this.bus);
     this.tradeShow = new TradeShowManager(this.bus);
+    this.speakerBureau = new SpeakerBureauManager(this.bus);
+    this.podcast = new PodcastManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1330,3 +1336,5 @@ export { IPPortfolioManager, type IPAssetKind, type IPAssetStatus, type IPAsset,
 export { ScholarshipManager, type ScholarshipAppStatus, type ScholarshipProgram, type ScholarshipApplication, type ScholarshipSummary } from "./scholarship/index.js";
 export { CafeteriaManager, type MenuItem, type CafeteriaOrder, type CafeteriaSummary } from "./cafeteria/index.js";
 export { TradeShowManager, type TradeShowStatus, type BoothLeadQuality, type BoothLead, type TradeShow, type TradeShowSummary } from "./trade-show/index.js";
+export { SpeakerBureauManager, type SpeakingRequestStatus, type Speaker, type SpeakingRequest, type SpeakerBureauSummary } from "./speaker-bureau/index.js";
+export { PodcastManager, type EpisodeStatus, type PodcastEpisode, type PodcastSummary } from "./podcast/index.js";

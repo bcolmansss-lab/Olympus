@@ -216,6 +216,8 @@ import { IPPortfolioManager } from "../ip-portfolio/ip-portfolio-manager.js";
 import { ScholarshipManager } from "../scholarship/scholarship-manager.js";
 import { CafeteriaManager } from "../cafeteria/cafeteria-manager.js";
 import { TradeShowManager } from "../trade-show/trade-show-manager.js";
+import { SpeakerBureauManager } from "../speaker-bureau/speaker-bureau-manager.js";
+import { PodcastManager } from "../podcast/podcast-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -22224,5 +22226,144 @@ describe("TradeShowManager", () => {
     assert.equal(s.hotLeads, 2);
     assert.equal(s.totalSpendUsd, 10000);
     assert.equal(s.avgCostPerLeadUsd, 2000);
+  });
+});
+
+describe("SpeakerBureauManager", () => {
+  it("candidatesFor filters by topic, budget, and availability", () => {
+    const sm = new SpeakerBureauManager(new EventBus());
+    sm.addSpeaker("Ana", ["AI", "cloud"], 5000);
+    sm.addSpeaker("Bo", ["ai"], 15000);
+    sm.addSpeaker("Cy", ["security"], 3000);
+    const req = sm.request("DevConf", "AI", "2026-09-10", 10000);
+    const cands = sm.candidatesFor(req.id);
+    assert.equal(cands.length, 1);
+    assert.equal(cands[0]!.name, "Ana");
+  });
+
+  it("book picks cheapest candidate and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("speakers.booked", (e) => { events.push(e.payload); });
+    const sm = new SpeakerBureauManager(bus);
+    sm.addSpeaker("Pricey", ["ai"], 9000);
+    const cheap = sm.addSpeaker("Cheap", ["ai"], 4000);
+    const req = sm.request("DevConf", "ai", "2026-09-10", 10000);
+    const booked = sm.book(req.id)!;
+    assert.equal(booked.speakerId, cheap.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("book declines when no candidate fits", () => {
+    const sm = new SpeakerBureauManager(new EventBus());
+    sm.addSpeaker("Pricey", ["ai"], 90000);
+    const req = sm.request("DevConf", "ai", "2026-09-10", 1000);
+    assert.equal(sm.book(req.id)!.status, "declined");
+  });
+
+  it("booked speaker is unavailable on same date", () => {
+    const sm = new SpeakerBureauManager(new EventBus());
+    sm.addSpeaker("Solo", ["ai"], 1000);
+    const r1 = sm.request("ConfA", "ai", "2026-09-10", 5000);
+    sm.book(r1.id);
+    const r2 = sm.request("ConfB", "ai", "2026-09-10", 5000);
+    assert.equal(sm.book(r2.id)!.status, "declined");
+    const r3 = sm.request("ConfC", "ai", "2026-09-11", 5000);
+    assert.equal(sm.book(r3.id)!.status, "booked");
+  });
+
+  it("markDelivered transitions booked requests with event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("speakers.delivered", (e) => { events.push(e.payload); });
+    const sm = new SpeakerBureauManager(bus);
+    sm.addSpeaker("Ana", ["ai"], 1000);
+    const req = sm.request("Conf", "ai", "2026-09-10", 5000);
+    assert.equal(sm.markDelivered(req.id), undefined);
+    sm.book(req.id);
+    assert.equal(sm.markDelivered(req.id)!.status, "delivered");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary totals fees for booked and delivered", () => {
+    const sm = new SpeakerBureauManager(new EventBus());
+    sm.addSpeaker("Ana", ["ai"], 2000);
+    sm.addSpeaker("Bo", ["cloud"], 3000);
+    const r1 = sm.request("A", "ai", "2026-09-10", 5000);
+    sm.book(r1.id);
+    sm.markDelivered(r1.id);
+    const r2 = sm.request("B", "cloud", "2026-09-11", 5000);
+    sm.book(r2.id);
+    const s = sm.summary();
+    assert.equal(s.delivered, 1);
+    assert.equal(s.booked, 1);
+    assert.equal(s.totalFeesUsd, 5000);
+  });
+});
+
+describe("PodcastManager", () => {
+  it("pipeline enforces stage order", () => {
+    const pm = new PodcastManager(new EventBus());
+    const e = pm.draft("Ep 1: Origins", "Guest A");
+    assert.equal(pm.markEdited(e.id), undefined);
+    assert.equal(pm.publish(e.id, "2026-07-10T00:00:00Z"), undefined);
+    pm.markRecorded(e.id, 55);
+    pm.markEdited(e.id, 48);
+    assert.equal(pm.publish(e.id, "2026-07-10T00:00:00Z")!.status, "published");
+  });
+
+  it("markRecorded rejects non-positive duration", () => {
+    const pm = new PodcastManager(new EventBus());
+    const e = pm.draft("Ep");
+    assert.equal(pm.markRecorded(e.id, 0), undefined);
+  });
+
+  it("publish fires event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("podcast.published", (e) => { events.push(e.payload); });
+    const pm = new PodcastManager(bus);
+    const e = pm.draft("Launch");
+    pm.markRecorded(e.id, 30);
+    pm.markEdited(e.id);
+    pm.publish(e.id, "2026-07-10T00:00:00Z");
+    assert.equal(events[0].title, "Launch");
+  });
+
+  it("logDownloads only on published episodes", () => {
+    const pm = new PodcastManager(new EventBus());
+    const e = pm.draft("Ep");
+    assert.equal(pm.logDownloads(e.id, 100), undefined);
+    pm.markRecorded(e.id, 30);
+    pm.markEdited(e.id);
+    pm.publish(e.id, "2026-07-10T00:00:00Z");
+    pm.logDownloads(e.id, 100);
+    pm.logDownloads(e.id, 50);
+    assert.equal(pm.getEpisode(e.id)!.downloads, 150);
+  });
+
+  it("edited duration overrides recorded duration", () => {
+    const pm = new PodcastManager(new EventBus());
+    const e = pm.draft("Ep");
+    pm.markRecorded(e.id, 60);
+    pm.markEdited(e.id, 45);
+    assert.equal(pm.getEpisode(e.id)!.durationMinutes, 45);
+  });
+
+  it("summary identifies top episode and averages", () => {
+    const pm = new PodcastManager(new EventBus());
+    const a = pm.draft("Hit");
+    const b = pm.draft("Miss");
+    pm.draft("WIP");
+    for (const e of [a, b]) { pm.markRecorded(e.id, 30); pm.markEdited(e.id); pm.publish(e.id, "2026-07-10T00:00:00Z"); }
+    pm.logDownloads(a.id, 900);
+    pm.logDownloads(b.id, 100);
+    const s = pm.summary();
+    assert.equal(s.totalEpisodes, 3);
+    assert.equal(s.published, 2);
+    assert.equal(s.inProduction, 1);
+    assert.equal(s.totalDownloads, 1000);
+    assert.equal(s.avgDownloadsPerPublished, 500);
+    assert.equal(s.topEpisode, "Hit");
   });
 });
