@@ -309,6 +309,8 @@ import { WellnessManager } from "./wellness/wellness-manager.js";
 import { SabbaticalManager } from "./sabbatical/sabbatical-manager.js";
 import { RelocationManager } from "./relocation/relocation-manager.js";
 import { ErgonomicsManager } from "./ergonomics/ergonomics-manager.js";
+import { IPPortfolioManager } from "./ip-portfolio/ip-portfolio-manager.js";
+import { ScholarshipManager } from "./scholarship/scholarship-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -706,6 +708,8 @@ export class Olympus {
   readonly sabbatical: SabbaticalManager;
   readonly relocation: RelocationManager;
   readonly ergonomics: ErgonomicsManager;
+  readonly ipPortfolio: IPPortfolioManager;
+  readonly scholarship: ScholarshipManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1007,6 +1011,8 @@ export class Olympus {
     this.sabbatical = new SabbaticalManager(this.bus);
     this.relocation = new RelocationManager(this.bus);
     this.ergonomics = new ErgonomicsManager(this.bus);
+    this.ipPortfolio = new IPPortfolioManager(this.bus);
+    this.scholarship = new ScholarshipManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1314,3 +1320,5 @@ export { WellnessManager, type ChallengeStatus, type WellnessChallenge, type Wel
 export { SabbaticalManager, type SabbaticalStatus, type SabbaticalEmployee, type SabbaticalRequest, type SabbaticalSummary } from "./sabbatical/index.js";
 export { RelocationManager, type RelocationStatus, type RelocationExpenseCategory, type RelocationExpense, type RelocationPackage, type RelocationSummary } from "./relocation/index.js";
 export { ErgonomicsManager, type ErgoIssueSeverity, type ErgoIssue, type ErgoAssessment, type ErgonomicsSummary } from "./ergonomics/index.js";
+export { IPPortfolioManager, type IPAssetKind, type IPAssetStatus, type IPAsset, type IPPortfolioSummary } from "./ip-portfolio/index.js";
+export { ScholarshipManager, type ScholarshipAppStatus, type ScholarshipProgram, type ScholarshipApplication, type ScholarshipSummary } from "./scholarship/index.js";

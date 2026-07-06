@@ -212,6 +212,8 @@ import { WellnessManager } from "../wellness/wellness-manager.js";
 import { SabbaticalManager } from "../sabbatical/sabbatical-manager.js";
 import { RelocationManager } from "../relocation/relocation-manager.js";
 import { ErgonomicsManager } from "../ergonomics/ergonomics-manager.js";
+import { IPPortfolioManager } from "../ip-portfolio/ip-portfolio-manager.js";
+import { ScholarshipManager } from "../scholarship/scholarship-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21955,5 +21957,134 @@ describe("ErgonomicsManager", () => {
     assert.equal(s.openIssues, 1);
     assert.equal(s.seriousOpenIssues, 1);
     assert.equal(s.resolutionRatePct, 50);
+  });
+});
+
+describe("IPPortfolioManager", () => {
+  it("registers assets with event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ip.registered", (e) => { events.push(e.payload); });
+    const im = new IPPortfolioManager(bus);
+    const a = im.register({ kind: "patent", title: "Widget", jurisdiction: "US", registrationNumber: "US123", registeredAt: "2026-01-01T00:00:00Z", nextRenewalAt: "2027-01-01T00:00:00Z" });
+    assert.equal(a.status, "active");
+    assert.equal(events[0].kind, "patent");
+  });
+
+  it("upcomingRenewals respects window", () => {
+    const im = new IPPortfolioManager(new EventBus());
+    im.register({ kind: "trademark", title: "Soon", jurisdiction: "US", registrationNumber: "T1", registeredAt: "2026-01-01T00:00:00Z", nextRenewalAt: "2026-07-20T00:00:00Z" });
+    im.register({ kind: "trademark", title: "Later", jurisdiction: "US", registrationNumber: "T2", registeredAt: "2026-01-01T00:00:00Z", nextRenewalAt: "2026-12-01T00:00:00Z" });
+    const soon = im.upcomingRenewals("2026-07-01T00:00:00Z", 30);
+    assert.equal(soon.length, 1);
+    assert.equal(soon[0]!.title, "Soon");
+  });
+
+  it("renew bumps count and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ip.renewed", (e) => { events.push(e.payload); });
+    const im = new IPPortfolioManager(bus);
+    const a = im.register({ kind: "patent", title: "W", jurisdiction: "US", registrationNumber: "P1", registeredAt: "2026-01-01T00:00:00Z", nextRenewalAt: "2026-07-01T00:00:00Z" });
+    im.renew(a.id, "2027-07-01T00:00:00Z");
+    assert.equal(im.getAsset(a.id)!.renewalCount, 1);
+    assert.equal(events[0].nextRenewalAt, "2027-07-01T00:00:00Z");
+  });
+
+  it("abandoned assets cannot be renewed", () => {
+    const im = new IPPortfolioManager(new EventBus());
+    const a = im.register({ kind: "copyright", title: "C", jurisdiction: "US", registrationNumber: "C1", registeredAt: "2026-01-01T00:00:00Z" });
+    im.abandon(a.id);
+    assert.equal(im.renew(a.id, "2027-01-01T00:00:00Z"), undefined);
+  });
+
+  it("expireOverdue expires only past-due active assets", () => {
+    const im = new IPPortfolioManager(new EventBus());
+    im.register({ kind: "patent", title: "Old", jurisdiction: "US", registrationNumber: "P1", registeredAt: "2020-01-01T00:00:00Z", nextRenewalAt: "2026-01-01T00:00:00Z" });
+    im.register({ kind: "patent", title: "OK", jurisdiction: "US", registrationNumber: "P2", registeredAt: "2020-01-01T00:00:00Z", nextRenewalAt: "2027-01-01T00:00:00Z" });
+    const expired = im.expireOverdue("2026-07-01T00:00:00Z");
+    assert.equal(expired.length, 1);
+    assert.equal(expired[0]!.title, "Old");
+  });
+
+  it("summary breaks down by kind", () => {
+    const im = new IPPortfolioManager(new EventBus());
+    im.register({ kind: "patent", title: "A", jurisdiction: "US", registrationNumber: "1", registeredAt: "2026-01-01T00:00:00Z" });
+    im.register({ kind: "trademark", title: "B", jurisdiction: "EU", registrationNumber: "2", registeredAt: "2026-01-01T00:00:00Z" });
+    const c = im.register({ kind: "trademark", title: "C", jurisdiction: "US", registrationNumber: "3", registeredAt: "2026-01-01T00:00:00Z" });
+    im.abandon(c.id);
+    const s = im.summary();
+    assert.equal(s.totalAssets, 3);
+    assert.equal(s.active, 2);
+    assert.equal(s.byKind.trademark, 2);
+  });
+});
+
+describe("ScholarshipManager", () => {
+  it("accepts applications while open", () => {
+    const sm = new ScholarshipManager(new EventBus());
+    const p = sm.createProgram("STEM Fund", 1000, 2, 5000);
+    assert.notEqual(sm.apply(p.id, "Alice", 90, "2026-07-01T00:00:00Z"), undefined);
+  });
+
+  it("awardTop awards by score up to seats", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("scholarship.awarded", (e) => { events.push(e.payload); });
+    const sm = new ScholarshipManager(bus);
+    const p = sm.createProgram("STEM", 1000, 2, 5000);
+    sm.apply(p.id, "Low", 50, "2026-07-01T00:00:00Z");
+    const high = sm.apply(p.id, "High", 95, "2026-07-01T00:00:00Z")!;
+    const mid = sm.apply(p.id, "Mid", 80, "2026-07-01T00:00:00Z")!;
+    const awarded = sm.awardTop(p.id);
+    assert.equal(awarded.length, 2);
+    assert.deepEqual(awarded.map(a => a.id), [high.id, mid.id]);
+    assert.equal(events.length, 2);
+  });
+
+  it("awardTop limited by fund balance", () => {
+    const sm = new ScholarshipManager(new EventBus());
+    const p = sm.createProgram("Tight", 1000, 5, 1500);
+    sm.apply(p.id, "A", 90, "2026-07-01T00:00:00Z");
+    sm.apply(p.id, "B", 80, "2026-07-01T00:00:00Z");
+    const awarded = sm.awardTop(p.id);
+    assert.equal(awarded.length, 1);
+    assert.equal(sm.getProgram(p.id)!.fundUsd, 500);
+  });
+
+  it("applications rejected after close", () => {
+    const sm = new ScholarshipManager(new EventBus());
+    const p = sm.createProgram("STEM", 1000, 1, 1000);
+    sm.apply(p.id, "A", 90, "2026-07-01T00:00:00Z");
+    sm.awardTop(p.id);
+    assert.equal(sm.apply(p.id, "Late", 99, "2026-07-02T00:00:00Z"), undefined);
+  });
+
+  it("disburse only for awarded applications", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("scholarship.disbursed", (e) => { events.push(e.payload); });
+    const sm = new ScholarshipManager(bus);
+    const p = sm.createProgram("STEM", 1000, 1, 1000);
+    const a = sm.apply(p.id, "A", 90, "2026-07-01T00:00:00Z")!;
+    const b = sm.apply(p.id, "B", 50, "2026-07-01T00:00:00Z")!;
+    sm.awardTop(p.id);
+    assert.notEqual(sm.disburse(a.id), undefined);
+    assert.equal(sm.disburse(b.id), undefined);
+    assert.equal(events[0].amountUsd, 1000);
+  });
+
+  it("summary totals disbursed dollars", () => {
+    const sm = new ScholarshipManager(new EventBus());
+    const p = sm.createProgram("STEM", 500, 2, 2000);
+    const a = sm.apply(p.id, "A", 90, "2026-07-01T00:00:00Z")!;
+    sm.apply(p.id, "B", 85, "2026-07-01T00:00:00Z");
+    sm.awardTop(p.id);
+    sm.disburse(a.id);
+    const s = sm.summary();
+    assert.equal(s.totalApplications, 2);
+    assert.equal(s.awarded, 1);
+    assert.equal(s.disbursed, 1);
+    assert.equal(s.totalDisbursedUsd, 500);
   });
 });
