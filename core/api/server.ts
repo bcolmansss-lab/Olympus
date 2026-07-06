@@ -388,6 +388,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/usage-metering", handler: (_req, res) => res.json(200, { summary: this.olympus.usageMetering.summary(), meters: this.olympus.usageMetering.listMeters() }) },
       { method: "GET", pattern: "/v1/escalation-matrix", handler: (_req, res) => res.json(200, { summary: this.olympus.escalationMatrix.summary(), open: this.olympus.escalationMatrix.listEscalations("open") }) },
       { method: "GET", pattern: "/v1/swarms", handler: (_req, res) => res.json(200, { summary: this.olympus.swarm.summary(), active: this.olympus.swarm.listSwarms("active") }) },
+      { method: "GET", pattern: "/v1/data-quality", handler: (_req, res) => res.json(200, { summary: this.olympus.dataQuality.summary(), rules: this.olympus.dataQuality.listRules() }) },
+      { method: "GET", pattern: "/v1/schema-registry", handler: (_req, res) => res.json(200, { summary: this.olympus.schemaRegistry.summary(), subjects: this.olympus.schemaRegistry.listSubjects().map(x => ({ subject: x.subject, versions: x.versions.length, consumers: x.consumers.size })) }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

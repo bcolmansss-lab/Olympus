@@ -186,6 +186,8 @@ import { CustomerHealthManager } from "../customer-health/customer-health-manage
 import { UsageMeteringManager } from "../usage-metering/usage-metering-manager.js";
 import { EscalationMatrixManager } from "../escalation-matrix/escalation-matrix-manager.js";
 import { SwarmManager } from "../swarm/swarm-manager.js";
+import { DataQualityManager } from "../data-quality/data-quality-manager.js";
+import { SchemaRegistryManager } from "../schema-registry/schema-registry-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -20255,5 +20257,128 @@ describe("SwarmManager", () => {
     assert.equal(s.totalSwarms, 2);
     assert.equal(s.resolvedPct, 50);
     assert.equal(s.avgDurationMinutes, 45);
+  });
+});
+
+describe("DataQualityManager", () => {
+  it("addRule publishes rule_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dataquality.rule_added", (e) => { events.push(e.payload); });
+    const dm = new DataQualityManager(bus);
+    dm.addRule("orders", "completeness", "no null customer_id");
+    assert.equal(events.length, 1);
+  });
+
+  it("failing check publishes check_failed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dataquality.check_failed", (e) => { events.push(e.payload); });
+    const dm = new DataQualityManager(bus);
+    const r = dm.addRule("orders", "validity", "valid emails", 95);
+    dm.runCheck(r.id, 80, "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("repeated failures quarantine the dataset", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("dataquality.dataset_quarantined", (e) => { events.push(e.payload); });
+    const dm = new DataQualityManager(bus, 2);
+    const r = dm.addRule("orders", "freshness", "updated daily", 95);
+    dm.runCheck(r.id, 50, "2026-06-01");
+    dm.runCheck(r.id, 60, "2026-06-02");
+    assert.equal(dm.isQuarantined("orders"), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("releaseQuarantine restores dataset", () => {
+    const bus = new EventBus();
+    const dm = new DataQualityManager(bus, 1);
+    const r = dm.addRule("orders", "uniqueness", "unique ids", 99);
+    dm.runCheck(r.id, 90, "2026-06-01");
+    dm.releaseQuarantine("orders");
+    assert.equal(dm.isQuarantined("orders"), false);
+  });
+
+  it("datasetScore averages pass rates", () => {
+    const bus = new EventBus();
+    const dm = new DataQualityManager(bus);
+    const r = dm.addRule("orders", "completeness", "x", 90);
+    dm.runCheck(r.id, 100, "2026-06-01");
+    dm.runCheck(r.id, 80, "2026-06-02");
+    assert.equal(dm.datasetScore("orders"), 90);
+  });
+
+  it("summary aggregates checks and quarantines", () => {
+    const bus = new EventBus();
+    const dm = new DataQualityManager(bus, 99);
+    const r = dm.addRule("orders", "range", "amounts > 0", 95);
+    dm.runCheck(r.id, 100, "2026-06-01");
+    dm.runCheck(r.id, 50, "2026-06-02");
+    const s = dm.summary();
+    assert.equal(s.totalChecks, 2);
+    assert.equal(s.failedChecks, 1);
+    assert.equal(s.overallPassRatePct, 50);
+  });
+});
+
+describe("SchemaRegistryManager", () => {
+  it("register publishes registered with version 1", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("schemaregistry.registered", (e) => { events.push(e.payload); });
+    const sm = new SchemaRegistryManager(bus);
+    const v = sm.register("order.created", [{ name: "orderId", type: "string", required: true }], "2026-06-01")!;
+    assert.equal(v.version, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("removing a field is incompatible", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("schemaregistry.incompatible", (e) => { events.push(e.payload); });
+    const sm = new SchemaRegistryManager(bus);
+    sm.register("s", [{ name: "a", type: "string", required: true }], "2026-06-01");
+    assert.equal(sm.register("s", [], "2026-06-02"), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("new optional fields are compatible; new required are not", () => {
+    const bus = new EventBus();
+    const sm = new SchemaRegistryManager(bus);
+    sm.register("s", [{ name: "a", type: "string", required: true }], "2026-06-01");
+    assert.ok(sm.register("s", [{ name: "a", type: "string", required: true }, { name: "b", type: "number", required: false }], "2026-06-02"));
+    assert.equal(sm.register("s", [{ name: "a", type: "string", required: true }, { name: "b", type: "number", required: false }, { name: "c", type: "string", required: true }], "2026-06-03"), undefined);
+  });
+
+  it("validate checks required fields and types", () => {
+    const bus = new EventBus();
+    const sm = new SchemaRegistryManager(bus);
+    sm.register("s", [{ name: "id", type: "string", required: true }, { name: "qty", type: "number", required: false }], "2026-06-01");
+    assert.equal(sm.validate("s", { id: "x", qty: 2 }).valid, true);
+    assert.equal(sm.validate("s", { qty: 2 }).valid, false);
+    assert.equal(sm.validate("s", { id: "x", qty: "two" }).valid, false);
+  });
+
+  it("deprecate publishes deprecated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("schemaregistry.deprecated", (e) => { events.push(e.payload); });
+    const sm = new SchemaRegistryManager(bus);
+    sm.register("s", [{ name: "a", type: "string", required: true }], "2026-06-01");
+    sm.deprecate("s", 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates subjects and consumers", () => {
+    const bus = new EventBus();
+    const sm = new SchemaRegistryManager(bus);
+    sm.register("a", [{ name: "x", type: "string", required: true }], "2026-06-01");
+    sm.addConsumer("a", "svc1");
+    sm.addConsumer("a", "svc2");
+    const s = sm.summary();
+    assert.equal(s.totalSubjects, 1);
+    assert.equal(s.totalConsumers, 2);
   });
 });

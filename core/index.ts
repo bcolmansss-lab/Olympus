@@ -283,6 +283,8 @@ import { CustomerHealthManager } from "./customer-health/customer-health-manager
 import { UsageMeteringManager } from "./usage-metering/usage-metering-manager.js";
 import { EscalationMatrixManager } from "./escalation-matrix/escalation-matrix-manager.js";
 import { SwarmManager } from "./swarm/swarm-manager.js";
+import { DataQualityManager } from "./data-quality/data-quality-manager.js";
+import { SchemaRegistryManager } from "./schema-registry/schema-registry-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -654,6 +656,8 @@ export class Olympus {
   readonly usageMetering: UsageMeteringManager;
   readonly escalationMatrix: EscalationMatrixManager;
   readonly swarm: SwarmManager;
+  readonly dataQuality: DataQualityManager;
+  readonly schemaRegistry: SchemaRegistryManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -929,6 +933,8 @@ export class Olympus {
     this.usageMetering = new UsageMeteringManager(this.bus);
     this.escalationMatrix = new EscalationMatrixManager(this.bus);
     this.swarm = new SwarmManager(this.bus);
+    this.dataQuality = new DataQualityManager(this.bus);
+    this.schemaRegistry = new SchemaRegistryManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1210,3 +1216,5 @@ export { CustomerHealthManager, type HealthBand, type HealthSignal, type HealthS
 export { UsageMeteringManager, type PriceTier, type MeterDef, type AccountUsage, type InvoiceLine, type MeteringSummary } from "./usage-metering/index.js";
 export { EscalationMatrixManager, type EscalationSeverity, type EscalationStatus, type MatrixLevel, type ActiveEscalation, type EscalationMatrixSummary } from "./escalation-matrix/index.js";
 export { SwarmManager, type SwarmStatus, type HypothesisStatus, type SwarmResponder, type Hypothesis, type Swarm, type SwarmSummary } from "./swarm/index.js";
+export { DataQualityManager, type QualityRuleKind, type QualityRule, type QualityCheckRun, type DatasetState, type DataQualitySummary } from "./data-quality/index.js";
+export { SchemaRegistryManager, type FieldDef, type SchemaVersion, type SchemaSubject, type SchemaRegistrySummary } from "./schema-registry/index.js";
