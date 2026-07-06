@@ -311,6 +311,8 @@ import { RelocationManager } from "./relocation/relocation-manager.js";
 import { ErgonomicsManager } from "./ergonomics/ergonomics-manager.js";
 import { IPPortfolioManager } from "./ip-portfolio/ip-portfolio-manager.js";
 import { ScholarshipManager } from "./scholarship/scholarship-manager.js";
+import { CafeteriaManager } from "./cafeteria/cafeteria-manager.js";
+import { TradeShowManager } from "./trade-show/trade-show-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -710,6 +712,8 @@ export class Olympus {
   readonly ergonomics: ErgonomicsManager;
   readonly ipPortfolio: IPPortfolioManager;
   readonly scholarship: ScholarshipManager;
+  readonly cafeteria: CafeteriaManager;
+  readonly tradeShow: TradeShowManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1013,6 +1017,8 @@ export class Olympus {
     this.ergonomics = new ErgonomicsManager(this.bus);
     this.ipPortfolio = new IPPortfolioManager(this.bus);
     this.scholarship = new ScholarshipManager(this.bus);
+    this.cafeteria = new CafeteriaManager(this.bus);
+    this.tradeShow = new TradeShowManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1322,3 +1328,5 @@ export { RelocationManager, type RelocationStatus, type RelocationExpenseCategor
 export { ErgonomicsManager, type ErgoIssueSeverity, type ErgoIssue, type ErgoAssessment, type ErgonomicsSummary } from "./ergonomics/index.js";
 export { IPPortfolioManager, type IPAssetKind, type IPAssetStatus, type IPAsset, type IPPortfolioSummary } from "./ip-portfolio/index.js";
 export { ScholarshipManager, type ScholarshipAppStatus, type ScholarshipProgram, type ScholarshipApplication, type ScholarshipSummary } from "./scholarship/index.js";
+export { CafeteriaManager, type MenuItem, type CafeteriaOrder, type CafeteriaSummary } from "./cafeteria/index.js";
+export { TradeShowManager, type TradeShowStatus, type BoothLeadQuality, type BoothLead, type TradeShow, type TradeShowSummary } from "./trade-show/index.js";

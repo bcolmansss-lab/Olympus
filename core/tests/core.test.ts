@@ -214,6 +214,8 @@ import { RelocationManager } from "../relocation/relocation-manager.js";
 import { ErgonomicsManager } from "../ergonomics/ergonomics-manager.js";
 import { IPPortfolioManager } from "../ip-portfolio/ip-portfolio-manager.js";
 import { ScholarshipManager } from "../scholarship/scholarship-manager.js";
+import { CafeteriaManager } from "../cafeteria/cafeteria-manager.js";
+import { TradeShowManager } from "../trade-show/trade-show-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -22086,5 +22088,141 @@ describe("ScholarshipManager", () => {
     assert.equal(s.awarded, 1);
     assert.equal(s.disbursed, 1);
     assert.equal(s.totalDisbursedUsd, 500);
+  });
+});
+
+describe("CafeteriaManager", () => {
+  const menuItems = [
+    { name: "Salad", priceUsd: 8.5, stock: 2 },
+    { name: "Burger", priceUsd: 11, stock: 1 },
+  ];
+
+  it("publishes menu with event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("cafeteria.menu_published", (e) => { events.push(e.payload); });
+    const cm = new CafeteriaManager(bus);
+    cm.publishMenu("2026-07-06", menuItems);
+    assert.equal(events[0].itemCount, 2);
+  });
+
+  it("order deducts balance and stock", () => {
+    const cm = new CafeteriaManager(new EventBus());
+    cm.publishMenu("2026-07-06", menuItems);
+    cm.topUp("e1", 25);
+    const order = cm.order("e1", "2026-07-06", ["Salad", "Burger"])!;
+    assert.equal(order.totalUsd, 19.5);
+    assert.equal(cm.balance("e1"), 5.5);
+    assert.equal(cm.remainingStock("2026-07-06", "Burger"), 0);
+  });
+
+  it("rejects order on insufficient balance", () => {
+    const cm = new CafeteriaManager(new EventBus());
+    cm.publishMenu("2026-07-06", menuItems);
+    cm.topUp("e1", 5);
+    assert.equal(cm.order("e1", "2026-07-06", ["Salad"]), undefined);
+    assert.equal(cm.balance("e1"), 5);
+  });
+
+  it("rejects order when out of stock", () => {
+    const cm = new CafeteriaManager(new EventBus());
+    cm.publishMenu("2026-07-06", menuItems);
+    cm.topUp("e1", 100);
+    cm.order("e1", "2026-07-06", ["Burger"]);
+    assert.equal(cm.order("e1", "2026-07-06", ["Burger"]), undefined);
+  });
+
+  it("rejects order for unknown menu date", () => {
+    const cm = new CafeteriaManager(new EventBus());
+    cm.topUp("e1", 100);
+    assert.equal(cm.order("e1", "2026-07-07", ["Salad"]), undefined);
+  });
+
+  it("summary tracks revenue and top item", () => {
+    const cm = new CafeteriaManager(new EventBus());
+    cm.publishMenu("2026-07-06", [{ name: "Salad", priceUsd: 10, stock: 5 }, { name: "Soup", priceUsd: 5, stock: 5 }]);
+    cm.topUp("e1", 100);
+    cm.order("e1", "2026-07-06", ["Salad"]);
+    cm.order("e1", "2026-07-06", ["Salad", "Soup"]);
+    const s = cm.summary();
+    assert.equal(s.totalOrders, 2);
+    assert.equal(s.totalRevenueUsd, 25);
+    assert.equal(s.avgOrderUsd, 12.5);
+    assert.equal(s.topItem, "Salad");
+  });
+});
+
+describe("TradeShowManager", () => {
+  it("goLive requires staff", () => {
+    const tm = new TradeShowManager(new EventBus());
+    const show = tm.register("ExpoCon", "Vegas", 20000, "2026-09-01", "2026-09-03");
+    assert.equal(tm.goLive(show.id), undefined);
+    tm.assignStaff(show.id, "e1");
+    assert.equal(tm.goLive(show.id)!.status, "live");
+  });
+
+  it("assignStaff dedupes", () => {
+    const tm = new TradeShowManager(new EventBus());
+    const show = tm.register("ExpoCon", "Vegas", 20000, "2026-09-01", "2026-09-03");
+    tm.assignStaff(show.id, "e1");
+    assert.equal(tm.assignStaff(show.id, "e1"), undefined);
+    assert.equal(tm.getShow(show.id)!.staff.length, 1);
+  });
+
+  it("captures leads only while live", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tradeshow.lead_captured", (e) => { events.push(e.payload); });
+    const tm = new TradeShowManager(bus);
+    const show = tm.register("ExpoCon", "Vegas", 20000, "2026-09-01", "2026-09-03");
+    assert.equal(tm.captureLead(show.id, "Sam", "Acme", "hot", "2026-09-01T10:00:00Z"), undefined);
+    tm.assignStaff(show.id, "e1");
+    tm.goLive(show.id);
+    assert.notEqual(tm.captureLead(show.id, "Sam", "Acme", "hot", "2026-09-01T10:00:00Z"), undefined);
+    assert.equal(events[0].quality, "hot");
+  });
+
+  it("close computes cost per lead", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tradeshow.closed", (e) => { events.push(e.payload); });
+    const tm = new TradeShowManager(bus);
+    const show = tm.register("ExpoCon", "Vegas", 10000, "2026-09-01", "2026-09-03");
+    tm.assignStaff(show.id, "e1");
+    tm.goLive(show.id);
+    tm.captureLead(show.id, "A", "X", "hot", "2026-09-01T10:00:00Z");
+    tm.captureLead(show.id, "B", "Y", "cold", "2026-09-01T11:00:00Z");
+    const r = tm.close(show.id)!;
+    assert.equal(r.costPerLeadUsd, 5000);
+    assert.equal(events[0].leadCount, 2);
+  });
+
+  it("leadsFor filters by quality", () => {
+    const tm = new TradeShowManager(new EventBus());
+    const show = tm.register("ExpoCon", "Vegas", 10000, "2026-09-01", "2026-09-03");
+    tm.assignStaff(show.id, "e1");
+    tm.goLive(show.id);
+    tm.captureLead(show.id, "A", "X", "hot", "2026-09-01T10:00:00Z");
+    tm.captureLead(show.id, "B", "Y", "warm", "2026-09-01T11:00:00Z");
+    assert.equal(tm.leadsFor(show.id).length, 2);
+    assert.equal(tm.leadsFor(show.id, "hot").length, 1);
+  });
+
+  it("summary aggregates spend and cost per lead over closed shows", () => {
+    const tm = new TradeShowManager(new EventBus());
+    const a = tm.register("A", "Vegas", 6000, "2026-09-01", "2026-09-03");
+    tm.register("B", "NYC", 4000, "2026-10-01", "2026-10-02");
+    tm.assignStaff(a.id, "e1");
+    tm.goLive(a.id);
+    tm.captureLead(a.id, "L1", "X", "hot", "2026-09-01T10:00:00Z");
+    tm.captureLead(a.id, "L2", "Y", "warm", "2026-09-01T10:30:00Z");
+    tm.captureLead(a.id, "L3", "Z", "hot", "2026-09-01T11:00:00Z");
+    tm.close(a.id);
+    const s = tm.summary();
+    assert.equal(s.totalShows, 2);
+    assert.equal(s.totalLeads, 3);
+    assert.equal(s.hotLeads, 2);
+    assert.equal(s.totalSpendUsd, 10000);
+    assert.equal(s.avgCostPerLeadUsd, 2000);
   });
 });

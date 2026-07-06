@@ -416,6 +416,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/ergonomics", handler: (_req, res) => res.json(200, { summary: this.olympus.ergonomics.summary(), openIssues: this.olympus.ergonomics.openIssues() }) },
       { method: "GET", pattern: "/v1/ip-portfolio", handler: (_req, res) => res.json(200, { summary: this.olympus.ipPortfolio.summary(), active: this.olympus.ipPortfolio.listAssets(undefined, "active") }) },
       { method: "GET", pattern: "/v1/scholarships", handler: (_req, res) => res.json(200, { summary: this.olympus.scholarship.summary(), pending: this.olympus.scholarship.listApplications(undefined, "submitted") }) },
+      { method: "GET", pattern: "/v1/cafeteria", handler: (_req, res) => res.json(200, { summary: this.olympus.cafeteria.summary() }) },
+      { method: "GET", pattern: "/v1/trade-shows", handler: (_req, res) => res.json(200, { summary: this.olympus.tradeShow.summary(), live: this.olympus.tradeShow.listShows("live") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
