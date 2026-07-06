@@ -281,6 +281,8 @@ import { POSTerminalManager } from "./pos-terminal/pos-terminal-manager.js";
 import { TipPoolManager } from "./tip-pool/tip-pool-manager.js";
 import { CustomerHealthManager } from "./customer-health/customer-health-manager.js";
 import { UsageMeteringManager } from "./usage-metering/usage-metering-manager.js";
+import { EscalationMatrixManager } from "./escalation-matrix/escalation-matrix-manager.js";
+import { SwarmManager } from "./swarm/swarm-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -650,6 +652,8 @@ export class Olympus {
   readonly tipPool: TipPoolManager;
   readonly customerHealth: CustomerHealthManager;
   readonly usageMetering: UsageMeteringManager;
+  readonly escalationMatrix: EscalationMatrixManager;
+  readonly swarm: SwarmManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -923,6 +927,8 @@ export class Olympus {
     this.tipPool = new TipPoolManager(this.bus);
     this.customerHealth = new CustomerHealthManager(this.bus);
     this.usageMetering = new UsageMeteringManager(this.bus);
+    this.escalationMatrix = new EscalationMatrixManager(this.bus);
+    this.swarm = new SwarmManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1202,3 +1208,5 @@ export { POSTerminalManager, type POSSessionStatus, type MovementKind, type Cash
 export { TipPoolManager, type TipPoolStatus, type TipParticipant, type TipPool, type TipPoolSummary } from "./tip-pool/index.js";
 export { CustomerHealthManager, type HealthBand, type HealthSignal, type HealthSnapshot, type CustomerHealthSummary } from "./customer-health/index.js";
 export { UsageMeteringManager, type PriceTier, type MeterDef, type AccountUsage, type InvoiceLine, type MeteringSummary } from "./usage-metering/index.js";
+export { EscalationMatrixManager, type EscalationSeverity, type EscalationStatus, type MatrixLevel, type ActiveEscalation, type EscalationMatrixSummary } from "./escalation-matrix/index.js";
+export { SwarmManager, type SwarmStatus, type HypothesisStatus, type SwarmResponder, type Hypothesis, type Swarm, type SwarmSummary } from "./swarm/index.js";

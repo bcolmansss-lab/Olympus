@@ -184,6 +184,8 @@ import { POSTerminalManager } from "../pos-terminal/pos-terminal-manager.js";
 import { TipPoolManager } from "../tip-pool/tip-pool-manager.js";
 import { CustomerHealthManager } from "../customer-health/customer-health-manager.js";
 import { UsageMeteringManager } from "../usage-metering/usage-metering-manager.js";
+import { EscalationMatrixManager } from "../escalation-matrix/escalation-matrix-manager.js";
+import { SwarmManager } from "../swarm/swarm-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -20123,5 +20125,135 @@ describe("UsageMeteringManager", () => {
     assert.equal(s.totalAccounts, 2);
     assert.equal(s.totalUnitsThisData, 200);
     assert.equal(s.highUsageAlerts, 1);
+  });
+});
+
+describe("EscalationMatrixManager", () => {
+  it("open starts at level 1 and publishes opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("escalation.opened", (e) => { events.push(e.payload); });
+    const em = new EscalationMatrixManager(bus);
+    em.defineMatrix("critical", [{ contact: "oncall", respondWithinMinutes: 15 }, { contact: "lead", respondWithinMinutes: 15 }]);
+    const e = em.open("DB down", "critical", "2026-06-01T00:00:00.000Z")!;
+    assert.equal(e.currentLevel, 1);
+    assert.equal(events[0].contact, "oncall");
+  });
+
+  it("tick climbs to next level after response window", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("escalation.climbed", (e) => { events.push(e.payload); });
+    const em = new EscalationMatrixManager(bus);
+    em.defineMatrix("high", [{ contact: "a", respondWithinMinutes: 10 }, { contact: "b", respondWithinMinutes: 10 }]);
+    const e = em.open("issue", "high", "2026-06-01T00:00:00.000Z")!;
+    em.tick("2026-06-01T00:15:00.000Z");
+    assert.equal(em.getEscalation(e.id)!.currentLevel, 2);
+    assert.equal(em.currentContact(e.id), "b");
+    assert.equal(events.length, 1);
+  });
+
+  it("tick exhausts at top of ladder", () => {
+    const bus = new EventBus();
+    const em = new EscalationMatrixManager(bus);
+    em.defineMatrix("low", [{ contact: "a", respondWithinMinutes: 5 }]);
+    const e = em.open("x", "low", "2026-06-01T00:00:00.000Z")!;
+    em.tick("2026-06-01T00:10:00.000Z");
+    assert.equal(em.getEscalation(e.id)!.status, "exhausted");
+  });
+
+  it("acknowledge stops climbing and publishes with minutes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("escalation.acknowledged", (e) => { events.push(e.payload); });
+    const em = new EscalationMatrixManager(bus);
+    em.defineMatrix("medium", [{ contact: "a", respondWithinMinutes: 30 }]);
+    const e = em.open("x", "medium", "2026-06-01T00:00:00.000Z")!;
+    em.acknowledge(e.id, "a", "2026-06-01T00:20:00.000Z");
+    assert.equal(events[0].minutesToAck, 20);
+    assert.equal(em.tick("2026-06-01T01:00:00.000Z").length, 0);
+  });
+
+  it("open requires a defined matrix", () => {
+    const bus = new EventBus();
+    const em = new EscalationMatrixManager(bus);
+    assert.equal(em.open("x", "critical", "2026-06-01T00:00:00.000Z"), undefined);
+  });
+
+  it("summary computes avg minutes to ack", () => {
+    const bus = new EventBus();
+    const em = new EscalationMatrixManager(bus);
+    em.defineMatrix("high", [{ contact: "a", respondWithinMinutes: 60 }]);
+    const e1 = em.open("x", "high", "2026-06-01T00:00:00.000Z")!;
+    em.acknowledge(e1.id, "a", "2026-06-01T00:10:00.000Z");
+    const e2 = em.open("y", "high", "2026-06-01T00:00:00.000Z")!;
+    em.acknowledge(e2.id, "a", "2026-06-01T00:30:00.000Z");
+    const s = em.summary();
+    assert.equal(s.acknowledged, 2);
+    assert.equal(s.avgMinutesToAck, 20);
+  });
+});
+
+describe("SwarmManager", () => {
+  it("start publishes started", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("swarm.started", (e) => { events.push(e.payload); });
+    const sm = new SwarmManager(bus);
+    sm.start("checkout errors", "sev1", "2026-06-01T00:00:00.000Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("join dedupes responders and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("swarm.responder_joined", (e) => { events.push(e.payload); });
+    const sm = new SwarmManager(bus);
+    const s = sm.start("x", "sev2", "2026-06-01T00:00:00.000Z");
+    sm.join(s.id, "u1", "database", "2026-06-01T00:05:00.000Z");
+    assert.equal(sm.join(s.id, "u1", "database", "2026-06-01T00:06:00.000Z"), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("hypotheses can be confirmed or ruled out", () => {
+    const bus = new EventBus();
+    const sm = new SwarmManager(bus);
+    const s = sm.start("x", "sev2", "2026-06-01T00:00:00.000Z");
+    const h = sm.proposeHypothesis(s.id, "bad deploy", "u1")!;
+    sm.resolveHypothesis(s.id, h.id, true);
+    assert.equal(sm.getSwarm(s.id)!.hypotheses[0]!.status, "confirmed");
+  });
+
+  it("disband publishes with duration and blocks further joins", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("swarm.disbanded", (e) => { events.push(e.payload); });
+    const sm = new SwarmManager(bus);
+    const s = sm.start("x", "sev1", "2026-06-01T00:00:00.000Z");
+    sm.disband(s.id, true, "rolled back deploy", "2026-06-01T01:30:00.000Z");
+    assert.equal(events[0].durationMinutes, 90);
+    assert.equal(sm.join(s.id, "u9", "x", "2026-06-01T02:00:00.000Z"), undefined);
+  });
+
+  it("cannot disband twice", () => {
+    const bus = new EventBus();
+    const sm = new SwarmManager(bus);
+    const s = sm.start("x", "sev3", "2026-06-01T00:00:00.000Z");
+    sm.disband(s.id, false, "n/a", "2026-06-01T00:30:00.000Z");
+    assert.equal(sm.disband(s.id, true, "again", "2026-06-01T01:00:00.000Z"), undefined);
+  });
+
+  it("summary computes resolution rate and averages", () => {
+    const bus = new EventBus();
+    const sm = new SwarmManager(bus);
+    const s1 = sm.start("a", "sev1", "2026-06-01T00:00:00.000Z");
+    sm.join(s1.id, "u1", "db", "2026-06-01T00:01:00.000Z");
+    sm.disband(s1.id, true, "fixed", "2026-06-01T01:00:00.000Z");
+    const s2 = sm.start("b", "sev2", "2026-06-01T00:00:00.000Z");
+    sm.disband(s2.id, false, "unresolved", "2026-06-01T00:30:00.000Z");
+    const s = sm.summary();
+    assert.equal(s.totalSwarms, 2);
+    assert.equal(s.resolvedPct, 50);
+    assert.equal(s.avgDurationMinutes, 45);
   });
 });
