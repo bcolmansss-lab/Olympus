@@ -291,6 +291,8 @@ import { InAppMessageManager } from "./in-app-message/in-app-message-manager.js"
 import { BannerManager } from "./banner/banner-manager.js";
 import { GiftRegistryManager } from "./gift-registry/gift-registry-manager.js";
 import { StoreLocatorManager } from "./store-locator/store-locator-manager.js";
+import { CurbsidePickupManager } from "./curbside-pickup/curbside-pickup-manager.js";
+import { ReturnsPortalManager } from "./returns-portal/returns-portal-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -670,6 +672,8 @@ export class Olympus {
   readonly banner: BannerManager;
   readonly giftRegistry: GiftRegistryManager;
   readonly storeLocator: StoreLocatorManager;
+  readonly curbsidePickup: CurbsidePickupManager;
+  readonly returnsPortal: ReturnsPortalManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -953,6 +957,8 @@ export class Olympus {
     this.banner = new BannerManager(this.bus);
     this.giftRegistry = new GiftRegistryManager(this.bus);
     this.storeLocator = new StoreLocatorManager(this.bus);
+    this.curbsidePickup = new CurbsidePickupManager(this.bus);
+    this.returnsPortal = new ReturnsPortalManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1242,3 +1248,5 @@ export { InAppMessageManager, type MessageKind, type MessageState, type InAppMes
 export { BannerManager, type BannerTone, type BannerStatus, type SiteBanner, type BannerSummary } from "./banner/index.js";
 export { GiftRegistryManager, type RegistryStatus, type RegistryItem, type GiftRegistry, type GiftRegistrySummary } from "./gift-registry/index.js";
 export { StoreLocatorManager, type StoreStatus, type DayHours, type StoreLocation, type StoreLocatorSummary } from "./store-locator/index.js";
+export { CurbsidePickupManager, type PickupStatus, type PickupOrder, type CurbsideSummary } from "./curbside-pickup/index.js";
+export { ReturnsPortalManager, type ReturnReason, type ReturnStatus, type ReturnDisposition, type ReturnRequest, type ReturnsPortalSummary } from "./returns-portal/index.js";

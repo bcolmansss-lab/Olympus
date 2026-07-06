@@ -194,6 +194,8 @@ import { InAppMessageManager } from "../in-app-message/in-app-message-manager.js
 import { BannerManager } from "../banner/banner-manager.js";
 import { GiftRegistryManager } from "../gift-registry/gift-registry-manager.js";
 import { StoreLocatorManager } from "../store-locator/store-locator-manager.js";
+import { CurbsidePickupManager } from "../curbside-pickup/curbside-pickup-manager.js";
+import { ReturnsPortalManager } from "../returns-portal/returns-portal-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -20773,5 +20775,128 @@ describe("StoreLocatorManager", () => {
     assert.equal(s.open, 1);
     assert.equal(s.cities, 2);
     assert.equal(s.byService.pickup, 2);
+  });
+});
+
+describe("CurbsidePickupManager", () => {
+  it("markReady publishes order_ready", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("curbside.order_ready", (e) => { events.push(e.payload); });
+    const cm = new CurbsidePickupManager(bus);
+    const o = cm.createOrder("ORD-1", "store1", "c1");
+    cm.markReady(o.id, "2026-06-01T10:00:00.000Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("checkIn requires ready state and publishes arrived", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("curbside.customer_arrived", (e) => { events.push(e.payload); });
+    const cm = new CurbsidePickupManager(bus);
+    const o = cm.createOrder("ORD-1", "store1", "c1");
+    assert.equal(cm.checkIn(o.id, "blue sedan", "spot 3", "2026-06-01T10:30:00.000Z"), undefined);
+    cm.markReady(o.id, "2026-06-01T10:00:00.000Z");
+    cm.checkIn(o.id, "blue sedan", "spot 3", "2026-06-01T10:30:00.000Z");
+    assert.equal(events.length, 1);
+  });
+
+  it("complete computes wait minutes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("curbside.completed", (e) => { events.push(e.payload); });
+    const cm = new CurbsidePickupManager(bus);
+    const o = cm.createOrder("ORD-1", "store1", "c1");
+    cm.markReady(o.id, "2026-06-01T10:00:00.000Z");
+    cm.checkIn(o.id, "suv", "1", "2026-06-01T10:30:00.000Z");
+    cm.complete(o.id, "2026-06-01T10:35:00.000Z");
+    assert.equal(events[0].waitMinutes, 5);
+  });
+
+  it("cancel blocked after completion", () => {
+    const bus = new EventBus();
+    const cm = new CurbsidePickupManager(bus);
+    const o = cm.createOrder("ORD-1", "store1", "c1");
+    cm.markReady(o.id, "2026-06-01T10:00:00.000Z");
+    cm.checkIn(o.id, "x", "1", "2026-06-01T10:30:00.000Z");
+    cm.complete(o.id, "2026-06-01T10:31:00.000Z");
+    assert.equal(cm.cancel(o.id), undefined);
+  });
+
+  it("listOrders filters by store and status", () => {
+    const bus = new EventBus();
+    const cm = new CurbsidePickupManager(bus);
+    const o = cm.createOrder("ORD-1", "store1", "c1");
+    cm.markReady(o.id, "2026-06-01T10:00:00.000Z");
+    cm.createOrder("ORD-2", "store2", "c2");
+    assert.equal(cm.listOrders("ready", "store1").length, 1);
+  });
+
+  it("summary computes avg wait", () => {
+    const bus = new EventBus();
+    const cm = new CurbsidePickupManager(bus);
+    const o = cm.createOrder("ORD-1", "s", "c");
+    cm.markReady(o.id, "2026-06-01T10:00:00.000Z");
+    cm.checkIn(o.id, "x", "1", "2026-06-01T10:10:00.000Z");
+    cm.complete(o.id, "2026-06-01T10:16:00.000Z");
+    assert.equal(cm.summary().avgWaitMinutes, 6);
+  });
+});
+
+describe("ReturnsPortalManager", () => {
+  it("request enforces return window", () => {
+    const bus = new EventBus();
+    const rm = new ReturnsPortalManager(bus, 30);
+    assert.equal(rm.request({ orderRef: "O1", customerId: "c1", sku: "A", reason: "changed_mind", itemPriceUsd: 50, purchasedAt: "2026-01-01", requestedAt: "2026-06-01" }), undefined);
+    assert.ok(rm.request({ orderRef: "O1", customerId: "c1", sku: "A", reason: "changed_mind", itemPriceUsd: 50, purchasedAt: "2026-05-20", requestedAt: "2026-06-01" }));
+  });
+
+  it("issueLabel publishes label_issued", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("returnsportal.label_issued", (e) => { events.push(e.payload); });
+    const rm = new ReturnsPortalManager(bus);
+    const r = rm.request({ orderRef: "O1", customerId: "c1", sku: "A", reason: "damaged", itemPriceUsd: 50, purchasedAt: "2026-05-20", requestedAt: "2026-06-01" })!;
+    rm.issueLabel(r.id, "TRK1");
+    assert.equal(events.length, 1);
+  });
+
+  it("refund disposition credits item price", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("returnsportal.dispositioned", (e) => { events.push(e.payload); });
+    const rm = new ReturnsPortalManager(bus);
+    const r = rm.request({ orderRef: "O1", customerId: "c1", sku: "A", reason: "wrong_size", itemPriceUsd: 80, purchasedAt: "2026-05-20", requestedAt: "2026-06-01" })!;
+    rm.issueLabel(r.id, "T"); rm.markInTransit(r.id); rm.markReceived(r.id);
+    rm.disposition(r.id, "refund", "2026-06-10");
+    assert.equal(events[0].refundUsd, 80);
+  });
+
+  it("reject disposition refunds nothing", () => {
+    const bus = new EventBus();
+    const rm = new ReturnsPortalManager(bus);
+    const r = rm.request({ orderRef: "O1", customerId: "c1", sku: "A", reason: "not_as_described", itemPriceUsd: 80, purchasedAt: "2026-05-20", requestedAt: "2026-06-01" })!;
+    rm.issueLabel(r.id, "T"); rm.markReceived(r.id);
+    rm.disposition(r.id, "reject", "2026-06-10");
+    assert.equal(rm.getReturn(r.id)!.status, "rejected");
+    assert.equal(rm.getReturn(r.id)!.refundUsd, 0);
+  });
+
+  it("disposition requires received state", () => {
+    const bus = new EventBus();
+    const rm = new ReturnsPortalManager(bus);
+    const r = rm.request({ orderRef: "O1", customerId: "c1", sku: "A", reason: "wrong_item", itemPriceUsd: 80, purchasedAt: "2026-05-20", requestedAt: "2026-06-01" })!;
+    assert.equal(rm.disposition(r.id, "refund", "2026-06-10"), undefined);
+  });
+
+  it("summary aggregates refunds and reasons", () => {
+    const bus = new EventBus();
+    const rm = new ReturnsPortalManager(bus);
+    const r = rm.request({ orderRef: "O1", customerId: "c1", sku: "A", reason: "damaged", itemPriceUsd: 60, purchasedAt: "2026-05-20", requestedAt: "2026-06-01" })!;
+    rm.issueLabel(r.id, "T"); rm.markReceived(r.id); rm.disposition(r.id, "store_credit", "2026-06-10");
+    const s = rm.summary();
+    assert.equal(s.dispositioned, 1);
+    assert.equal(s.totalRefundedUsd, 60);
+    assert.equal(s.returnRateByReason.damaged, 1);
   });
 });
