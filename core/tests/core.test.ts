@@ -188,6 +188,8 @@ import { EscalationMatrixManager } from "../escalation-matrix/escalation-matrix-
 import { SwarmManager } from "../swarm/swarm-manager.js";
 import { DataQualityManager } from "../data-quality/data-quality-manager.js";
 import { SchemaRegistryManager } from "../schema-registry/schema-registry-manager.js";
+import { EmailDeliverabilityManager } from "../email-deliverability/email-deliverability-manager.js";
+import { PushCampaignManager } from "../push-campaign/push-campaign-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -20380,5 +20382,138 @@ describe("SchemaRegistryManager", () => {
     const s = sm.summary();
     assert.equal(s.totalSubjects, 1);
     assert.equal(s.totalConsumers, 2);
+  });
+});
+
+describe("EmailDeliverabilityManager", () => {
+  it("hard bounce suppresses and publishes suppressed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("deliverability.suppressed", (e) => { events.push(e.payload); });
+    const em = new EmailDeliverabilityManager(bus);
+    em.record("a@x.com", "sent", "2026-06-01");
+    em.record("a@x.com", "hard_bounce", "2026-06-01");
+    assert.equal(em.isSuppressed("a@x.com"), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("canSend blocks suppressed and publishes send_blocked", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("deliverability.send_blocked", (e) => { events.push(e.payload); });
+    const em = new EmailDeliverabilityManager(bus);
+    em.suppress("bad@x.com", "manual", "2026-06-01");
+    assert.equal(em.canSend("bad@x.com"), false);
+    assert.equal(em.canSend("good@x.com"), true);
+    assert.equal(events.length, 1);
+  });
+
+  it("complaint suppresses too", () => {
+    const bus = new EventBus();
+    const em = new EmailDeliverabilityManager(bus);
+    em.record("c@x.com", "sent", "2026-06-01");
+    em.record("c@x.com", "complaint", "2026-06-01");
+    assert.equal(em.isSuppressed("c@x.com"), true);
+  });
+
+  it("high bounce rate degrades domain once", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("deliverability.domain_degraded", (e) => { events.push(e.payload); });
+    const em = new EmailDeliverabilityManager(bus, 5);
+    for (let i = 0; i < 10; i++) em.record(`u${i}@bad.com`, "sent", "2026-06-01");
+    em.record("u0@bad.com", "hard_bounce", "2026-06-01");
+    em.record("u1@bad.com", "hard_bounce", "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("unsuppress restores sendability", () => {
+    const bus = new EventBus();
+    const em = new EmailDeliverabilityManager(bus);
+    em.suppress("a@x.com", "unsubscribe", "2026-06-01");
+    em.unsuppress("a@x.com");
+    assert.equal(em.canSend("a@x.com"), true);
+  });
+
+  it("summary computes delivery and bounce rates", () => {
+    const bus = new EventBus();
+    const em = new EmailDeliverabilityManager(bus);
+    em.record("a@x.com", "sent", "2026-06-01"); em.record("a@x.com", "delivered", "2026-06-01");
+    em.record("b@x.com", "sent", "2026-06-01"); em.record("b@x.com", "hard_bounce", "2026-06-01");
+    const s = em.summary();
+    assert.equal(s.totalSent, 2);
+    assert.equal(s.deliveredRatePct, 50);
+    assert.equal(s.bounceRatePct, 50);
+    assert.equal(s.suppressedCount, 1);
+  });
+});
+
+describe("PushCampaignManager", () => {
+  it("send targets opted-in valid devices and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("push.campaign_sent", (e) => { events.push(e.payload); });
+    const pm = new PushCampaignManager(bus);
+    pm.registerDevice("d1", "u1", "ios");
+    pm.registerDevice("d2", "u2", "android");
+    pm.setOptIn("d2", false);
+    const c = pm.send("Sale!", "50% off", "2026-06-01");
+    assert.equal(c.targeted, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("tag targeting filters devices", () => {
+    const bus = new EventBus();
+    const pm = new PushCampaignManager(bus);
+    pm.registerDevice("d1", "u1", "ios", ["vip"]);
+    pm.registerDevice("d2", "u2", "android");
+    const c = pm.send("VIP", "early access", "2026-06-01", "vip");
+    assert.equal(c.targeted, 1);
+  });
+
+  it("invalid tokens are excluded and publish token_invalidated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("push.token_invalidated", (e) => { events.push(e.payload); });
+    const pm = new PushCampaignManager(bus);
+    pm.registerDevice("d1", "u1", "ios");
+    pm.invalidateToken("d1");
+    const c = pm.send("X", "y", "2026-06-01");
+    assert.equal(c.targeted, 0);
+    assert.equal(events.length, 1);
+  });
+
+  it("recordOpen dedupes and publishes opened", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("push.opened", (e) => { events.push(e.payload); });
+    const pm = new PushCampaignManager(bus);
+    pm.registerDevice("d1", "u1", "web");
+    const c = pm.send("X", "y", "2026-06-01");
+    pm.recordOpen(c.id, "d1");
+    assert.equal(pm.recordOpen(c.id, "d1"), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("openRatePct computes per campaign", () => {
+    const bus = new EventBus();
+    const pm = new PushCampaignManager(bus);
+    pm.registerDevice("d1", "u1", "ios");
+    pm.registerDevice("d2", "u2", "ios");
+    const c = pm.send("X", "y", "2026-06-01");
+    pm.recordOpen(c.id, "d1");
+    assert.equal(pm.openRatePct(c.id), 50);
+  });
+
+  it("summary aggregates devices and open rates", () => {
+    const bus = new EventBus();
+    const pm = new PushCampaignManager(bus);
+    pm.registerDevice("d1", "u1", "ios");
+    const c = pm.send("X", "y", "2026-06-01");
+    pm.recordOpen(c.id, "d1");
+    const s = pm.summary();
+    assert.equal(s.totalDevices, 1);
+    assert.equal(s.totalCampaigns, 1);
+    assert.equal(s.avgOpenRatePct, 100);
   });
 });

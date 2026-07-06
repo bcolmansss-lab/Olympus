@@ -285,6 +285,8 @@ import { EscalationMatrixManager } from "./escalation-matrix/escalation-matrix-m
 import { SwarmManager } from "./swarm/swarm-manager.js";
 import { DataQualityManager } from "./data-quality/data-quality-manager.js";
 import { SchemaRegistryManager } from "./schema-registry/schema-registry-manager.js";
+import { EmailDeliverabilityManager } from "./email-deliverability/email-deliverability-manager.js";
+import { PushCampaignManager } from "./push-campaign/push-campaign-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -658,6 +660,8 @@ export class Olympus {
   readonly swarm: SwarmManager;
   readonly dataQuality: DataQualityManager;
   readonly schemaRegistry: SchemaRegistryManager;
+  readonly emailDeliverability: EmailDeliverabilityManager;
+  readonly pushCampaign: PushCampaignManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -935,6 +939,8 @@ export class Olympus {
     this.swarm = new SwarmManager(this.bus);
     this.dataQuality = new DataQualityManager(this.bus);
     this.schemaRegistry = new SchemaRegistryManager(this.bus);
+    this.emailDeliverability = new EmailDeliverabilityManager(this.bus);
+    this.pushCampaign = new PushCampaignManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1218,3 +1224,5 @@ export { EscalationMatrixManager, type EscalationSeverity, type EscalationStatus
 export { SwarmManager, type SwarmStatus, type HypothesisStatus, type SwarmResponder, type Hypothesis, type Swarm, type SwarmSummary } from "./swarm/index.js";
 export { DataQualityManager, type QualityRuleKind, type QualityRule, type QualityCheckRun, type DatasetState, type DataQualitySummary } from "./data-quality/index.js";
 export { SchemaRegistryManager, type FieldDef, type SchemaVersion, type SchemaSubject, type SchemaRegistrySummary } from "./schema-registry/index.js";
+export { EmailDeliverabilityManager, type EmailEventKind, type SuppressionReason, type DomainStats, type SuppressionEntry, type DeliverabilitySummary } from "./email-deliverability/index.js";
+export { PushCampaignManager, type DevicePlatform, type Device, type PushCampaign, type PushSummary } from "./push-campaign/index.js";
