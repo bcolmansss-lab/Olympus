@@ -297,6 +297,8 @@ import { TradeInManager } from "./trade-in/trade-in-manager.js";
 import { PriceMatchManager } from "./price-match/price-match-manager.js";
 import { ConsignmentManager } from "./consignment/consignment-manager.js";
 import { RentalManager } from "./rental/rental-manager.js";
+import { WholesaleManager } from "./wholesale/wholesale-manager.js";
+import { FranchiseManager } from "./franchise/franchise-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -682,6 +684,8 @@ export class Olympus {
   readonly priceMatch: PriceMatchManager;
   readonly consignment: ConsignmentManager;
   readonly rental: RentalManager;
+  readonly wholesale: WholesaleManager;
+  readonly franchise: FranchiseManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -971,6 +975,8 @@ export class Olympus {
     this.priceMatch = new PriceMatchManager(this.bus);
     this.consignment = new ConsignmentManager(this.bus);
     this.rental = new RentalManager(this.bus);
+    this.wholesale = new WholesaleManager(this.bus);
+    this.franchise = new FranchiseManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1266,3 +1272,5 @@ export { TradeInManager, type TradeInCondition, type TradeInStatus, type TradeIn
 export { PriceMatchManager, type PriceMatchClaimStatus, type PriceMatchClaim, type PriceMatchSummary } from "./price-match/index.js";
 export { ConsignmentManager, type ConsignmentStatus, type ConsignmentItem, type ConsignmentSummary } from "./consignment/index.js";
 export { RentalManager, type RentalStatus, type RentableAsset, type Rental, type RentalSummary } from "./rental/index.js";
+export { WholesaleManager, type WholesaleOrderStatus, type WholesaleTier, type WholesaleAccount, type WholesaleOrder, type WholesaleSummary } from "./wholesale/index.js";
+export { FranchiseManager, type FranchiseStatus, type Franchise, type FranchiseSalesReport, type FranchiseSummary } from "./franchise/index.js";

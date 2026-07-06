@@ -200,6 +200,8 @@ import { TradeInManager } from "../trade-in/trade-in-manager.js";
 import { PriceMatchManager } from "../price-match/price-match-manager.js";
 import { ConsignmentManager } from "../consignment/consignment-manager.js";
 import { RentalManager } from "../rental/rental-manager.js";
+import { WholesaleManager } from "../wholesale/wholesale-manager.js";
+import { FranchiseManager } from "../franchise/franchise-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21165,5 +21167,140 @@ describe("RentalManager", () => {
     assert.equal(s.completedRentals, 1);
     assert.equal(s.totalRevenueUsd, 70);
     assert.equal(s.totalLateFeesUsd, 30);
+  });
+});
+
+describe("WholesaleManager", () => {
+  it("resolves highest applicable tier", () => {
+    const wm = new WholesaleManager(new EventBus());
+    wm.setTiers("SKU1", [{ minQty: 100, unitPriceUsd: 4 }, { minQty: 1, unitPriceUsd: 5 }, { minQty: 500, unitPriceUsd: 3.5 }]);
+    assert.equal(wm.unitPriceFor("SKU1", 50), 5);
+    assert.equal(wm.unitPriceFor("SKU1", 100), 4);
+    assert.equal(wm.unitPriceFor("SKU1", 750), 3.5);
+  });
+
+  it("placeOrder uses tier pricing and tracks spend", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("wholesale.order_placed", (e) => { events.push(e.payload); });
+    const wm = new WholesaleManager(bus);
+    wm.setTiers("SKU1", [{ minQty: 1, unitPriceUsd: 5 }, { minQty: 100, unitPriceUsd: 4 }]);
+    const acct = wm.registerAccount("Acme Corp");
+    const order = wm.placeOrder(acct.id, "SKU1", 200, "2026-07-01T00:00:00Z")!;
+    assert.equal(order.unitPriceUsd, 4);
+    assert.equal(order.totalUsd, 800);
+    assert.equal(wm.getAccount(acct.id)!.totalSpendUsd, 800);
+    assert.equal(events[0].totalUsd, 800);
+  });
+
+  it("rejects orders for unknown sku or account", () => {
+    const wm = new WholesaleManager(new EventBus());
+    const acct = wm.registerAccount("Acme");
+    assert.equal(wm.placeOrder(acct.id, "NOPE", 10, "2026-07-01T00:00:00Z"), undefined);
+    wm.setTiers("SKU1", [{ minQty: 1, unitPriceUsd: 5 }]);
+    assert.equal(wm.placeOrder("ghost", "SKU1", 10, "2026-07-01T00:00:00Z"), undefined);
+  });
+
+  it("cancel reverses account spend", () => {
+    const wm = new WholesaleManager(new EventBus());
+    wm.setTiers("SKU1", [{ minQty: 1, unitPriceUsd: 5 }]);
+    const acct = wm.registerAccount("Acme");
+    const order = wm.placeOrder(acct.id, "SKU1", 10, "2026-07-01T00:00:00Z")!;
+    wm.cancel(order.id);
+    assert.equal(wm.getAccount(acct.id)!.totalSpendUsd, 0);
+    assert.equal(wm.getOrder(order.id)!.status, "cancelled");
+  });
+
+  it("fulfill only works on placed orders", () => {
+    const wm = new WholesaleManager(new EventBus());
+    wm.setTiers("SKU1", [{ minQty: 1, unitPriceUsd: 5 }]);
+    const acct = wm.registerAccount("Acme");
+    const order = wm.placeOrder(acct.id, "SKU1", 10, "2026-07-01T00:00:00Z")!;
+    wm.cancel(order.id);
+    assert.equal(wm.fulfill(order.id), undefined);
+  });
+
+  it("summary excludes cancelled orders", () => {
+    const wm = new WholesaleManager(new EventBus());
+    wm.setTiers("SKU1", [{ minQty: 1, unitPriceUsd: 10 }]);
+    const acct = wm.registerAccount("Acme");
+    const a = wm.placeOrder(acct.id, "SKU1", 10, "2026-07-01T00:00:00Z")!;
+    const b = wm.placeOrder(acct.id, "SKU1", 20, "2026-07-01T00:00:00Z")!;
+    wm.fulfill(a.id);
+    wm.cancel(b.id);
+    const s = wm.summary();
+    assert.equal(s.totalOrders, 1);
+    assert.equal(s.fulfilled, 1);
+    assert.equal(s.totalRevenueUsd, 100);
+    assert.equal(s.avgOrderValueUsd, 100);
+  });
+});
+
+describe("FranchiseManager", () => {
+  it("reportSales computes royalty due and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("franchise.sales_reported", (e) => { events.push(e.payload); });
+    const fm = new FranchiseManager(bus);
+    const f = fm.onboard("Pat Lee", "North", 6, "2026-01-01T00:00:00Z");
+    const report = fm.reportSales(f.id, "2026-06", 50000)!;
+    assert.equal(report.royaltyDueUsd, 3000);
+    assert.equal(events[0].royaltyDueUsd, 3000);
+  });
+
+  it("rejects duplicate period reports", () => {
+    const fm = new FranchiseManager(new EventBus());
+    const f = fm.onboard("Pat", "North", 5, "2026-01-01T00:00:00Z");
+    fm.reportSales(f.id, "2026-06", 1000);
+    assert.equal(fm.reportSales(f.id, "2026-06", 2000), undefined);
+  });
+
+  it("suspended franchise cannot report sales", () => {
+    const fm = new FranchiseManager(new EventBus());
+    const f = fm.onboard("Pat", "North", 5, "2026-01-01T00:00:00Z");
+    fm.suspend(f.id);
+    assert.equal(fm.reportSales(f.id, "2026-06", 1000), undefined);
+    fm.reinstate(f.id);
+    assert.notEqual(fm.reportSales(f.id, "2026-06", 1000), undefined);
+  });
+
+  it("payRoyalty marks paid and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("franchise.royalty_paid", (e) => { events.push(e.payload); });
+    const fm = new FranchiseManager(bus);
+    const f = fm.onboard("Pat", "North", 10, "2026-01-01T00:00:00Z");
+    fm.reportSales(f.id, "2026-06", 20000);
+    const paid = fm.payRoyalty(f.id, "2026-06")!;
+    assert.equal(paid.royaltyPaid, true);
+    assert.equal(events[0].amountUsd, 2000);
+    assert.equal(fm.payRoyalty(f.id, "2026-06"), undefined);
+  });
+
+  it("listUnpaidRoyalties filters paid reports", () => {
+    const fm = new FranchiseManager(new EventBus());
+    const f = fm.onboard("Pat", "North", 5, "2026-01-01T00:00:00Z");
+    fm.reportSales(f.id, "2026-05", 1000);
+    fm.reportSales(f.id, "2026-06", 1000);
+    fm.payRoyalty(f.id, "2026-05");
+    const unpaid = fm.listUnpaidRoyalties();
+    assert.equal(unpaid.length, 1);
+    assert.equal(unpaid[0]!.period, "2026-06");
+  });
+
+  it("summary rolls up network sales and royalties", () => {
+    const fm = new FranchiseManager(new EventBus());
+    const a = fm.onboard("A", "North", 5, "2026-01-01T00:00:00Z");
+    const b = fm.onboard("B", "South", 10, "2026-01-01T00:00:00Z");
+    fm.reportSales(a.id, "2026-06", 10000);
+    fm.reportSales(b.id, "2026-06", 20000);
+    fm.payRoyalty(a.id, "2026-06");
+    fm.terminate(b.id);
+    const s = fm.summary();
+    assert.equal(s.totalFranchises, 2);
+    assert.equal(s.active, 1);
+    assert.equal(s.totalGrossSalesUsd, 30000);
+    assert.equal(s.totalRoyaltiesDueUsd, 2000);
+    assert.equal(s.totalRoyaltiesCollectedUsd, 500);
   });
 });
