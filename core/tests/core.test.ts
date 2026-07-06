@@ -192,6 +192,8 @@ import { EmailDeliverabilityManager } from "../email-deliverability/email-delive
 import { PushCampaignManager } from "../push-campaign/push-campaign-manager.js";
 import { InAppMessageManager } from "../in-app-message/in-app-message-manager.js";
 import { BannerManager } from "../banner/banner-manager.js";
+import { GiftRegistryManager } from "../gift-registry/gift-registry-manager.js";
+import { StoreLocatorManager } from "../store-locator/store-locator-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -20646,5 +20648,130 @@ describe("BannerManager", () => {
     assert.equal(s.totalBanners, 1);
     assert.equal(s.totalClicks, 1);
     assert.equal(s.byTone.critical, 1);
+  });
+});
+
+describe("GiftRegistryManager", () => {
+  it("create publishes created", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("registry.created", (e) => { events.push(e.payload); });
+    const gm = new GiftRegistryManager(bus);
+    gm.create("u1", "wedding", "2026-09-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("purchase caps at requested quantity and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("registry.purchase", (e) => { events.push(e.payload); });
+    const gm = new GiftRegistryManager(bus);
+    const r = gm.create("u1", "baby", "2026-09-01");
+    gm.addItem(r.id, { sku: "CRIB", name: "Crib", priceUsd: 300, requestedQty: 1 });
+    assert.equal(gm.purchase(r.id, "CRIB", 3, "guest1"), 1); // capped
+    assert.equal(events.length, 1);
+  });
+
+  it("full fulfillment completes the registry", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("registry.completed", (e) => { events.push(e.payload); });
+    const gm = new GiftRegistryManager(bus);
+    const r = gm.create("u1", "wedding", "2026-09-01");
+    gm.addItem(r.id, { sku: "A", name: "A", priceUsd: 50, requestedQty: 2 });
+    gm.purchase(r.id, "A", 2, "guest1");
+    assert.equal(gm.getRegistry(r.id)!.status, "completed");
+    assert.equal(events.length, 1);
+  });
+
+  it("removeItem only for unpurchased items", () => {
+    const bus = new EventBus();
+    const gm = new GiftRegistryManager(bus);
+    const r = gm.create("u1", "wedding", "2026-09-01");
+    gm.addItem(r.id, { sku: "A", name: "A", priceUsd: 50, requestedQty: 2 });
+    gm.purchase(r.id, "A", 1, "g1");
+    assert.equal(gm.removeItem(r.id, "A"), false);
+  });
+
+  it("fulfillmentPct reflects partial purchases", () => {
+    const bus = new EventBus();
+    const gm = new GiftRegistryManager(bus);
+    const r = gm.create("u1", "wedding", "2026-09-01");
+    gm.addItem(r.id, { sku: "A", name: "A", priceUsd: 50, requestedQty: 4 });
+    gm.purchase(r.id, "A", 1, "g1");
+    assert.equal(gm.fulfillmentPct(r.id), 25);
+  });
+
+  it("summary aggregates purchased value", () => {
+    const bus = new EventBus();
+    const gm = new GiftRegistryManager(bus);
+    const r = gm.create("u1", "wedding", "2026-09-01");
+    gm.addItem(r.id, { sku: "A", name: "A", priceUsd: 100, requestedQty: 2 });
+    gm.purchase(r.id, "A", 2, "g1");
+    const s = gm.summary();
+    assert.equal(s.totalPurchasedUsd, 200);
+    assert.equal(s.avgFulfillmentPct, 100);
+  });
+});
+
+describe("StoreLocatorManager", () => {
+  it("addStore publishes store_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("storelocator.store_added", (e) => { events.push(e.payload); });
+    const sm = new StoreLocatorManager(bus);
+    sm.addStore({ name: "Downtown", city: "Columbus", lat: 39.96, lng: -83.0 });
+    assert.equal(events.length, 1);
+  });
+
+  it("nearest returns closest open stores", () => {
+    const bus = new EventBus();
+    const sm = new StoreLocatorManager(bus);
+    sm.addStore({ name: "Near", city: "A", lat: 40.0, lng: -83.0 });
+    sm.addStore({ name: "Far", city: "B", lat: 41.0, lng: -83.0 });
+    const results = sm.nearest(40.0, -83.0, 2);
+    assert.equal(results[0]!.store.name, "Near");
+    assert.ok(results[0]!.distanceKm < results[1]!.distanceKm);
+  });
+
+  it("nearest filters by service and excludes closed", () => {
+    const bus = new EventBus();
+    const sm = new StoreLocatorManager(bus);
+    const a = sm.addStore({ name: "A", city: "X", lat: 40, lng: -83, services: ["pickup"] });
+    sm.addStore({ name: "B", city: "X", lat: 40, lng: -83 });
+    sm.setStatus(a.id, "temporarily_closed");
+    assert.equal(sm.nearest(40, -83, 5, "pickup").length, 0);
+  });
+
+  it("isOpenAt honors hours", () => {
+    const bus = new EventBus();
+    const sm = new StoreLocatorManager(bus);
+    const s = sm.addStore({ name: "A", city: "X", lat: 40, lng: -83, hours: [{ day: 1, openMinute: 540, closeMinute: 1020 }] }); // Mon 9-17
+    assert.equal(sm.isOpenAt(s.id, 1, 600), true);
+    assert.equal(sm.isOpenAt(s.id, 1, 1080), false);
+    assert.equal(sm.isOpenAt(s.id, 2, 600), false);
+  });
+
+  it("setHours publishes hours_updated", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("storelocator.hours_updated", (e) => { events.push(e.payload); });
+    const sm = new StoreLocatorManager(bus);
+    const s = sm.addStore({ name: "A", city: "X", lat: 40, lng: -83 });
+    sm.setHours(s.id, [{ day: 0, openMinute: 600, closeMinute: 960 }]);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates cities and services", () => {
+    const bus = new EventBus();
+    const sm = new StoreLocatorManager(bus);
+    sm.addStore({ name: "A", city: "Columbus", lat: 40, lng: -83, services: ["pickup"] });
+    const b = sm.addStore({ name: "B", city: "Cleveland", lat: 41.5, lng: -81.7, services: ["pickup", "returns"] });
+    sm.setStatus(b.id, "permanently_closed");
+    const s = sm.summary();
+    assert.equal(s.totalStores, 2);
+    assert.equal(s.open, 1);
+    assert.equal(s.cities, 2);
+    assert.equal(s.byService.pickup, 2);
   });
 });

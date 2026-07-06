@@ -394,6 +394,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/push-campaigns", handler: (_req, res) => res.json(200, { summary: this.olympus.pushCampaign.summary() }) },
       { method: "GET", pattern: "/v1/in-app-messages", handler: (_req, res) => res.json(200, { summary: this.olympus.inAppMessage.summary() }) },
       { method: "GET", pattern: "/v1/banners", handler: (_req, res) => res.json(200, { summary: this.olympus.banner.summary(), scheduled: this.olympus.banner.listBanners(undefined, "scheduled") }) },
+      { method: "GET", pattern: "/v1/gift-registries", handler: (_req, res) => res.json(200, { summary: this.olympus.giftRegistry.summary() }) },
+      { method: "GET", pattern: "/v1/stores", handler: (_req, res) => res.json(200, { summary: this.olympus.storeLocator.summary(), stores: this.olympus.storeLocator.listStores(undefined, "open") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

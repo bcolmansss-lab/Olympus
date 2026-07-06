@@ -289,6 +289,8 @@ import { EmailDeliverabilityManager } from "./email-deliverability/email-deliver
 import { PushCampaignManager } from "./push-campaign/push-campaign-manager.js";
 import { InAppMessageManager } from "./in-app-message/in-app-message-manager.js";
 import { BannerManager } from "./banner/banner-manager.js";
+import { GiftRegistryManager } from "./gift-registry/gift-registry-manager.js";
+import { StoreLocatorManager } from "./store-locator/store-locator-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -666,6 +668,8 @@ export class Olympus {
   readonly pushCampaign: PushCampaignManager;
   readonly inAppMessage: InAppMessageManager;
   readonly banner: BannerManager;
+  readonly giftRegistry: GiftRegistryManager;
+  readonly storeLocator: StoreLocatorManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -947,6 +951,8 @@ export class Olympus {
     this.pushCampaign = new PushCampaignManager(this.bus);
     this.inAppMessage = new InAppMessageManager(this.bus);
     this.banner = new BannerManager(this.bus);
+    this.giftRegistry = new GiftRegistryManager(this.bus);
+    this.storeLocator = new StoreLocatorManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1234,3 +1240,5 @@ export { EmailDeliverabilityManager, type EmailEventKind, type SuppressionReason
 export { PushCampaignManager, type DevicePlatform, type Device, type PushCampaign, type PushSummary } from "./push-campaign/index.js";
 export { InAppMessageManager, type MessageKind, type MessageState, type InAppMessage, type InAppSummary } from "./in-app-message/index.js";
 export { BannerManager, type BannerTone, type BannerStatus, type SiteBanner, type BannerSummary } from "./banner/index.js";
+export { GiftRegistryManager, type RegistryStatus, type RegistryItem, type GiftRegistry, type GiftRegistrySummary } from "./gift-registry/index.js";
+export { StoreLocatorManager, type StoreStatus, type DayHours, type StoreLocation, type StoreLocatorSummary } from "./store-locator/index.js";
