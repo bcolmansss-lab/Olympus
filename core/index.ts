@@ -325,6 +325,8 @@ import { LoadTestManager } from "./load-test/load-test-manager.js";
 import { ChaosEngineeringManager } from "./chaos/chaos-manager.js";
 import { SyntheticMonitoringManager } from "./synthetic-monitoring/synthetic-monitoring-manager.js";
 import { BenchmarkManager } from "./benchmark/benchmark-manager.js";
+import { DeviceFleetManager } from "./device-fleet/device-fleet-manager.js";
+import { FirmwareManager } from "./firmware/firmware-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -738,6 +740,8 @@ export class Olympus {
   readonly chaos: ChaosEngineeringManager;
   readonly syntheticMonitoring: SyntheticMonitoringManager;
   readonly benchmark: BenchmarkManager;
+  readonly deviceFleet: DeviceFleetManager;
+  readonly firmware: FirmwareManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1055,6 +1059,8 @@ export class Olympus {
     this.chaos = new ChaosEngineeringManager(this.bus);
     this.syntheticMonitoring = new SyntheticMonitoringManager(this.bus);
     this.benchmark = new BenchmarkManager(this.bus);
+    this.deviceFleet = new DeviceFleetManager(this.bus);
+    this.firmware = new FirmwareManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1378,3 +1384,5 @@ export { LoadTestManager, type LoadTestPlan, type LoadTestRun, type LoadTestSumm
 export { ChaosEngineeringManager, type ChaosFaultKind, type ChaosExperimentStatus, type ChaosExperiment, type ChaosSummary } from "./chaos/index.js";
 export { SyntheticMonitoringManager, type SyntheticCheck, type ProbeResult, type SyntheticMonitoringSummary } from "./synthetic-monitoring/index.js";
 export { BenchmarkManager, type BenchmarkDirection, type BenchmarkMetric, type BenchmarkEntry, type BenchmarkScorecard, type BenchmarkSummary } from "./benchmark/index.js";
+export { DeviceFleetManager, type DeviceStatus, type FleetDevice, type DeviceFleetSummary } from "./device-fleet/index.js";
+export { FirmwareManager, type RolloutStatus, type FirmwareRelease, type FirmwareSummary } from "./firmware/index.js";

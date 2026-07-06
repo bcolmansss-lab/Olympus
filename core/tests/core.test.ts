@@ -228,6 +228,8 @@ import { LoadTestManager } from "../load-test/load-test-manager.js";
 import { ChaosEngineeringManager } from "../chaos/chaos-manager.js";
 import { SyntheticMonitoringManager } from "../synthetic-monitoring/synthetic-monitoring-manager.js";
 import { BenchmarkManager } from "../benchmark/benchmark-manager.js";
+import { DeviceFleetManager } from "../device-fleet/device-fleet-manager.js";
+import { FirmwareManager } from "../firmware/firmware-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -23019,5 +23021,141 @@ describe("BenchmarkManager", () => {
     const s = bm.summary();
     assert.equal(s.totalEntries, 4);
     assert.equal(s.competitorsTracked, 2);
+  });
+});
+
+describe("DeviceFleetManager", () => {
+  it("enrolls devices online with event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("devices.enrolled", (e) => { events.push(e.payload); });
+    const dm = new DeviceFleetManager(bus);
+    const d = dm.enroll("sensor-v2", "warehouse-1", "1.0.0", "2026-07-06T00:00:00Z");
+    assert.equal(d.status, "online");
+    assert.equal(events[0].site, "warehouse-1");
+  });
+
+  it("low battery publishes once per crossing", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("devices.low_battery", (e) => { events.push(e.payload); });
+    const dm = new DeviceFleetManager(bus, 20);
+    const d = dm.enroll("s", "site", "1.0.0", "2026-07-06T00:00:00Z");
+    dm.heartbeat(d.id, 15, "1.0.0", "2026-07-06T01:00:00Z");
+    dm.heartbeat(d.id, 10, "1.0.0", "2026-07-06T02:00:00Z");
+    dm.heartbeat(d.id, 80, "1.0.0", "2026-07-06T03:00:00Z");
+    dm.heartbeat(d.id, 12, "1.0.0", "2026-07-06T04:00:00Z");
+    assert.equal(events.length, 2);
+  });
+
+  it("sweepOffline flags stale online devices and heartbeat revives", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("devices.offline", (e) => { events.push(e.payload); });
+    const dm = new DeviceFleetManager(bus);
+    const stale = dm.enroll("s", "site", "1.0.0", "2026-07-06T00:00:00Z");
+    dm.enroll("s", "site", "1.0.0", "2026-07-06T05:00:00Z");
+    const flagged = dm.sweepOffline("2026-07-06T06:00:00Z", 120);
+    assert.equal(flagged.length, 1);
+    assert.equal(events.length, 1);
+    dm.heartbeat(stale.id, 90, "1.0.0", "2026-07-06T07:00:00Z");
+    assert.equal(dm.getDevice(stale.id)!.status, "online");
+  });
+
+  it("decommissioned devices ignore heartbeats", () => {
+    const dm = new DeviceFleetManager(new EventBus());
+    const d = dm.enroll("s", "site", "1.0.0", "2026-07-06T00:00:00Z");
+    dm.decommission(d.id);
+    assert.equal(dm.heartbeat(d.id, 50, "1.0.1", "2026-07-06T01:00:00Z"), undefined);
+  });
+
+  it("outdatedDevices compares firmware versions", () => {
+    const dm = new DeviceFleetManager(new EventBus());
+    const a = dm.enroll("s", "site", "1.0.0", "2026-07-06T00:00:00Z");
+    dm.enroll("s", "site", "2.0.0", "2026-07-06T00:00:00Z");
+    const old = dm.outdatedDevices("2.0.0");
+    assert.equal(old.length, 1);
+    assert.equal(old[0]!.id, a.id);
+  });
+
+  it("summary excludes decommissioned and groups by site", () => {
+    const dm = new DeviceFleetManager(new EventBus(), 20);
+    dm.enroll("s", "north", "1.0.0", "2026-07-06T00:00:00Z");
+    const b = dm.enroll("s", "south", "1.0.0", "2026-07-06T00:00:00Z");
+    const dead = dm.enroll("s", "south", "1.0.0", "2026-07-06T00:00:00Z");
+    dm.heartbeat(b.id, 10, "1.0.0", "2026-07-06T01:00:00Z");
+    dm.decommission(dead.id);
+    const s = dm.summary();
+    assert.equal(s.totalDevices, 2);
+    assert.equal(s.lowBattery, 1);
+    assert.equal(s.bySite["north"], 1);
+    assert.equal(s.bySite["south"], 1);
+  });
+});
+
+describe("FirmwareManager", () => {
+  it("publish dedupes model+version", () => {
+    const fm = new FirmwareManager(new EventBus());
+    assert.notEqual(fm.publish("sensor-v2", "2.0.0", "2026-07-06T00:00:00Z"), undefined);
+    assert.equal(fm.publish("sensor-v2", "2.0.0", "2026-07-07T00:00:00Z"), undefined);
+  });
+
+  it("advanceStage must strictly increase and completes at 100", () => {
+    const fm = new FirmwareManager(new EventBus());
+    const r = fm.publish("s", "2.0.0", "2026-07-06T00:00:00Z")!;
+    fm.advanceStage(r.id, 10);
+    assert.equal(fm.advanceStage(r.id, 10), undefined);
+    assert.equal(fm.advanceStage(r.id, 101), undefined);
+    fm.advanceStage(r.id, 100);
+    assert.equal(fm.getRelease(r.id)!.status, "complete");
+  });
+
+  it("halts when failure rate exceeds cap after 10 results", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("firmware.rollout_halted", (e) => { events.push(e.payload); });
+    const fm = new FirmwareManager(bus, 10);
+    const r = fm.publish("s", "2.0.0", "2026-07-06T00:00:00Z")!;
+    fm.advanceStage(r.id, 25);
+    for (let i = 0; i < 8; i++) fm.recordResult(r.id, true);
+    fm.recordResult(r.id, false);
+    assert.equal(fm.getRelease(r.id)!.status, "rolling_out");
+    fm.recordResult(r.id, false);
+    assert.equal(fm.getRelease(r.id)!.status, "halted");
+    assert.equal(events.length, 1);
+  });
+
+  it("halted rollouts reject results until resumed", () => {
+    const fm = new FirmwareManager(new EventBus(), 5);
+    const r = fm.publish("s", "2.0.0", "2026-07-06T00:00:00Z")!;
+    fm.advanceStage(r.id, 25);
+    for (let i = 0; i < 9; i++) fm.recordResult(r.id, true);
+    fm.recordResult(r.id, false);
+    assert.equal(fm.getRelease(r.id)!.status, "halted");
+    assert.equal(fm.recordResult(r.id, true), undefined);
+    fm.resume(r.id);
+    assert.notEqual(fm.recordResult(r.id, true), undefined);
+  });
+
+  it("latestFor returns most recent publish for a model", () => {
+    const fm = new FirmwareManager(new EventBus());
+    fm.publish("s", "1.0.0", "2026-01-01T00:00:00Z");
+    fm.publish("s", "2.0.0", "2026-07-01T00:00:00Z");
+    fm.publish("other", "9.9.9", "2026-07-05T00:00:00Z");
+    assert.equal(fm.latestFor("s")!.version, "2.0.0");
+  });
+
+  it("summary computes overall success rate", () => {
+    const fm = new FirmwareManager(new EventBus());
+    const r = fm.publish("s", "2.0.0", "2026-07-06T00:00:00Z")!;
+    fm.advanceStage(r.id, 50);
+    fm.recordResult(r.id, true);
+    fm.recordResult(r.id, true);
+    fm.recordResult(r.id, false);
+    fm.recordResult(r.id, true);
+    const s = fm.summary();
+    assert.equal(s.totalReleases, 1);
+    assert.equal(s.rollingOut, 1);
+    assert.equal(s.overallSuccessRatePct, 75);
   });
 });
