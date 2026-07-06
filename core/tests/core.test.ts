@@ -206,6 +206,8 @@ import { RouteOptimizerManager } from "../route-optimizer/route-optimizer-manage
 import { SustainabilityManager } from "../sustainability/sustainability-manager.js";
 import { ParkingManager } from "../parking/parking-manager.js";
 import { MailroomManager } from "../mailroom/mailroom-manager.js";
+import { MentorshipManager } from "../mentorship/mentorship-manager.js";
+import { TuitionReimbursementManager } from "../tuition/tuition-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21553,5 +21555,133 @@ describe("MailroomManager", () => {
     assert.equal(s.awaitingPickup, 1);
     assert.equal(s.avgPickupHours, 4);
     assert.equal(s.byCarrier["UPS"], 2);
+  });
+});
+
+describe("MentorshipManager", () => {
+  it("matches mentee to mentor with the skill", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("mentorship.matched", (e) => { events.push(e.payload); });
+    const mm = new MentorshipManager(bus);
+    const mentor = mm.registerMentor("Ana", ["TypeScript", "leadership"]);
+    const p = mm.match("mentee-1", "typescript", "2026-07-01T00:00:00Z")!;
+    assert.equal(p.mentorId, mentor.id);
+    assert.equal(events[0].skill, "typescript");
+  });
+
+  it("returns undefined when no mentor has the skill", () => {
+    const mm = new MentorshipManager(new EventBus());
+    mm.registerMentor("Ana", ["design"]);
+    assert.equal(mm.match("mentee-1", "rust", "2026-07-01T00:00:00Z"), undefined);
+  });
+
+  it("respects mentor capacity", () => {
+    const mm = new MentorshipManager(new EventBus());
+    mm.registerMentor("Ana", ["ts"], 1);
+    mm.match("m1", "ts", "2026-07-01T00:00:00Z");
+    assert.equal(mm.match("m2", "ts", "2026-07-01T00:00:00Z"), undefined);
+  });
+
+  it("prefers mentor with most free capacity", () => {
+    const mm = new MentorshipManager(new EventBus());
+    const busy = mm.registerMentor("Busy", ["ts"], 1);
+    const free = mm.registerMentor("Free", ["ts"], 3);
+    const p = mm.match("m1", "ts", "2026-07-01T00:00:00Z")!;
+    assert.equal(p.mentorId, free.id);
+    assert.notEqual(p.mentorId, busy.id);
+  });
+
+  it("completion frees mentor capacity and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("mentorship.completed", (e) => { events.push(e.payload); });
+    const mm = new MentorshipManager(bus);
+    const mentor = mm.registerMentor("Ana", ["ts"], 1);
+    const p = mm.match("m1", "ts", "2026-07-01T00:00:00Z")!;
+    mm.logSession(p.id);
+    mm.complete(p.id, "2026-08-01T00:00:00Z");
+    assert.equal(mm.getMentor(mentor.id)!.activePairings, 0);
+    assert.equal(events.length, 1);
+    assert.notEqual(mm.match("m2", "ts", "2026-08-02T00:00:00Z"), undefined);
+  });
+
+  it("summary averages sessions over completed pairings", () => {
+    const mm = new MentorshipManager(new EventBus());
+    mm.registerMentor("Ana", ["ts"], 5);
+    const a = mm.match("m1", "ts", "2026-07-01T00:00:00Z")!;
+    const b = mm.match("m2", "ts", "2026-07-01T00:00:00Z")!;
+    mm.logSession(a.id); mm.logSession(a.id); mm.logSession(a.id); mm.logSession(a.id);
+    mm.logSession(b.id); mm.logSession(b.id);
+    mm.complete(a.id, "2026-08-01T00:00:00Z");
+    mm.complete(b.id, "2026-08-01T00:00:00Z");
+    const s = mm.summary();
+    assert.equal(s.completedPairings, 2);
+    assert.equal(s.totalSessions, 6);
+    assert.equal(s.avgSessionsPerCompletedPairing, 3);
+  });
+});
+
+describe("TuitionReimbursementManager", () => {
+  it("approves full amount within cap", () => {
+    const tm = new TuitionReimbursementManager(new EventBus(), 5000);
+    const c = tm.submit({ employeeId: "e1", courseName: "ML Cert", provider: "Coursera", amountUsd: 1200, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    const a = tm.approve(c.id)!;
+    assert.equal(a.status, "approved");
+    assert.equal(a.approvedUsd, 1200);
+  });
+
+  it("caps approval at remaining allowance", () => {
+    const tm = new TuitionReimbursementManager(new EventBus(), 5000);
+    const c1 = tm.submit({ employeeId: "e1", courseName: "A", provider: "X", amountUsd: 4000, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    tm.approve(c1.id);
+    const c2 = tm.submit({ employeeId: "e1", courseName: "B", provider: "X", amountUsd: 3000, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    const a = tm.approve(c2.id)!;
+    assert.equal(a.approvedUsd, 1000);
+  });
+
+  it("rejects when allowance exhausted", () => {
+    const tm = new TuitionReimbursementManager(new EventBus(), 1000);
+    const c1 = tm.submit({ employeeId: "e1", courseName: "A", provider: "X", amountUsd: 1000, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    tm.approve(c1.id);
+    const c2 = tm.submit({ employeeId: "e1", courseName: "B", provider: "X", amountUsd: 500, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    assert.equal(tm.approve(c2.id)!.status, "rejected");
+  });
+
+  it("allowance resets by year", () => {
+    const tm = new TuitionReimbursementManager(new EventBus(), 1000);
+    const c1 = tm.submit({ employeeId: "e1", courseName: "A", provider: "X", amountUsd: 1000, year: 2025, submittedAt: "2025-07-01T00:00:00Z" });
+    tm.approve(c1.id);
+    const c2 = tm.submit({ employeeId: "e1", courseName: "B", provider: "X", amountUsd: 800, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    assert.equal(tm.approve(c2.id)!.approvedUsd, 800);
+  });
+
+  it("payout requires completion proof", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tuition.paid", (e) => { events.push(e.payload); });
+    const tm = new TuitionReimbursementManager(bus);
+    const c = tm.submit({ employeeId: "e1", courseName: "A", provider: "X", amountUsd: 500, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    tm.approve(c.id);
+    assert.equal(tm.pay(c.id, "2026-08-01T00:00:00Z"), undefined);
+    tm.provideProof(c.id);
+    const paid = tm.pay(c.id, "2026-08-01T00:00:00Z")!;
+    assert.equal(paid.status, "paid");
+    assert.equal(events[0].paidUsd, 500);
+  });
+
+  it("summary totals paid and approved amounts", () => {
+    const tm = new TuitionReimbursementManager(new EventBus());
+    const a = tm.submit({ employeeId: "e1", courseName: "A", provider: "X", amountUsd: 500, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    const b = tm.submit({ employeeId: "e2", courseName: "B", provider: "X", amountUsd: 700, year: 2026, submittedAt: "2026-07-01T00:00:00Z" });
+    tm.approve(a.id); tm.approve(b.id);
+    tm.provideProof(a.id);
+    tm.pay(a.id, "2026-08-01T00:00:00Z");
+    const s = tm.summary();
+    assert.equal(s.totalClaims, 2);
+    assert.equal(s.paid, 1);
+    assert.equal(s.approved, 1);
+    assert.equal(s.totalPaidUsd, 500);
+    assert.equal(s.totalApprovedUsd, 1200);
   });
 });

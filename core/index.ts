@@ -303,6 +303,8 @@ import { RouteOptimizerManager } from "./route-optimizer/route-optimizer-manager
 import { SustainabilityManager } from "./sustainability/sustainability-manager.js";
 import { ParkingManager } from "./parking/parking-manager.js";
 import { MailroomManager } from "./mailroom/mailroom-manager.js";
+import { MentorshipManager } from "./mentorship/mentorship-manager.js";
+import { TuitionReimbursementManager } from "./tuition/tuition-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -694,6 +696,8 @@ export class Olympus {
   readonly sustainability: SustainabilityManager;
   readonly parking: ParkingManager;
   readonly mailroom: MailroomManager;
+  readonly mentorship: MentorshipManager;
+  readonly tuition: TuitionReimbursementManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -989,6 +993,8 @@ export class Olympus {
     this.sustainability = new SustainabilityManager(this.bus);
     this.parking = new ParkingManager(this.bus);
     this.mailroom = new MailroomManager(this.bus);
+    this.mentorship = new MentorshipManager(this.bus);
+    this.tuition = new TuitionReimbursementManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1290,3 +1296,5 @@ export { RouteOptimizerManager, type RoutePlanStatus, type DeliveryStop, type Ro
 export { SustainabilityManager, type SustainabilityScope, type SustainabilityEmissionRecord, type ReductionTarget, type SustainabilitySummary } from "./sustainability/index.js";
 export { ParkingManager, type ParkingSpace, type ParkingSummary } from "./parking/index.js";
 export { MailroomManager, type PackageStatus, type InboundPackage, type MailroomSummary } from "./mailroom/index.js";
+export { MentorshipManager, type PairingStatus, type Mentor, type MentorshipPairing, type MentorshipSummary } from "./mentorship/index.js";
+export { TuitionReimbursementManager, type TuitionClaimStatus, type TuitionClaim, type TuitionSummary } from "./tuition/index.js";
