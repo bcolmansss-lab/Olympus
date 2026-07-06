@@ -196,6 +196,8 @@ import { GiftRegistryManager } from "../gift-registry/gift-registry-manager.js";
 import { StoreLocatorManager } from "../store-locator/store-locator-manager.js";
 import { CurbsidePickupManager } from "../curbside-pickup/curbside-pickup-manager.js";
 import { ReturnsPortalManager } from "../returns-portal/returns-portal-manager.js";
+import { TradeInManager } from "../trade-in/trade-in-manager.js";
+import { PriceMatchManager } from "../price-match/price-match-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -20898,5 +20900,137 @@ describe("ReturnsPortalManager", () => {
     assert.equal(s.dispositioned, 1);
     assert.equal(s.totalRefundedUsd, 60);
     assert.equal(s.returnRateByReason.damaged, 1);
+  });
+});
+
+describe("TradeInManager", () => {
+  it("quotes based on condition factor", () => {
+    const tm = new TradeInManager(new EventBus());
+    tm.setBaseValue("phone-x", 400);
+    const t = tm.quote("cust-1", "phone-x", "good")!;
+    assert.equal(t.quoteUsd, 320);
+    assert.equal(t.status, "quoted");
+  });
+
+  it("returns undefined for unknown product", () => {
+    const tm = new TradeInManager(new EventBus());
+    assert.equal(tm.quote("cust-1", "unknown", "good"), undefined);
+  });
+
+  it("matching inspection marks received", () => {
+    const tm = new TradeInManager(new EventBus());
+    tm.setBaseValue("phone-x", 400);
+    const t = tm.quote("cust-1", "phone-x", "good")!;
+    tm.accept(t.id);
+    const r = tm.inspect(t.id, "good")!;
+    assert.equal(r.status, "received");
+    assert.equal(r.quoteUsd, 320);
+  });
+
+  it("worse inspection triggers requote and event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tradein.requoted", (e) => { events.push(e.payload); });
+    const tm = new TradeInManager(bus);
+    tm.setBaseValue("phone-x", 400);
+    const t = tm.quote("cust-1", "phone-x", "like_new")!;
+    tm.accept(t.id);
+    const r = tm.inspect(t.id, "fair")!;
+    assert.equal(r.status, "requoted");
+    assert.equal(r.quoteUsd, 220);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].originalUsd, 400);
+  });
+
+  it("credit issues final amount and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tradein.credited", (e) => { events.push(e.payload); });
+    const tm = new TradeInManager(bus);
+    tm.setBaseValue("tablet", 200);
+    const t = tm.quote("cust-2", "tablet", "fair")!;
+    tm.accept(t.id);
+    tm.inspect(t.id, "fair");
+    const c = tm.credit(t.id, "2026-07-01T00:00:00Z")!;
+    assert.equal(c.status, "credited");
+    assert.equal(c.finalCreditUsd, 110);
+    assert.equal(events[0].creditUsd, 110);
+  });
+
+  it("summary tracks credited totals and requote rate", () => {
+    const tm = new TradeInManager(new EventBus());
+    tm.setBaseValue("phone-x", 400);
+    const a = tm.quote("c1", "phone-x", "good")!;
+    tm.accept(a.id); tm.inspect(a.id, "good"); tm.credit(a.id, "2026-07-01T00:00:00Z");
+    const b = tm.quote("c2", "phone-x", "like_new")!;
+    tm.accept(b.id); tm.inspect(b.id, "poor");
+    const s = tm.summary();
+    assert.equal(s.totalTradeIns, 2);
+    assert.equal(s.credited, 1);
+    assert.equal(s.totalCreditedUsd, 320);
+    assert.equal(s.requoteRatePct, 50);
+  });
+});
+
+describe("PriceMatchManager", () => {
+  it("denies ineligible competitor", () => {
+    const pm = new PriceMatchManager(new EventBus());
+    const c = pm.submit({ customerId: "c1", sku: "SKU1", ourPriceUsd: 100, competitorPriceUsd: 90, competitor: "ShadyShop", submittedAt: "2026-07-01T00:00:00Z" });
+    const d = pm.adjudicate(c.id, "2026-07-01T01:00:00Z")!;
+    assert.equal(d.status, "denied");
+    assert.equal(d.denialReason, "competitor_not_eligible");
+  });
+
+  it("denies when competitor is not cheaper", () => {
+    const pm = new PriceMatchManager(new EventBus());
+    pm.addCompetitor("MegaMart");
+    const c = pm.submit({ customerId: "c1", sku: "SKU1", ourPriceUsd: 100, competitorPriceUsd: 100, competitor: "megamart", submittedAt: "2026-07-01T00:00:00Z" });
+    const d = pm.adjudicate(c.id, "2026-07-01T01:00:00Z")!;
+    assert.equal(d.denialReason, "not_cheaper");
+  });
+
+  it("denies when difference exceeds policy cap", () => {
+    const pm = new PriceMatchManager(new EventBus(), 20);
+    pm.addCompetitor("megamart");
+    const c = pm.submit({ customerId: "c1", sku: "SKU1", ourPriceUsd: 100, competitorPriceUsd: 70, competitor: "MegaMart", submittedAt: "2026-07-01T00:00:00Z" });
+    const d = pm.adjudicate(c.id, "2026-07-01T01:00:00Z")!;
+    assert.equal(d.denialReason, "exceeds_policy_cap");
+  });
+
+  it("approves within policy with adjustment and event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pricematch.approved", (e) => { events.push(e.payload); });
+    const pm = new PriceMatchManager(bus);
+    pm.addCompetitor("megamart");
+    const c = pm.submit({ customerId: "c1", sku: "SKU1", ourPriceUsd: 100, competitorPriceUsd: 85, competitor: "MegaMart", submittedAt: "2026-07-01T00:00:00Z" });
+    const a = pm.adjudicate(c.id, "2026-07-01T01:00:00Z")!;
+    assert.equal(a.status, "approved");
+    assert.equal(a.adjustmentUsd, 15);
+    assert.equal(events[0].adjustmentUsd, 15);
+  });
+
+  it("adjudicate returns undefined for decided claim", () => {
+    const pm = new PriceMatchManager(new EventBus());
+    pm.addCompetitor("megamart");
+    const c = pm.submit({ customerId: "c1", sku: "SKU1", ourPriceUsd: 100, competitorPriceUsd: 95, competitor: "megamart", submittedAt: "2026-07-01T00:00:00Z" });
+    pm.adjudicate(c.id, "2026-07-01T01:00:00Z");
+    assert.equal(pm.adjudicate(c.id, "2026-07-01T02:00:00Z"), undefined);
+  });
+
+  it("summary aggregates approval rate and adjustments", () => {
+    const pm = new PriceMatchManager(new EventBus());
+    pm.addCompetitor("megamart");
+    const a = pm.submit({ customerId: "c1", sku: "S1", ourPriceUsd: 100, competitorPriceUsd: 90, competitor: "megamart", submittedAt: "2026-07-01T00:00:00Z" });
+    const b = pm.submit({ customerId: "c2", sku: "S2", ourPriceUsd: 50, competitorPriceUsd: 60, competitor: "megamart", submittedAt: "2026-07-01T00:00:00Z" });
+    pm.adjudicate(a.id, "2026-07-01T01:00:00Z");
+    pm.adjudicate(b.id, "2026-07-01T01:00:00Z");
+    const s = pm.summary();
+    assert.equal(s.totalClaims, 2);
+    assert.equal(s.approved, 1);
+    assert.equal(s.denied, 1);
+    assert.equal(s.approvalRatePct, 50);
+    assert.equal(s.totalAdjustmentsUsd, 10);
+    assert.equal(s.byCompetitor["megamart"], 2);
   });
 });

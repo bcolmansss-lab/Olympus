@@ -293,6 +293,8 @@ import { GiftRegistryManager } from "./gift-registry/gift-registry-manager.js";
 import { StoreLocatorManager } from "./store-locator/store-locator-manager.js";
 import { CurbsidePickupManager } from "./curbside-pickup/curbside-pickup-manager.js";
 import { ReturnsPortalManager } from "./returns-portal/returns-portal-manager.js";
+import { TradeInManager } from "./trade-in/trade-in-manager.js";
+import { PriceMatchManager } from "./price-match/price-match-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -674,6 +676,8 @@ export class Olympus {
   readonly storeLocator: StoreLocatorManager;
   readonly curbsidePickup: CurbsidePickupManager;
   readonly returnsPortal: ReturnsPortalManager;
+  readonly tradeIn: TradeInManager;
+  readonly priceMatch: PriceMatchManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -959,6 +963,8 @@ export class Olympus {
     this.storeLocator = new StoreLocatorManager(this.bus);
     this.curbsidePickup = new CurbsidePickupManager(this.bus);
     this.returnsPortal = new ReturnsPortalManager(this.bus);
+    this.tradeIn = new TradeInManager(this.bus);
+    this.priceMatch = new PriceMatchManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1250,3 +1256,5 @@ export { GiftRegistryManager, type RegistryStatus, type RegistryItem, type GiftR
 export { StoreLocatorManager, type StoreStatus, type DayHours, type StoreLocation, type StoreLocatorSummary } from "./store-locator/index.js";
 export { CurbsidePickupManager, type PickupStatus, type PickupOrder, type CurbsideSummary } from "./curbside-pickup/index.js";
 export { ReturnsPortalManager, type ReturnReason, type ReturnStatus, type ReturnDisposition, type ReturnRequest, type ReturnsPortalSummary } from "./returns-portal/index.js";
+export { TradeInManager, type TradeInCondition, type TradeInStatus, type TradeIn, type TradeInSummary } from "./trade-in/index.js";
+export { PriceMatchManager, type PriceMatchClaimStatus, type PriceMatchClaim, type PriceMatchSummary } from "./price-match/index.js";
