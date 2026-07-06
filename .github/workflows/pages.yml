@@ -6,6 +6,11 @@ name: Deploy Operator Console to GitHub Pages
 # failing check on every commit while Pages is unavailable.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
 
 permissions:
   pages: write
