@@ -182,6 +182,8 @@ import { PayoutManager } from "../payout/payout-manager.js";
 import { ReconciliationManager } from "../reconciliation/reconciliation-manager.js";
 import { POSTerminalManager } from "../pos-terminal/pos-terminal-manager.js";
 import { TipPoolManager } from "../tip-pool/tip-pool-manager.js";
+import { CustomerHealthManager } from "../customer-health/customer-health-manager.js";
+import { UsageMeteringManager } from "../usage-metering/usage-metering-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19988,5 +19990,138 @@ describe("TipPoolManager", () => {
     assert.equal(s.totalPools, 1);
     assert.equal(s.totalTipsUsd, 200);
     assert.equal(s.totalParticipants, 1);
+  });
+});
+
+describe("CustomerHealthManager", () => {
+  it("record computes weighted score and publishes scored", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("customerhealth.scored", (e) => { events.push(e.payload); });
+    const cm = new CustomerHealthManager(bus);
+    const snap = cm.record("a1", [{ dimension: "usage", scorePct: 80, weight: 2 }, { dimension: "support", scorePct: 50, weight: 1 }], "2026-06-01");
+    assert.equal(snap.score, 70); // (160+50)/3
+    assert.equal(snap.band, "green");
+    assert.equal(events.length, 1);
+  });
+
+  it("red band fires red_alert", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("customerhealth.red_alert", (e) => { events.push(e.payload); });
+    const cm = new CustomerHealthManager(bus);
+    cm.record("a1", [{ dimension: "usage", scorePct: 20, weight: 1 }], "2026-06-01");
+    assert.equal(events.length, 1);
+  });
+
+  it("band change publishes band_changed", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("customerhealth.band_changed", (e) => { events.push(e.payload); });
+    const cm = new CustomerHealthManager(bus);
+    cm.record("a1", [{ dimension: "usage", scorePct: 80, weight: 1 }], "2026-06-01");
+    cm.record("a1", [{ dimension: "usage", scorePct: 30, weight: 1 }], "2026-07-01");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].fromBand, "green");
+    assert.equal(events[0].toBand, "red");
+  });
+
+  it("isDeclining detects score drop", () => {
+    const bus = new EventBus();
+    const cm = new CustomerHealthManager(bus);
+    cm.record("a1", [{ dimension: "u", scorePct: 80, weight: 1 }], "2026-06-01");
+    cm.record("a1", [{ dimension: "u", scorePct: 60, weight: 1 }], "2026-07-01");
+    assert.equal(cm.isDeclining("a1"), true);
+  });
+
+  it("latest returns most recent snapshot", () => {
+    const bus = new EventBus();
+    const cm = new CustomerHealthManager(bus);
+    cm.record("a1", [{ dimension: "u", scorePct: 80, weight: 1 }], "2026-06-01");
+    cm.record("a1", [{ dimension: "u", scorePct: 90, weight: 1 }], "2026-07-01");
+    assert.equal(cm.latest("a1")!.score, 90);
+  });
+
+  it("summary aggregates bands and declining accounts", () => {
+    const bus = new EventBus();
+    const cm = new CustomerHealthManager(bus);
+    cm.record("a1", [{ dimension: "u", scorePct: 85, weight: 1 }], "2026-06-01");
+    cm.record("a2", [{ dimension: "u", scorePct: 30, weight: 1 }], "2026-06-01");
+    const s = cm.summary();
+    assert.equal(s.totalAccounts, 2);
+    assert.equal(s.green, 1);
+    assert.equal(s.red, 1);
+  });
+});
+
+describe("UsageMeteringManager", () => {
+  it("record accumulates usage and publishes usage_recorded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("metering.usage_recorded", (e) => { events.push(e.payload); });
+    const um = new UsageMeteringManager(bus);
+    um.defineMeter("api_calls", [{ upToUnits: Infinity, unitPriceUsd: 0.01 }]);
+    um.record("a1", "api_calls", "2026-06", 500);
+    um.record("a1", "api_calls", "2026-06", 300);
+    assert.equal(um.usageFor("a1", "api_calls", "2026-06"), 800);
+    assert.equal(events.length, 2);
+  });
+
+  it("high usage fires once at threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("metering.high_usage", (e) => { events.push(e.payload); });
+    const um = new UsageMeteringManager(bus);
+    um.defineMeter("api_calls", [{ upToUnits: Infinity, unitPriceUsd: 0.01 }], 0, 1000);
+    um.record("a1", "api_calls", "2026-06", 900);
+    um.record("a1", "api_calls", "2026-06", 200); // crosses 1000
+    um.record("a1", "api_calls", "2026-06", 100);
+    assert.equal(events.length, 1);
+  });
+
+  it("invoiceLines respect included units", () => {
+    const bus = new EventBus();
+    const um = new UsageMeteringManager(bus);
+    um.defineMeter("api_calls", [{ upToUnits: Infinity, unitPriceUsd: 0.10 }], 100);
+    um.record("a1", "api_calls", "2026-06", 250);
+    const lines = um.invoiceLines("a1", "2026-06");
+    assert.equal(lines[0]!.billableUnits, 150);
+    assert.equal(lines[0]!.chargeUsd, 15);
+  });
+
+  it("tiered pricing charges per band", () => {
+    const bus = new EventBus();
+    const um = new UsageMeteringManager(bus);
+    um.defineMeter("storage", [
+      { upToUnits: 100, unitPriceUsd: 1 },
+      { upToUnits: Infinity, unitPriceUsd: 0.5 },
+    ]);
+    um.record("a1", "storage", "2026-06", 150);
+    const lines = um.invoiceLines("a1", "2026-06");
+    assert.equal(lines[0]!.chargeUsd, 125); // 100*1 + 50*0.5
+  });
+
+  it("closePeriod publishes period_closed with total", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("metering.period_closed", (e) => { events.push(e.payload); });
+    const um = new UsageMeteringManager(bus);
+    um.defineMeter("api_calls", [{ upToUnits: Infinity, unitPriceUsd: 0.01 }]);
+    um.record("a1", "api_calls", "2026-06", 1000);
+    const charge = um.closePeriod("a1", "2026-06");
+    assert.equal(charge, 10);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates accounts and alerts", () => {
+    const bus = new EventBus();
+    const um = new UsageMeteringManager(bus);
+    um.defineMeter("api_calls", [{ upToUnits: Infinity, unitPriceUsd: 0.01 }], 0, 100);
+    um.record("a1", "api_calls", "2026-06", 150);
+    um.record("a2", "api_calls", "2026-06", 50);
+    const s = um.summary();
+    assert.equal(s.totalAccounts, 2);
+    assert.equal(s.totalUnitsThisData, 200);
+    assert.equal(s.highUsageAlerts, 1);
   });
 });

@@ -279,6 +279,8 @@ import { PayoutManager } from "./payout/payout-manager.js";
 import { ReconciliationManager } from "./reconciliation/reconciliation-manager.js";
 import { POSTerminalManager } from "./pos-terminal/pos-terminal-manager.js";
 import { TipPoolManager } from "./tip-pool/tip-pool-manager.js";
+import { CustomerHealthManager } from "./customer-health/customer-health-manager.js";
+import { UsageMeteringManager } from "./usage-metering/usage-metering-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -646,6 +648,8 @@ export class Olympus {
   readonly reconciliation: ReconciliationManager;
   readonly posTerminal: POSTerminalManager;
   readonly tipPool: TipPoolManager;
+  readonly customerHealth: CustomerHealthManager;
+  readonly usageMetering: UsageMeteringManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -917,6 +921,8 @@ export class Olympus {
     this.reconciliation = new ReconciliationManager(this.bus);
     this.posTerminal = new POSTerminalManager(this.bus);
     this.tipPool = new TipPoolManager(this.bus);
+    this.customerHealth = new CustomerHealthManager(this.bus);
+    this.usageMetering = new UsageMeteringManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1194,3 +1200,5 @@ export { PayoutManager, type SellerPayoutStatus, type PayeeAccount, type SellerP
 export { ReconciliationManager, type EntrySource, type ReconMatchStatus, type LedgerEntry, type ReconciliationSummary } from "./reconciliation/index.js";
 export { POSTerminalManager, type POSSessionStatus, type MovementKind, type CashMovement, type POSSession, type POSSummary } from "./pos-terminal/index.js";
 export { TipPoolManager, type TipPoolStatus, type TipParticipant, type TipPool, type TipPoolSummary } from "./tip-pool/index.js";
+export { CustomerHealthManager, type HealthBand, type HealthSignal, type HealthSnapshot, type CustomerHealthSummary } from "./customer-health/index.js";
+export { UsageMeteringManager, type PriceTier, type MeterDef, type AccountUsage, type InvoiceLine, type MeteringSummary } from "./usage-metering/index.js";
