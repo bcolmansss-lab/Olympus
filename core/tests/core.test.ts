@@ -180,6 +180,8 @@ import { PaymentGatewayManager } from "../payment-gateway/payment-gateway-manage
 import { RefundManager } from "../refund/refund-manager.js";
 import { PayoutManager } from "../payout/payout-manager.js";
 import { ReconciliationManager } from "../reconciliation/reconciliation-manager.js";
+import { POSTerminalManager } from "../pos-terminal/pos-terminal-manager.js";
+import { TipPoolManager } from "../tip-pool/tip-pool-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -19849,5 +19851,142 @@ describe("ReconciliationManager", () => {
     assert.equal(s.totalInternal, 2);
     assert.equal(s.matched, 1);
     assert.equal(s.matchRatePct, 50);
+  });
+});
+
+describe("POSTerminalManager", () => {
+  it("open publishes session_opened and blocks double-open", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pos.session_opened", (e) => { events.push(e.payload); });
+    const pm = new POSTerminalManager(bus);
+    pm.open("T1", "cash1", 200, "2026-06-01T08:00:00.000Z");
+    assert.equal(pm.open("T1", "cash2", 200, "2026-06-01T09:00:00.000Z"), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("expectedCash reflects float plus sales minus payouts", () => {
+    const bus = new EventBus();
+    const pm = new POSTerminalManager(bus);
+    const s = pm.open("T1", "c1", 200, "2026-06-01T08:00:00.000Z")!;
+    pm.record(s.id, "cash_sale", 100, "2026-06-01T09:00:00.000Z");
+    pm.record(s.id, "cash_refund", 20, "2026-06-01T10:00:00.000Z");
+    pm.record(s.id, "paid_out", 30, "2026-06-01T11:00:00.000Z");
+    assert.equal(pm.expectedCash(s.id), 250); // 200 + 100 - 20 - 30
+  });
+
+  it("close computes variance (short)", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("pos.session_closed", (e) => { events.push(e.payload); });
+    const pm = new POSTerminalManager(bus);
+    const s = pm.open("T1", "c1", 200, "2026-06-01T08:00:00.000Z")!;
+    pm.record(s.id, "cash_sale", 100, "2026-06-01T09:00:00.000Z");
+    pm.close(s.id, 290, "2026-06-01T17:00:00.000Z"); // expected 300
+    assert.equal(pm.getSession(s.id)!.varianceUsd, -10);
+    assert.equal(events.length, 1);
+  });
+
+  it("record blocked on closed session", () => {
+    const bus = new EventBus();
+    const pm = new POSTerminalManager(bus);
+    const s = pm.open("T1", "c1", 200, "2026-06-01T08:00:00.000Z")!;
+    pm.close(s.id, 200, "2026-06-01T17:00:00.000Z");
+    assert.equal(pm.record(s.id, "cash_sale", 50, "2026-06-01T18:00:00.000Z"), undefined);
+  });
+
+  it("re-open allowed after close", () => {
+    const bus = new EventBus();
+    const pm = new POSTerminalManager(bus);
+    const s = pm.open("T1", "c1", 200, "2026-06-01T08:00:00.000Z")!;
+    pm.close(s.id, 200, "2026-06-01T17:00:00.000Z");
+    assert.ok(pm.open("T1", "c2", 200, "2026-06-02T08:00:00.000Z"));
+  });
+
+  it("summary aggregates cash sales and variances", () => {
+    const bus = new EventBus();
+    const pm = new POSTerminalManager(bus);
+    const s = pm.open("T1", "c1", 200, "2026-06-01T08:00:00.000Z")!;
+    pm.record(s.id, "cash_sale", 100, "2026-06-01T09:00:00.000Z");
+    pm.close(s.id, 305, "2026-06-01T17:00:00.000Z"); // over by 5
+    const sm = pm.summary();
+    assert.equal(sm.totalCashSalesUsd, 100);
+    assert.equal(sm.overSessions, 1);
+    assert.equal(sm.totalVarianceUsd, 5);
+  });
+});
+
+describe("TipPoolManager", () => {
+  it("addTips publishes tips_added", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tippool.tips_added", (e) => { events.push(e.payload); });
+    const tm = new TipPoolManager(bus);
+    const p = tm.createPool("2026-06-01-dinner");
+    tm.addTips(p.id, 500, "card");
+    assert.equal(tm.getPool(p.id)!.totalTipsUsd, 500);
+    assert.equal(events.length, 1);
+  });
+
+  it("addParticipant dedupes and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tippool.participant_added", (e) => { events.push(e.payload); });
+    const tm = new TipPoolManager(bus);
+    const p = tm.createPool("s1");
+    tm.addParticipant(p.id, "u1", 8, 1);
+    assert.equal(tm.addParticipant(p.id, "u1", 8, 1), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("distribute splits proportionally by hours x role", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("tippool.distributed", (e) => { events.push(e.payload); });
+    const tm = new TipPoolManager(bus);
+    const p = tm.createPool("s1");
+    tm.addTips(p.id, 300, "cash");
+    tm.addParticipant(p.id, "server", 8, 1);   // weight 8
+    tm.addParticipant(p.id, "busser", 8, 0.5); // weight 4
+    tm.distribute(p.id, "2026-06-01T23:00:00.000Z");
+    const pool = tm.getPool(p.id)!;
+    assert.equal(pool.participants.find(x => x.participantId === "server")!.allocatedUsd, 200);
+    assert.equal(pool.participants.find(x => x.participantId === "busser")!.allocatedUsd, 100);
+    assert.equal(events.length, 1);
+  });
+
+  it("distribution allocates full pool including rounding", () => {
+    const bus = new EventBus();
+    const tm = new TipPoolManager(bus);
+    const p = tm.createPool("s1");
+    tm.addTips(p.id, 100, "cash");
+    tm.addParticipant(p.id, "a", 1, 1);
+    tm.addParticipant(p.id, "b", 1, 1);
+    tm.addParticipant(p.id, "c", 1, 1);
+    tm.distribute(p.id, "2026-06-01T23:00:00.000Z");
+    const total = tm.getPool(p.id)!.participants.reduce((s, x) => s + x.allocatedUsd, 0);
+    assert.equal(Math.round(total * 100) / 100, 100);
+  });
+
+  it("cannot add tips after distribution", () => {
+    const bus = new EventBus();
+    const tm = new TipPoolManager(bus);
+    const p = tm.createPool("s1");
+    tm.addTips(p.id, 100, "cash");
+    tm.addParticipant(p.id, "a", 1, 1);
+    tm.distribute(p.id, "2026-06-01T23:00:00.000Z");
+    assert.equal(tm.addTips(p.id, 50, "cash"), undefined);
+  });
+
+  it("summary aggregates tips and participants", () => {
+    const bus = new EventBus();
+    const tm = new TipPoolManager(bus);
+    const p = tm.createPool("s1");
+    tm.addTips(p.id, 200, "cash");
+    tm.addParticipant(p.id, "a", 4, 1);
+    const s = tm.summary();
+    assert.equal(s.totalPools, 1);
+    assert.equal(s.totalTipsUsd, 200);
+    assert.equal(s.totalParticipants, 1);
   });
 });
