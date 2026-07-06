@@ -305,6 +305,8 @@ import { ParkingManager } from "./parking/parking-manager.js";
 import { MailroomManager } from "./mailroom/mailroom-manager.js";
 import { MentorshipManager } from "./mentorship/mentorship-manager.js";
 import { TuitionReimbursementManager } from "./tuition/tuition-manager.js";
+import { WellnessManager } from "./wellness/wellness-manager.js";
+import { SabbaticalManager } from "./sabbatical/sabbatical-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -698,6 +700,8 @@ export class Olympus {
   readonly mailroom: MailroomManager;
   readonly mentorship: MentorshipManager;
   readonly tuition: TuitionReimbursementManager;
+  readonly wellness: WellnessManager;
+  readonly sabbatical: SabbaticalManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -995,6 +999,8 @@ export class Olympus {
     this.mailroom = new MailroomManager(this.bus);
     this.mentorship = new MentorshipManager(this.bus);
     this.tuition = new TuitionReimbursementManager(this.bus);
+    this.wellness = new WellnessManager(this.bus);
+    this.sabbatical = new SabbaticalManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1298,3 +1304,5 @@ export { ParkingManager, type ParkingSpace, type ParkingSummary } from "./parkin
 export { MailroomManager, type PackageStatus, type InboundPackage, type MailroomSummary } from "./mailroom/index.js";
 export { MentorshipManager, type PairingStatus, type Mentor, type MentorshipPairing, type MentorshipSummary } from "./mentorship/index.js";
 export { TuitionReimbursementManager, type TuitionClaimStatus, type TuitionClaim, type TuitionSummary } from "./tuition/index.js";
+export { WellnessManager, type ChallengeStatus, type WellnessChallenge, type WellnessParticipant, type WellnessSummary } from "./wellness/index.js";
+export { SabbaticalManager, type SabbaticalStatus, type SabbaticalEmployee, type SabbaticalRequest, type SabbaticalSummary } from "./sabbatical/index.js";

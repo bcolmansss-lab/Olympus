@@ -208,6 +208,8 @@ import { ParkingManager } from "../parking/parking-manager.js";
 import { MailroomManager } from "../mailroom/mailroom-manager.js";
 import { MentorshipManager } from "../mentorship/mentorship-manager.js";
 import { TuitionReimbursementManager } from "../tuition/tuition-manager.js";
+import { WellnessManager } from "../wellness/wellness-manager.js";
+import { SabbaticalManager } from "../sabbatical/sabbatical-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21683,5 +21685,144 @@ describe("TuitionReimbursementManager", () => {
     assert.equal(s.approved, 1);
     assert.equal(s.totalPaidUsd, 500);
     assert.equal(s.totalApprovedUsd, 1200);
+  });
+});
+
+describe("WellnessManager", () => {
+  it("enrolls participants once per challenge", () => {
+    const wm = new WellnessManager(new EventBus());
+    const c = wm.createChallenge("Step It Up", "steps", 100000, "2026-07-01", "2026-07-31");
+    assert.notEqual(wm.enroll(c.id, "e1"), undefined);
+    assert.equal(wm.enroll(c.id, "e1"), undefined);
+  });
+
+  it("logProgress accumulates and fires goal_reached once", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("wellness.goal_reached", (e) => { events.push(e.payload); });
+    const wm = new WellnessManager(bus);
+    const c = wm.createChallenge("Steps", "steps", 100, "2026-07-01", "2026-07-31");
+    wm.enroll(c.id, "e1");
+    wm.logProgress(c.id, "e1", 60);
+    wm.logProgress(c.id, "e1", 50);
+    wm.logProgress(c.id, "e1", 10);
+    assert.equal(events.length, 1);
+    assert.equal(wm.getParticipant(c.id, "e1")!.progress, 120);
+  });
+
+  it("rejects non-positive progress", () => {
+    const wm = new WellnessManager(new EventBus());
+    const c = wm.createChallenge("Steps", "steps", 100, "2026-07-01", "2026-07-31");
+    wm.enroll(c.id, "e1");
+    assert.equal(wm.logProgress(c.id, "e1", 0), undefined);
+    assert.equal(wm.logProgress(c.id, "e1", -5), undefined);
+  });
+
+  it("leaderboard sorts by progress desc", () => {
+    const wm = new WellnessManager(new EventBus());
+    const c = wm.createChallenge("Steps", "steps", 100, "2026-07-01", "2026-07-31");
+    wm.enroll(c.id, "e1"); wm.enroll(c.id, "e2");
+    wm.logProgress(c.id, "e1", 30);
+    wm.logProgress(c.id, "e2", 80);
+    const lb = wm.leaderboard(c.id);
+    assert.equal(lb[0]!.employeeId, "e2");
+  });
+
+  it("closeChallenge reports completion rate and blocks further progress", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("wellness.challenge_closed", (e) => { events.push(e.payload); });
+    const wm = new WellnessManager(bus);
+    const c = wm.createChallenge("Steps", "steps", 100, "2026-07-01", "2026-07-31");
+    wm.enroll(c.id, "e1"); wm.enroll(c.id, "e2");
+    wm.logProgress(c.id, "e1", 150);
+    const r = wm.closeChallenge(c.id)!;
+    assert.equal(r.completionRatePct, 50);
+    assert.equal(events[0].completionRatePct, 50);
+    assert.equal(wm.logProgress(c.id, "e2", 100), undefined);
+  });
+
+  it("summary aggregates across challenges", () => {
+    const wm = new WellnessManager(new EventBus());
+    const a = wm.createChallenge("A", "steps", 10, "2026-07-01", "2026-07-31");
+    const b = wm.createChallenge("B", "minutes", 20, "2026-07-01", "2026-07-31");
+    wm.enroll(a.id, "e1"); wm.enroll(b.id, "e1"); wm.enroll(b.id, "e2");
+    wm.logProgress(a.id, "e1", 10);
+    wm.closeChallenge(a.id);
+    const s = wm.summary();
+    assert.equal(s.totalChallenges, 2);
+    assert.equal(s.openChallenges, 1);
+    assert.equal(s.totalParticipants, 3);
+    assert.equal(s.goalsReached, 1);
+    assert.equal(s.overallCompletionPct, 33);
+  });
+});
+
+describe("SabbaticalManager", () => {
+  it("eligibility requires minimum tenure", () => {
+    const sm = new SabbaticalManager(new EventBus(), 5);
+    const vet = sm.registerEmployee("Vet", "eng", "2019-01-01T00:00:00Z");
+    const newbie = sm.registerEmployee("New", "eng", "2025-01-01T00:00:00Z");
+    assert.equal(sm.isEligible(vet.id, "2026-07-01T00:00:00Z"), true);
+    assert.equal(sm.isEligible(newbie.id, "2026-07-01T00:00:00Z"), false);
+  });
+
+  it("denies request for insufficient tenure", () => {
+    const sm = new SabbaticalManager(new EventBus(), 5);
+    const e = sm.registerEmployee("New", "eng", "2025-01-01T00:00:00Z");
+    const r = sm.request(e.id, "2026-08-01T00:00:00Z", "2026-11-01T00:00:00Z")!;
+    const d = sm.decide(r.id, "2026-07-01T00:00:00Z")!;
+    assert.equal(d.status, "denied");
+    assert.equal(d.denialReason, "insufficient_tenure");
+  });
+
+  it("denies overlapping team sabbaticals", () => {
+    const sm = new SabbaticalManager(new EventBus(), 5);
+    const a = sm.registerEmployee("A", "eng", "2018-01-01T00:00:00Z");
+    const b = sm.registerEmployee("B", "eng", "2018-01-01T00:00:00Z");
+    const ra = sm.request(a.id, "2026-08-01T00:00:00Z", "2026-11-01T00:00:00Z")!;
+    sm.decide(ra.id, "2026-07-01T00:00:00Z");
+    const rb = sm.request(b.id, "2026-10-01T00:00:00Z", "2027-01-01T00:00:00Z")!;
+    const d = sm.decide(rb.id, "2026-07-01T00:00:00Z")!;
+    assert.equal(d.denialReason, "team_overlap");
+  });
+
+  it("allows overlap across different teams", () => {
+    const sm = new SabbaticalManager(new EventBus(), 5);
+    const a = sm.registerEmployee("A", "eng", "2018-01-01T00:00:00Z");
+    const b = sm.registerEmployee("B", "sales", "2018-01-01T00:00:00Z");
+    const ra = sm.request(a.id, "2026-08-01T00:00:00Z", "2026-11-01T00:00:00Z")!;
+    sm.decide(ra.id, "2026-07-01T00:00:00Z");
+    const rb = sm.request(b.id, "2026-08-01T00:00:00Z", "2026-11-01T00:00:00Z")!;
+    assert.equal(sm.decide(rb.id, "2026-07-01T00:00:00Z")!.status, "approved");
+  });
+
+  it("full lifecycle through return with event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sabbatical.returned", (e) => { events.push(e.payload); });
+    const sm = new SabbaticalManager(bus, 5);
+    const e = sm.registerEmployee("A", "eng", "2018-01-01T00:00:00Z");
+    const r = sm.request(e.id, "2026-08-01T00:00:00Z", "2026-11-01T00:00:00Z")!;
+    sm.decide(r.id, "2026-07-01T00:00:00Z");
+    sm.startLeave(r.id);
+    const done = sm.markReturned(r.id)!;
+    assert.equal(done.status, "returned");
+    assert.equal(events.length, 1);
+  });
+
+  it("summary counts statuses", () => {
+    const sm = new SabbaticalManager(new EventBus(), 5);
+    const a = sm.registerEmployee("A", "eng", "2018-01-01T00:00:00Z");
+    const b = sm.registerEmployee("B", "eng", "2025-01-01T00:00:00Z");
+    const ra = sm.request(a.id, "2026-08-01T00:00:00Z", "2026-11-01T00:00:00Z")!;
+    sm.decide(ra.id, "2026-07-01T00:00:00Z");
+    sm.startLeave(ra.id);
+    const rb = sm.request(b.id, "2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z")!;
+    sm.decide(rb.id, "2026-07-01T00:00:00Z");
+    const s = sm.summary();
+    assert.equal(s.totalRequests, 2);
+    assert.equal(s.currentlyOnLeave, 1);
+    assert.equal(s.denied, 1);
   });
 });
