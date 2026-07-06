@@ -315,6 +315,8 @@ import { CafeteriaManager } from "./cafeteria/cafeteria-manager.js";
 import { TradeShowManager } from "./trade-show/trade-show-manager.js";
 import { SpeakerBureauManager } from "./speaker-bureau/speaker-bureau-manager.js";
 import { PodcastManager } from "./podcast/podcast-manager.js";
+import { NewsletterManager } from "./newsletter/newsletter-manager.js";
+import { CommunityForumManager } from "./community-forum/community-forum-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -718,6 +720,8 @@ export class Olympus {
   readonly tradeShow: TradeShowManager;
   readonly speakerBureau: SpeakerBureauManager;
   readonly podcast: PodcastManager;
+  readonly newsletter: NewsletterManager;
+  readonly communityForum: CommunityForumManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1025,6 +1029,8 @@ export class Olympus {
     this.tradeShow = new TradeShowManager(this.bus);
     this.speakerBureau = new SpeakerBureauManager(this.bus);
     this.podcast = new PodcastManager(this.bus);
+    this.newsletter = new NewsletterManager(this.bus);
+    this.communityForum = new CommunityForumManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1338,3 +1344,5 @@ export { CafeteriaManager, type MenuItem, type CafeteriaOrder, type CafeteriaSum
 export { TradeShowManager, type TradeShowStatus, type BoothLeadQuality, type BoothLead, type TradeShow, type TradeShowSummary } from "./trade-show/index.js";
 export { SpeakerBureauManager, type SpeakingRequestStatus, type Speaker, type SpeakingRequest, type SpeakerBureauSummary } from "./speaker-bureau/index.js";
 export { PodcastManager, type EpisodeStatus, type PodcastEpisode, type PodcastSummary } from "./podcast/index.js";
+export { NewsletterManager, type NewsletterIssueStatus, type NewsletterIssue, type NewsletterSummary } from "./newsletter/index.js";
+export { CommunityForumManager, type ThreadStatus, type ForumReply, type ForumThread, type CommunityForumSummary } from "./community-forum/index.js";

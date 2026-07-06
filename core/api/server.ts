@@ -420,6 +420,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/trade-shows", handler: (_req, res) => res.json(200, { summary: this.olympus.tradeShow.summary(), live: this.olympus.tradeShow.listShows("live") }) },
       { method: "GET", pattern: "/v1/speakers", handler: (_req, res) => res.json(200, { summary: this.olympus.speakerBureau.summary(), pending: this.olympus.speakerBureau.listRequests("requested") }) },
       { method: "GET", pattern: "/v1/podcast", handler: (_req, res) => res.json(200, { summary: this.olympus.podcast.summary(), published: this.olympus.podcast.listEpisodes("published") }) },
+      { method: "GET", pattern: "/v1/newsletter", handler: (_req, res) => res.json(200, { summary: this.olympus.newsletter.summary(), sent: this.olympus.newsletter.listIssues("sent") }) },
+      { method: "GET", pattern: "/v1/forum", handler: (_req, res) => res.json(200, { summary: this.olympus.communityForum.summary(), open: this.olympus.communityForum.listThreads(undefined, "open") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

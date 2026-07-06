@@ -218,6 +218,8 @@ import { CafeteriaManager } from "../cafeteria/cafeteria-manager.js";
 import { TradeShowManager } from "../trade-show/trade-show-manager.js";
 import { SpeakerBureauManager } from "../speaker-bureau/speaker-bureau-manager.js";
 import { PodcastManager } from "../podcast/podcast-manager.js";
+import { NewsletterManager } from "../newsletter/newsletter-manager.js";
+import { CommunityForumManager } from "../community-forum/community-forum-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -22365,5 +22367,137 @@ describe("PodcastManager", () => {
     assert.equal(s.totalDownloads, 1000);
     assert.equal(s.avgDownloadsPerPublished, 500);
     assert.equal(s.topEpisode, "Hit");
+  });
+});
+
+describe("NewsletterManager", () => {
+  it("subscribe dedupes active subscribers", () => {
+    const nm = new NewsletterManager(new EventBus());
+    assert.equal(nm.subscribe("A@Example.com"), true);
+    assert.equal(nm.subscribe("a@example.com"), false);
+    assert.equal(nm.isSubscribed("A@EXAMPLE.COM"), true);
+  });
+
+  it("unsubscribe and resubscribe work", () => {
+    const nm = new NewsletterManager(new EventBus());
+    nm.subscribe("a@x.com");
+    assert.equal(nm.unsubscribe("a@x.com"), true);
+    assert.equal(nm.unsubscribe("a@x.com"), false);
+    assert.equal(nm.subscribe("a@x.com"), true);
+  });
+
+  it("sendIssue targets active subscribers only", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("newsletter.issue_sent", (e) => { events.push(e.payload); });
+    const nm = new NewsletterManager(bus);
+    nm.subscribe("a@x.com");
+    nm.subscribe("b@x.com");
+    nm.unsubscribe("b@x.com");
+    const issue = nm.draftIssue("July Update");
+    const sent = nm.sendIssue(issue.id, "2026-07-06T00:00:00Z")!;
+    assert.equal(sent.recipients, 1);
+    assert.equal(events[0].recipients, 1);
+    assert.equal(nm.sendIssue(issue.id, "2026-07-07T00:00:00Z"), undefined);
+  });
+
+  it("cannot send with zero subscribers", () => {
+    const nm = new NewsletterManager(new EventBus());
+    const issue = nm.draftIssue("Empty");
+    assert.equal(nm.sendIssue(issue.id, "2026-07-06T00:00:00Z"), undefined);
+  });
+
+  it("opens capped at recipients, clicks capped at opens", () => {
+    const nm = new NewsletterManager(new EventBus());
+    nm.subscribe("a@x.com");
+    nm.subscribe("b@x.com");
+    const issue = nm.draftIssue("Caps");
+    nm.sendIssue(issue.id, "2026-07-06T00:00:00Z");
+    nm.logOpen(issue.id, 10);
+    nm.logClick(issue.id, 10);
+    const i = nm.getIssue(issue.id)!;
+    assert.equal(i.opens, 2);
+    assert.equal(i.clicks, 2);
+  });
+
+  it("summary computes average engagement rates", () => {
+    const nm = new NewsletterManager(new EventBus());
+    nm.subscribe("a@x.com");
+    nm.subscribe("b@x.com");
+    const issue = nm.draftIssue("One");
+    nm.sendIssue(issue.id, "2026-07-06T00:00:00Z");
+    nm.logOpen(issue.id, 1);
+    const s = nm.summary();
+    assert.equal(s.activeSubscribers, 2);
+    assert.equal(s.issuesSent, 1);
+    assert.equal(s.avgOpenRatePct, 50);
+    assert.equal(s.avgClickRatePct, 0);
+  });
+});
+
+describe("CommunityForumManager", () => {
+  it("acceptAnswer marks thread answered with event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("forum.answer_accepted", (e) => { events.push(e.payload); });
+    const fm = new CommunityForumManager(bus);
+    const t = fm.createThread("u1", "help", "How do I X?", "2026-07-01T00:00:00Z");
+    const r = fm.reply(t.id, "u2", "Do Y.", "2026-07-01T01:00:00Z")!;
+    fm.acceptAnswer(t.id, r.id);
+    assert.equal(fm.getThread(t.id)!.status, "answered");
+    assert.equal(events[0].replyId, r.id);
+  });
+
+  it("flags lock thread at threshold", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("forum.thread_moderated", (e) => { events.push(e.payload); });
+    const fm = new CommunityForumManager(bus, 2);
+    const t = fm.createThread("u1", "general", "Spam?", "2026-07-01T00:00:00Z");
+    fm.flag(t.id);
+    assert.equal(fm.getThread(t.id)!.status, "open");
+    fm.flag(t.id);
+    assert.equal(fm.getThread(t.id)!.status, "locked");
+    assert.equal(events[0].action, "locked");
+  });
+
+  it("locked threads reject replies", () => {
+    const fm = new CommunityForumManager(new EventBus(), 1);
+    const t = fm.createThread("u1", "general", "T", "2026-07-01T00:00:00Z");
+    fm.flag(t.id);
+    assert.equal(fm.reply(t.id, "u2", "hi", "2026-07-01T01:00:00Z"), undefined);
+  });
+
+  it("moderate restore clears flags", () => {
+    const fm = new CommunityForumManager(new EventBus(), 1);
+    const t = fm.createThread("u1", "general", "T", "2026-07-01T00:00:00Z");
+    fm.flag(t.id);
+    const restored = fm.moderate(t.id, "restore")!;
+    assert.equal(restored.status, "open");
+    assert.equal(restored.flags, 0);
+  });
+
+  it("moderate remove is terminal", () => {
+    const fm = new CommunityForumManager(new EventBus(), 1);
+    const t = fm.createThread("u1", "general", "T", "2026-07-01T00:00:00Z");
+    fm.flag(t.id);
+    fm.moderate(t.id, "remove");
+    assert.equal(fm.flag(t.id), undefined);
+    assert.equal(fm.reply(t.id, "u2", "hi", "2026-07-01T01:00:00Z"), undefined);
+  });
+
+  it("summary excludes removed threads", () => {
+    const fm = new CommunityForumManager(new EventBus(), 1);
+    const a = fm.createThread("u1", "help", "A", "2026-07-01T00:00:00Z");
+    const r = fm.reply(a.id, "u2", "ans", "2026-07-01T01:00:00Z")!;
+    fm.acceptAnswer(a.id, r.id);
+    const b = fm.createThread("u1", "general", "B", "2026-07-01T00:00:00Z");
+    fm.flag(b.id);
+    fm.moderate(b.id, "remove");
+    const s = fm.summary();
+    assert.equal(s.totalThreads, 1);
+    assert.equal(s.answered, 1);
+    assert.equal(s.answerRatePct, 100);
+    assert.equal(s.totalReplies, 1);
   });
 });
