@@ -319,6 +319,8 @@ import { NewsletterManager } from "./newsletter/newsletter-manager.js";
 import { CommunityForumManager } from "./community-forum/community-forum-manager.js";
 import { HackathonManager } from "./hackathon/hackathon-manager.js";
 import { OpenSourceManager } from "./open-source/open-source-manager.js";
+import { SandboxManager } from "./sandbox/sandbox-manager.js";
+import { DevRelManager } from "./devrel/devrel-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -726,6 +728,8 @@ export class Olympus {
   readonly communityForum: CommunityForumManager;
   readonly hackathon: HackathonManager;
   readonly openSource: OpenSourceManager;
+  readonly sandbox: SandboxManager;
+  readonly devRel: DevRelManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1037,6 +1041,8 @@ export class Olympus {
     this.communityForum = new CommunityForumManager(this.bus);
     this.hackathon = new HackathonManager(this.bus);
     this.openSource = new OpenSourceManager(this.bus);
+    this.sandbox = new SandboxManager(this.bus);
+    this.devRel = new DevRelManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1354,3 +1360,5 @@ export { NewsletterManager, type NewsletterIssueStatus, type NewsletterIssue, ty
 export { CommunityForumManager, type ThreadStatus, type ForumReply, type ForumThread, type CommunityForumSummary } from "./community-forum/index.js";
 export { HackathonManager, type HackathonPhase, type HackathonTeam, type HackathonEvent, type HackathonSummary } from "./hackathon/index.js";
 export { OpenSourceManager, type ContributionStatus, type OSSProject, type OSSContribution, type OpenSourceSummary } from "./open-source/index.js";
+export { SandboxManager, type SandboxStatus, type SandboxTier, type Sandbox, type SandboxSummary } from "./sandbox/index.js";
+export { DevRelManager, type DevRelActivityKind, type DevRelActivity, type DevRelSummary } from "./devrel/index.js";

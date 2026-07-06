@@ -222,6 +222,8 @@ import { NewsletterManager } from "../newsletter/newsletter-manager.js";
 import { CommunityForumManager } from "../community-forum/community-forum-manager.js";
 import { HackathonManager } from "../hackathon/hackathon-manager.js";
 import { OpenSourceManager } from "../open-source/open-source-manager.js";
+import { SandboxManager } from "../sandbox/sandbox-manager.js";
+import { DevRelManager } from "../devrel/devrel-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -22637,5 +22639,117 @@ describe("OpenSourceManager", () => {
     assert.equal(s.mergeRatePct, 50);
     assert.equal(s.totalReleases, 1);
     assert.equal(s.claSigners, 1);
+  });
+});
+
+describe("SandboxManager", () => {
+  it("provisions with TTL-derived expiry", () => {
+    const sm = new SandboxManager(new EventBus());
+    const sb = sm.provision("dev-1", "small", "2026-07-06T00:00:00.000Z", 24)!;
+    assert.equal(sb.expiresAt, "2026-07-07T00:00:00.000Z");
+    assert.equal(sb.status, "active");
+  });
+
+  it("enforces fleet capacity", () => {
+    const sm = new SandboxManager(new EventBus(), 1);
+    sm.provision("d1", "small", "2026-07-06T00:00:00Z", 24);
+    assert.equal(sm.provision("d2", "small", "2026-07-06T00:00:00Z", 24), undefined);
+  });
+
+  it("extend caps at maxExtensions", () => {
+    const sm = new SandboxManager(new EventBus(), 50, 1);
+    const sb = sm.provision("d1", "medium", "2026-07-06T00:00:00.000Z", 24)!;
+    assert.notEqual(sm.extend(sb.id, 12), undefined);
+    assert.equal(sm.extend(sb.id, 12), undefined);
+    assert.equal(sm.getSandbox(sb.id)!.expiresAt, "2026-07-07T12:00:00.000Z");
+  });
+
+  it("sweep expires only past-TTL sandboxes with events", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("sandbox.expired", (e) => { events.push(e.payload); });
+    const sm = new SandboxManager(bus);
+    const old = sm.provision("d1", "small", "2026-07-01T00:00:00Z", 24)!;
+    sm.provision("d2", "small", "2026-07-06T00:00:00Z", 72);
+    const expired = sm.sweep("2026-07-06T12:00:00Z");
+    assert.equal(expired.length, 1);
+    assert.equal(expired[0]!.id, old.id);
+    assert.equal(events.length, 1);
+  });
+
+  it("expired sandboxes free capacity", () => {
+    const sm = new SandboxManager(new EventBus(), 1);
+    sm.provision("d1", "small", "2026-07-01T00:00:00Z", 24);
+    sm.sweep("2026-07-06T00:00:00Z");
+    assert.notEqual(sm.provision("d2", "small", "2026-07-06T00:00:00Z", 24), undefined);
+  });
+
+  it("summary reports capacity and tier mix", () => {
+    const sm = new SandboxManager(new EventBus(), 4);
+    sm.provision("d1", "small", "2026-07-06T00:00:00Z", 24);
+    sm.provision("d2", "large", "2026-07-06T00:00:00Z", 24);
+    const s = sm.summary();
+    assert.equal(s.active, 2);
+    assert.equal(s.capacityUsedPct, 50);
+    assert.equal(s.byTier.small, 1);
+    assert.equal(s.byTier.large, 1);
+  });
+});
+
+describe("DevRelManager", () => {
+  it("logs activities and rejects negative reach", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("devrel.activity_logged", (e) => { events.push(e.payload); });
+    const dm = new DevRelManager(bus);
+    assert.notEqual(dm.logActivity("adv-1", "talk", "Conf Keynote", 500, "2026-07-01T00:00:00Z"), undefined);
+    assert.equal(dm.logActivity("adv-1", "talk", "Bad", -1, "2026-07-01T00:00:00Z"), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("attributeSignups accumulates", () => {
+    const dm = new DevRelManager(new EventBus());
+    const a = dm.logActivity("adv-1", "blog_post", "Intro post", 1000, "2026-07-01T00:00:00Z")!;
+    dm.attributeSignups(a.id, 10);
+    dm.attributeSignups(a.id, 5);
+    assert.equal(dm.getActivity(a.id)!.attributedSignups, 15);
+    assert.equal(dm.attributeSignups(a.id, 0), undefined);
+  });
+
+  it("listActivities filters by kind and advocate", () => {
+    const dm = new DevRelManager(new EventBus());
+    dm.logActivity("a1", "talk", "T", 100, "2026-07-01T00:00:00Z");
+    dm.logActivity("a2", "video", "V", 100, "2026-07-01T00:00:00Z");
+    assert.equal(dm.listActivities("talk").length, 1);
+    assert.equal(dm.listActivities(undefined, "a2").length, 1);
+  });
+
+  it("leaderboard sorts by signups then reach", () => {
+    const dm = new DevRelManager(new EventBus());
+    const a = dm.logActivity("low", "talk", "T", 9999, "2026-07-01T00:00:00Z")!;
+    const b = dm.logActivity("high", "video", "V", 100, "2026-07-01T00:00:00Z")!;
+    dm.attributeSignups(a.id, 1);
+    dm.attributeSignups(b.id, 50);
+    const lb = dm.advocateLeaderboard();
+    assert.equal(lb[0]!.advocateId, "high");
+  });
+
+  it("summary computes conversion percentage", () => {
+    const dm = new DevRelManager(new EventBus());
+    const a = dm.logActivity("adv", "workshop", "W", 1000, "2026-07-01T00:00:00Z")!;
+    dm.attributeSignups(a.id, 25);
+    const s = dm.summary();
+    assert.equal(s.totalReach, 1000);
+    assert.equal(s.totalSignups, 25);
+    assert.equal(s.conversionPct, 2.5);
+    assert.equal(s.byKind.workshop, 1);
+  });
+
+  it("summary identifies top advocate", () => {
+    const dm = new DevRelManager(new EventBus());
+    const a = dm.logActivity("star", "livestream", "L", 5000, "2026-07-01T00:00:00Z")!;
+    dm.logActivity("other", "talk", "T", 100, "2026-07-01T00:00:00Z");
+    dm.attributeSignups(a.id, 40);
+    assert.equal(dm.summary().topAdvocate, "star");
   });
 });

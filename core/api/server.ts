@@ -424,6 +424,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/forum", handler: (_req, res) => res.json(200, { summary: this.olympus.communityForum.summary(), open: this.olympus.communityForum.listThreads(undefined, "open") }) },
       { method: "GET", pattern: "/v1/hackathons", handler: (_req, res) => res.json(200, { summary: this.olympus.hackathon.summary() }) },
       { method: "GET", pattern: "/v1/open-source", handler: (_req, res) => res.json(200, { summary: this.olympus.openSource.summary(), open: this.olympus.openSource.listContributions(undefined, "opened") }) },
+      { method: "GET", pattern: "/v1/sandboxes", handler: (_req, res) => res.json(200, { summary: this.olympus.sandbox.summary(), active: this.olympus.sandbox.listSandboxes("active") }) },
+      { method: "GET", pattern: "/v1/devrel", handler: (_req, res) => res.json(200, { summary: this.olympus.devRel.summary(), leaderboard: this.olympus.devRel.advocateLeaderboard() }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
