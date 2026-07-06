@@ -220,6 +220,8 @@ import { SpeakerBureauManager } from "../speaker-bureau/speaker-bureau-manager.j
 import { PodcastManager } from "../podcast/podcast-manager.js";
 import { NewsletterManager } from "../newsletter/newsletter-manager.js";
 import { CommunityForumManager } from "../community-forum/community-forum-manager.js";
+import { HackathonManager } from "../hackathon/hackathon-manager.js";
+import { OpenSourceManager } from "../open-source/open-source-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -22499,5 +22501,141 @@ describe("CommunityForumManager", () => {
     assert.equal(s.answered, 1);
     assert.equal(s.answerRatePct, 100);
     assert.equal(s.totalReplies, 1);
+  });
+});
+
+describe("HackathonManager", () => {
+  it("registerTeam enforces team size cap", () => {
+    const hm = new HackathonManager(new EventBus());
+    const ev = hm.createEvent("AI for Good", 2);
+    assert.notEqual(hm.registerTeam(ev.id, "Duo", ["a", "b"]), undefined);
+    assert.equal(hm.registerTeam(ev.id, "Trio", ["a", "b", "c"]), undefined);
+    assert.equal(hm.registerTeam(ev.id, "Empty", []), undefined);
+  });
+
+  it("submissions only during registration", () => {
+    const hm = new HackathonManager(new EventBus());
+    const ev = hm.createEvent("Theme");
+    const t = hm.registerTeam(ev.id, "T", ["a"])!;
+    hm.startJudging(ev.id);
+    assert.equal(hm.submitProject(ev.id, t.id, "P", "desc"), undefined);
+  });
+
+  it("scores require submission and judging phase", () => {
+    const hm = new HackathonManager(new EventBus());
+    const ev = hm.createEvent("Theme");
+    const sub = hm.registerTeam(ev.id, "Sub", ["a"])!;
+    const nosub = hm.registerTeam(ev.id, "NoSub", ["b"])!;
+    hm.submitProject(ev.id, sub.id, "P", "d");
+    assert.equal(hm.score(ev.id, sub.id, 8), undefined);
+    hm.startJudging(ev.id);
+    assert.notEqual(hm.score(ev.id, sub.id, 8), undefined);
+    assert.equal(hm.score(ev.id, nosub.id, 8), undefined);
+    assert.equal(hm.score(ev.id, sub.id, 11), undefined);
+  });
+
+  it("declareWinner picks highest average and closes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("hackathon.winner", (e) => { events.push(e.payload); });
+    const hm = new HackathonManager(bus);
+    const ev = hm.createEvent("Theme");
+    const a = hm.registerTeam(ev.id, "A", ["x"])!;
+    const b = hm.registerTeam(ev.id, "B", ["y"])!;
+    hm.submitProject(ev.id, a.id, "PA", "d");
+    hm.submitProject(ev.id, b.id, "PB", "d");
+    hm.startJudging(ev.id);
+    hm.score(ev.id, a.id, 7); hm.score(ev.id, a.id, 9);
+    hm.score(ev.id, b.id, 6);
+    const w = hm.declareWinner(ev.id)!;
+    assert.equal(w.team.id, a.id);
+    assert.equal(w.avgScore, 8);
+    assert.equal(hm.getEvent(ev.id)!.phase, "closed");
+    assert.equal(events[0].teamId, a.id);
+  });
+
+  it("declareWinner requires scored submissions", () => {
+    const hm = new HackathonManager(new EventBus());
+    const ev = hm.createEvent("Theme");
+    hm.registerTeam(ev.id, "A", ["x"]);
+    hm.startJudging(ev.id);
+    assert.equal(hm.declareWinner(ev.id), undefined);
+  });
+
+  it("summary counts events, teams, submissions", () => {
+    const hm = new HackathonManager(new EventBus());
+    const ev = hm.createEvent("Theme");
+    const a = hm.registerTeam(ev.id, "A", ["x"])!;
+    hm.registerTeam(ev.id, "B", ["y"]);
+    hm.submitProject(ev.id, a.id, "P", "d");
+    const s = hm.summary();
+    assert.equal(s.totalEvents, 1);
+    assert.equal(s.totalTeams, 2);
+    assert.equal(s.totalSubmissions, 1);
+    assert.equal(s.closedEvents, 0);
+  });
+});
+
+describe("OpenSourceManager", () => {
+  it("merge requires signed CLA", () => {
+    const om = new OpenSourceManager(new EventBus());
+    const p = om.registerProject("olympus-sdk", "MIT");
+    const c = om.openContribution(p.id, "ext-1", "Fix typo", "2026-07-01T00:00:00Z")!;
+    assert.equal(om.merge(c.id), undefined);
+    om.signCla("ext-1");
+    assert.equal(om.merge(c.id)!.status, "merged");
+  });
+
+  it("merge publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("oss.contribution_merged", (e) => { events.push(e.payload); });
+    const om = new OpenSourceManager(bus);
+    const p = om.registerProject("lib", "Apache-2.0");
+    om.signCla("dev");
+    const c = om.openContribution(p.id, "dev", "Feature", "2026-07-01T00:00:00Z")!;
+    om.merge(c.id);
+    assert.equal(events[0].contributionId, c.id);
+  });
+
+  it("cannot open contribution on unknown project", () => {
+    const om = new OpenSourceManager(new EventBus());
+    assert.equal(om.openContribution("ghost", "dev", "X", "2026-07-01T00:00:00Z"), undefined);
+  });
+
+  it("tagRelease dedupes versions", () => {
+    const om = new OpenSourceManager(new EventBus());
+    const p = om.registerProject("lib", "MIT");
+    assert.notEqual(om.tagRelease(p.id, "1.0.0"), undefined);
+    assert.equal(om.tagRelease(p.id, "1.0.0"), undefined);
+    assert.notEqual(om.tagRelease(p.id, "1.1.0"), undefined);
+    assert.equal(om.getProject(p.id)!.releases.length, 2);
+  });
+
+  it("rejected contributions cannot merge later", () => {
+    const om = new OpenSourceManager(new EventBus());
+    const p = om.registerProject("lib", "MIT");
+    om.signCla("dev");
+    const c = om.openContribution(p.id, "dev", "X", "2026-07-01T00:00:00Z")!;
+    om.rejectContribution(c.id);
+    assert.equal(om.merge(c.id), undefined);
+  });
+
+  it("summary computes merge rate over decided", () => {
+    const om = new OpenSourceManager(new EventBus());
+    const p = om.registerProject("lib", "MIT");
+    om.signCla("dev");
+    const a = om.openContribution(p.id, "dev", "A", "2026-07-01T00:00:00Z")!;
+    const b = om.openContribution(p.id, "dev", "B", "2026-07-01T00:00:00Z")!;
+    om.openContribution(p.id, "dev", "C", "2026-07-01T00:00:00Z");
+    om.merge(a.id);
+    om.rejectContribution(b.id);
+    om.tagRelease(p.id, "1.0.0");
+    const s = om.summary();
+    assert.equal(s.totalContributions, 3);
+    assert.equal(s.merged, 1);
+    assert.equal(s.mergeRatePct, 50);
+    assert.equal(s.totalReleases, 1);
+    assert.equal(s.claSigners, 1);
   });
 });

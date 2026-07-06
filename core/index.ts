@@ -317,6 +317,8 @@ import { SpeakerBureauManager } from "./speaker-bureau/speaker-bureau-manager.js
 import { PodcastManager } from "./podcast/podcast-manager.js";
 import { NewsletterManager } from "./newsletter/newsletter-manager.js";
 import { CommunityForumManager } from "./community-forum/community-forum-manager.js";
+import { HackathonManager } from "./hackathon/hackathon-manager.js";
+import { OpenSourceManager } from "./open-source/open-source-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -722,6 +724,8 @@ export class Olympus {
   readonly podcast: PodcastManager;
   readonly newsletter: NewsletterManager;
   readonly communityForum: CommunityForumManager;
+  readonly hackathon: HackathonManager;
+  readonly openSource: OpenSourceManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1031,6 +1035,8 @@ export class Olympus {
     this.podcast = new PodcastManager(this.bus);
     this.newsletter = new NewsletterManager(this.bus);
     this.communityForum = new CommunityForumManager(this.bus);
+    this.hackathon = new HackathonManager(this.bus);
+    this.openSource = new OpenSourceManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1346,3 +1352,5 @@ export { SpeakerBureauManager, type SpeakingRequestStatus, type Speaker, type Sp
 export { PodcastManager, type EpisodeStatus, type PodcastEpisode, type PodcastSummary } from "./podcast/index.js";
 export { NewsletterManager, type NewsletterIssueStatus, type NewsletterIssue, type NewsletterSummary } from "./newsletter/index.js";
 export { CommunityForumManager, type ThreadStatus, type ForumReply, type ForumThread, type CommunityForumSummary } from "./community-forum/index.js";
+export { HackathonManager, type HackathonPhase, type HackathonTeam, type HackathonEvent, type HackathonSummary } from "./hackathon/index.js";
+export { OpenSourceManager, type ContributionStatus, type OSSProject, type OSSContribution, type OpenSourceSummary } from "./open-source/index.js";
