@@ -287,6 +287,8 @@ import { DataQualityManager } from "./data-quality/data-quality-manager.js";
 import { SchemaRegistryManager } from "./schema-registry/schema-registry-manager.js";
 import { EmailDeliverabilityManager } from "./email-deliverability/email-deliverability-manager.js";
 import { PushCampaignManager } from "./push-campaign/push-campaign-manager.js";
+import { InAppMessageManager } from "./in-app-message/in-app-message-manager.js";
+import { BannerManager } from "./banner/banner-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -662,6 +664,8 @@ export class Olympus {
   readonly schemaRegistry: SchemaRegistryManager;
   readonly emailDeliverability: EmailDeliverabilityManager;
   readonly pushCampaign: PushCampaignManager;
+  readonly inAppMessage: InAppMessageManager;
+  readonly banner: BannerManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -941,6 +945,8 @@ export class Olympus {
     this.schemaRegistry = new SchemaRegistryManager(this.bus);
     this.emailDeliverability = new EmailDeliverabilityManager(this.bus);
     this.pushCampaign = new PushCampaignManager(this.bus);
+    this.inAppMessage = new InAppMessageManager(this.bus);
+    this.banner = new BannerManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1226,3 +1232,5 @@ export { DataQualityManager, type QualityRuleKind, type QualityRule, type Qualit
 export { SchemaRegistryManager, type FieldDef, type SchemaVersion, type SchemaSubject, type SchemaRegistrySummary } from "./schema-registry/index.js";
 export { EmailDeliverabilityManager, type EmailEventKind, type SuppressionReason, type DomainStats, type SuppressionEntry, type DeliverabilitySummary } from "./email-deliverability/index.js";
 export { PushCampaignManager, type DevicePlatform, type Device, type PushCampaign, type PushSummary } from "./push-campaign/index.js";
+export { InAppMessageManager, type MessageKind, type MessageState, type InAppMessage, type InAppSummary } from "./in-app-message/index.js";
+export { BannerManager, type BannerTone, type BannerStatus, type SiteBanner, type BannerSummary } from "./banner/index.js";

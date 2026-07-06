@@ -392,6 +392,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/schema-registry", handler: (_req, res) => res.json(200, { summary: this.olympus.schemaRegistry.summary(), subjects: this.olympus.schemaRegistry.listSubjects().map(x => ({ subject: x.subject, versions: x.versions.length, consumers: x.consumers.size })) }) },
       { method: "GET", pattern: "/v1/email-deliverability", handler: (_req, res) => res.json(200, { summary: this.olympus.emailDeliverability.summary() }) },
       { method: "GET", pattern: "/v1/push-campaigns", handler: (_req, res) => res.json(200, { summary: this.olympus.pushCampaign.summary() }) },
+      { method: "GET", pattern: "/v1/in-app-messages", handler: (_req, res) => res.json(200, { summary: this.olympus.inAppMessage.summary() }) },
+      { method: "GET", pattern: "/v1/banners", handler: (_req, res) => res.json(200, { summary: this.olympus.banner.summary(), scheduled: this.olympus.banner.listBanners(undefined, "scheduled") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {

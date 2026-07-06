@@ -190,6 +190,8 @@ import { DataQualityManager } from "../data-quality/data-quality-manager.js";
 import { SchemaRegistryManager } from "../schema-registry/schema-registry-manager.js";
 import { EmailDeliverabilityManager } from "../email-deliverability/email-deliverability-manager.js";
 import { PushCampaignManager } from "../push-campaign/push-campaign-manager.js";
+import { InAppMessageManager } from "../in-app-message/in-app-message-manager.js";
+import { BannerManager } from "../banner/banner-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -20515,5 +20517,134 @@ describe("PushCampaignManager", () => {
     assert.equal(s.totalDevices, 1);
     assert.equal(s.totalCampaigns, 1);
     assert.equal(s.avgOpenRatePct, 100);
+  });
+});
+
+describe("InAppMessageManager", () => {
+  it("publish makes message live and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("inapp.message_published", (e) => { events.push(e.payload); });
+    const im = new InAppMessageManager(bus);
+    const m = im.create({ kind: "modal", title: "New feature!", audience: "all" });
+    im.publish(m.id);
+    assert.equal(im.getMessage(m.id)!.state, "live");
+    assert.equal(events.length, 1);
+  });
+
+  it("frequency cap limits impressions per user", () => {
+    const bus = new EventBus();
+    const im = new InAppMessageManager(bus);
+    const m = im.create({ kind: "tooltip", title: "Tip", audience: "all", maxImpressionsPerUser: 2 });
+    im.publish(m.id);
+    assert.equal(im.recordImpression(m.id, "u1"), true);
+    assert.equal(im.recordImpression(m.id, "u1"), true);
+    assert.equal(im.recordImpression(m.id, "u1"), false);
+    assert.equal(im.shouldDisplay(m.id, "u1"), false);
+  });
+
+  it("dismissal suppresses future display", () => {
+    const bus = new EventBus();
+    const im = new InAppMessageManager(bus);
+    const m = im.create({ kind: "banner", title: "X", audience: "all" });
+    im.publish(m.id);
+    im.dismiss(m.id, "u1");
+    assert.equal(im.shouldDisplay(m.id, "u1"), false);
+  });
+
+  it("conversion requires prior impression and dedupes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("inapp.converted", (e) => { events.push(e.payload); });
+    const im = new InAppMessageManager(bus);
+    const m = im.create({ kind: "tour", title: "Onboarding", audience: "new" });
+    im.publish(m.id);
+    assert.equal(im.recordConversion(m.id, "u1"), false);
+    im.recordImpression(m.id, "u1");
+    assert.equal(im.recordConversion(m.id, "u1"), true);
+    assert.equal(im.recordConversion(m.id, "u1"), false);
+    assert.equal(events.length, 1);
+  });
+
+  it("paused messages do not display", () => {
+    const bus = new EventBus();
+    const im = new InAppMessageManager(bus);
+    const m = im.create({ kind: "slideout", title: "X", audience: "all" });
+    im.publish(m.id);
+    im.pause(m.id);
+    assert.equal(im.shouldDisplay(m.id, "u1"), false);
+  });
+
+  it("summary computes conversion and dismissal rates", () => {
+    const bus = new EventBus();
+    const im = new InAppMessageManager(bus);
+    const m = im.create({ kind: "modal", title: "X", audience: "all" });
+    im.publish(m.id);
+    im.recordImpression(m.id, "u1"); im.recordConversion(m.id, "u1");
+    im.recordImpression(m.id, "u2"); im.dismiss(m.id, "u2");
+    const s = im.summary();
+    assert.equal(s.totalImpressions, 2);
+    assert.equal(s.conversionRatePct, 50);
+    assert.equal(s.dismissalRatePct, 50);
+  });
+});
+
+describe("BannerManager", () => {
+  it("schedule validates window and publishes scheduled", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("banner.scheduled", (e) => { events.push(e.payload); });
+    const bm = new BannerManager(bus);
+    assert.equal(bm.schedule({ slot: "top", message: "x", tone: "info", start: "2026-06-02", end: "2026-06-01" }), undefined);
+    bm.schedule({ slot: "top", message: "Maintenance Sunday", tone: "warning", start: "2026-06-01", end: "2026-06-08" });
+    assert.equal(events.length, 1);
+  });
+
+  it("activeFor picks highest priority in window", () => {
+    const bus = new EventBus();
+    const bm = new BannerManager(bus);
+    bm.schedule({ slot: "top", message: "promo", tone: "promo", priority: 1, start: "2026-06-01", end: "2026-06-30" });
+    bm.schedule({ slot: "top", message: "outage", tone: "critical", priority: 10, start: "2026-06-01", end: "2026-06-30" });
+    assert.equal(bm.activeFor("top", "2026-06-15")!.message, "outage");
+  });
+
+  it("activeFor respects time window", () => {
+    const bus = new EventBus();
+    const bm = new BannerManager(bus);
+    bm.schedule({ slot: "top", message: "x", tone: "info", start: "2026-06-01", end: "2026-06-10" });
+    assert.equal(bm.activeFor("top", "2026-07-01"), undefined);
+  });
+
+  it("recordClick counts and publishes clicked", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("banner.clicked", (e) => { events.push(e.payload); });
+    const bm = new BannerManager(bus);
+    const b = bm.schedule({ slot: "top", message: "x", tone: "promo", start: "2026-06-01", end: "2026-06-30" })!;
+    bm.recordClick(b.id);
+    assert.equal(bm.getBanner(b.id)!.clicks, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("expireStale publishes expired", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("banner.expired", (e) => { events.push(e.payload); });
+    const bm = new BannerManager(bus);
+    bm.schedule({ slot: "top", message: "x", tone: "info", start: "2026-06-01", end: "2026-06-10" });
+    const expired = bm.expireStale("2026-07-01");
+    assert.equal(expired.length, 1);
+    assert.equal(events.length, 1);
+  });
+
+  it("summary aggregates tones and clicks", () => {
+    const bus = new EventBus();
+    const bm = new BannerManager(bus);
+    const b = bm.schedule({ slot: "top", message: "x", tone: "critical", start: "2026-06-01", end: "2026-06-30" })!;
+    bm.recordClick(b.id);
+    const s = bm.summary();
+    assert.equal(s.totalBanners, 1);
+    assert.equal(s.totalClicks, 1);
+    assert.equal(s.byTone.critical, 1);
   });
 });
