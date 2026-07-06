@@ -307,6 +307,8 @@ import { MentorshipManager } from "./mentorship/mentorship-manager.js";
 import { TuitionReimbursementManager } from "./tuition/tuition-manager.js";
 import { WellnessManager } from "./wellness/wellness-manager.js";
 import { SabbaticalManager } from "./sabbatical/sabbatical-manager.js";
+import { RelocationManager } from "./relocation/relocation-manager.js";
+import { ErgonomicsManager } from "./ergonomics/ergonomics-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -702,6 +704,8 @@ export class Olympus {
   readonly tuition: TuitionReimbursementManager;
   readonly wellness: WellnessManager;
   readonly sabbatical: SabbaticalManager;
+  readonly relocation: RelocationManager;
+  readonly ergonomics: ErgonomicsManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1001,6 +1005,8 @@ export class Olympus {
     this.tuition = new TuitionReimbursementManager(this.bus);
     this.wellness = new WellnessManager(this.bus);
     this.sabbatical = new SabbaticalManager(this.bus);
+    this.relocation = new RelocationManager(this.bus);
+    this.ergonomics = new ErgonomicsManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1306,3 +1312,5 @@ export { MentorshipManager, type PairingStatus, type Mentor, type MentorshipPair
 export { TuitionReimbursementManager, type TuitionClaimStatus, type TuitionClaim, type TuitionSummary } from "./tuition/index.js";
 export { WellnessManager, type ChallengeStatus, type WellnessChallenge, type WellnessParticipant, type WellnessSummary } from "./wellness/index.js";
 export { SabbaticalManager, type SabbaticalStatus, type SabbaticalEmployee, type SabbaticalRequest, type SabbaticalSummary } from "./sabbatical/index.js";
+export { RelocationManager, type RelocationStatus, type RelocationExpenseCategory, type RelocationExpense, type RelocationPackage, type RelocationSummary } from "./relocation/index.js";
+export { ErgonomicsManager, type ErgoIssueSeverity, type ErgoIssue, type ErgoAssessment, type ErgonomicsSummary } from "./ergonomics/index.js";

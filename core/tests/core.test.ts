@@ -210,6 +210,8 @@ import { MentorshipManager } from "../mentorship/mentorship-manager.js";
 import { TuitionReimbursementManager } from "../tuition/tuition-manager.js";
 import { WellnessManager } from "../wellness/wellness-manager.js";
 import { SabbaticalManager } from "../sabbatical/sabbatical-manager.js";
+import { RelocationManager } from "../relocation/relocation-manager.js";
+import { ErgonomicsManager } from "../ergonomics/ergonomics-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21824,5 +21826,134 @@ describe("SabbaticalManager", () => {
     assert.equal(s.totalRequests, 2);
     assert.equal(s.currentlyOnLeave, 1);
     assert.equal(s.denied, 1);
+  });
+});
+
+describe("RelocationManager", () => {
+  it("grants a package and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("relocation.granted", (e) => { events.push(e.payload); });
+    const rm = new RelocationManager(bus);
+    const pkg = rm.grant("e1", "NYC", "Austin", 10000, "2026-07-01T00:00:00Z");
+    assert.equal(pkg.status, "active");
+    assert.equal(events[0].budgetUsd, 10000);
+  });
+
+  it("rejects expense exceeding remaining budget", () => {
+    const rm = new RelocationManager(new EventBus());
+    const pkg = rm.grant("e1", "NYC", "Austin", 1000, "2026-07-01T00:00:00Z");
+    const a = rm.submitExpense(pkg.id, "moving", 800, "2026-07-02T00:00:00Z")!;
+    rm.approveExpense(pkg.id, a.id);
+    assert.equal(rm.submitExpense(pkg.id, "travel", 300, "2026-07-03T00:00:00Z"), undefined);
+    assert.notEqual(rm.submitExpense(pkg.id, "travel", 200, "2026-07-03T00:00:00Z"), undefined);
+  });
+
+  it("approveExpense enforces cap against approved spend", () => {
+    const rm = new RelocationManager(new EventBus());
+    const pkg = rm.grant("e1", "NYC", "Austin", 1000, "2026-07-01T00:00:00Z");
+    const a = rm.submitExpense(pkg.id, "moving", 700, "2026-07-02T00:00:00Z")!;
+    const b = rm.submitExpense(pkg.id, "travel", 700, "2026-07-02T00:00:00Z")!;
+    rm.approveExpense(pkg.id, a.id);
+    assert.equal(rm.approveExpense(pkg.id, b.id), undefined);
+  });
+
+  it("complete reports spent and unused budget", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("relocation.completed", (e) => { events.push(e.payload); });
+    const rm = new RelocationManager(bus);
+    const pkg = rm.grant("e1", "NYC", "Austin", 5000, "2026-07-01T00:00:00Z");
+    const a = rm.submitExpense(pkg.id, "moving", 3000, "2026-07-02T00:00:00Z")!;
+    rm.approveExpense(pkg.id, a.id);
+    const r = rm.complete(pkg.id, "2026-08-01T00:00:00Z")!;
+    assert.equal(r.spentUsd, 3000);
+    assert.equal(r.unusedUsd, 2000);
+    assert.equal(events[0].unusedUsd, 2000);
+  });
+
+  it("no expenses on completed or cancelled packages", () => {
+    const rm = new RelocationManager(new EventBus());
+    const pkg = rm.grant("e1", "NYC", "Austin", 5000, "2026-07-01T00:00:00Z");
+    rm.complete(pkg.id, "2026-08-01T00:00:00Z");
+    assert.equal(rm.submitExpense(pkg.id, "moving", 100, "2026-08-02T00:00:00Z"), undefined);
+  });
+
+  it("summary excludes cancelled and computes utilization", () => {
+    const rm = new RelocationManager(new EventBus());
+    const a = rm.grant("e1", "NYC", "Austin", 4000, "2026-07-01T00:00:00Z");
+    const cancelled = rm.grant("e2", "LA", "Denver", 9999, "2026-07-01T00:00:00Z");
+    rm.cancel(cancelled.id);
+    const exp = rm.submitExpense(a.id, "moving", 2000, "2026-07-02T00:00:00Z")!;
+    rm.approveExpense(a.id, exp.id);
+    const s = rm.summary();
+    assert.equal(s.totalPackages, 1);
+    assert.equal(s.totalBudgetUsd, 4000);
+    assert.equal(s.totalSpentUsd, 2000);
+    assert.equal(s.avgUtilizationPct, 50);
+  });
+});
+
+describe("ErgonomicsManager", () => {
+  const findings = [
+    { description: "Monitor too low", severity: "minor" as const },
+    { description: "No lumbar support", severity: "serious" as const },
+  ];
+
+  it("records assessment with issues and event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ergonomics.assessed", (e) => { events.push(e.payload); });
+    const em = new ErgonomicsManager(bus);
+    const a = em.recordAssessment("e1", "assessor-1", findings, "2026-07-01T00:00:00Z");
+    assert.equal(a.issues.length, 2);
+    assert.equal(events[0].issueCount, 2);
+  });
+
+  it("orderEquipment attaches to open issue only", () => {
+    const em = new ErgonomicsManager(new EventBus());
+    const a = em.recordAssessment("e1", "x", findings, "2026-07-01T00:00:00Z");
+    const issue = a.issues[1]!;
+    em.orderEquipment(a.id, issue.id, "Ergonomic chair");
+    assert.equal(issue.equipmentOrdered, "Ergonomic chair");
+    em.resolveIssue(a.id, issue.id);
+    assert.equal(em.orderEquipment(a.id, issue.id, "Another chair"), undefined);
+  });
+
+  it("resolveIssue is idempotent-guarded and publishes", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("ergonomics.issue_resolved", (e) => { events.push(e.payload); });
+    const em = new ErgonomicsManager(bus);
+    const a = em.recordAssessment("e1", "x", findings, "2026-07-01T00:00:00Z");
+    em.resolveIssue(a.id, a.issues[0]!.id);
+    assert.equal(em.resolveIssue(a.id, a.issues[0]!.id), undefined);
+    assert.equal(events.length, 1);
+  });
+
+  it("openIssues filters by severity", () => {
+    const em = new ErgonomicsManager(new EventBus());
+    em.recordAssessment("e1", "x", findings, "2026-07-01T00:00:00Z");
+    assert.equal(em.openIssues().length, 2);
+    assert.equal(em.openIssues("serious").length, 1);
+  });
+
+  it("latestFor returns most recent assessment", () => {
+    const em = new ErgonomicsManager(new EventBus());
+    em.recordAssessment("e1", "x", findings, "2026-01-01T00:00:00Z");
+    const recent = em.recordAssessment("e1", "x", [], "2026-07-01T00:00:00Z");
+    assert.equal(em.latestFor("e1")!.id, recent.id);
+    assert.equal(em.latestFor("ghost"), undefined);
+  });
+
+  it("summary computes resolution rate and serious open count", () => {
+    const em = new ErgonomicsManager(new EventBus());
+    const a = em.recordAssessment("e1", "x", findings, "2026-07-01T00:00:00Z");
+    em.resolveIssue(a.id, a.issues[0]!.id);
+    const s = em.summary();
+    assert.equal(s.totalIssues, 2);
+    assert.equal(s.openIssues, 1);
+    assert.equal(s.seriousOpenIssues, 1);
+    assert.equal(s.resolutionRatePct, 50);
   });
 });
