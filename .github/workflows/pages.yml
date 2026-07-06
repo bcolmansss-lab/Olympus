@@ -1,0 +1,57 @@
+name: Deploy Operator Console to GitHub Pages
+
+# Manual trigger only: GitHub Pages must be enabled for this repo first
+# (Settings -> Pages -> Source: GitHub Actions). Once enabled, run this
+# workflow from the Actions tab. Kept off `push` so it does not emit a
+# failing check on every commit while Pages is unavailable.
+on:
+  workflow_dispatch:
+
+permissions:
+  pages: write
+  id-token: write
+  contents: read
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Compile TypeScript
+        run: npx tsc --outDir dist
+
+      - name: Build site
+        run: |
+          node --input-type=module -e "
+          import { DASHBOARD_HTML } from './dist/core/api/dashboard.js';
+          import { writeFileSync, mkdirSync } from 'fs';
+          mkdirSync('_site', { recursive: true });
+          writeFileSync('_site/index.html', DASHBOARD_HTML);
+          "
+
+      - name: Configure Pages (auto-enable if possible)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - uses: actions/deploy-pages@v4
+        id: deployment

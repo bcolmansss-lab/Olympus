@@ -1,0 +1,1 @@
+export { LocalizationManager, type TranslationState, type TranslationEntry, type LocaleBundle, type LocalizationProject, type LocaleCoverage, type LocalizationSummary } from "./localization-manager.js";

@@ -1,0 +1,1 @@
+export { PhishingSimulationManager, type CampaignStatus as PhishingCampaignStatus, type RecipientOutcome, type Target as PhishingTarget, type PhishingCampaign, type PhishingSummary } from "./phishing-simulation-manager.js";

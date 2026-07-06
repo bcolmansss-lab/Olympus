@@ -1,0 +1,1 @@
+export { InvestorRelationsManager, type RoundStage, type RoundStatus, type InvestorType, type Investor, type Commitment, type FundingRound, type InvestorUpdate, type IRSummary } from "./investor-relations-manager.js";

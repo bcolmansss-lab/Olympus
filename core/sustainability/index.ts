@@ -1,0 +1,1 @@
+export { SustainabilityManager, type EmissionScope as SustainabilityScope, type EmissionRecord as SustainabilityEmissionRecord, type ReductionTarget, type SustainabilitySummary } from "./sustainability-manager.js";

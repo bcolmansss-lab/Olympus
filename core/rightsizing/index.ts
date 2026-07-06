@@ -1,0 +1,1 @@
+export { RightsizingManager, type ResourceType as CloudResourceType, type RecAction, type RecStatus, type CloudResource, type Recommendation as RightsizingRecommendation, type RightsizingSummary } from "./rightsizing-manager.js";

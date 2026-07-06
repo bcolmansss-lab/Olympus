@@ -1,0 +1,2880 @@
+/**
+ * Demo company seed — "Helios Robotics", a mid-stage SaaS startup.
+ *
+ * Populates every business module (finance, pipeline, risk, SLA, capacity, OKR)
+ * with a coherent, deterministic dataset so the operator console and the
+ * Company Health Score render against real numbers instead of empty state.
+ *
+ * The numbers are tuned so the composite Health Score lands in a realistic
+ * "fair/good" band — strong growth and capacity, a healthy-but-tight runway,
+ * mixed SLA reliability, and partially-attained OKRs. Nothing is random:
+ * re-running this seed always produces the same world.
+ */
+
+import type { Olympus } from "../index.js";
+import type { ForecastAssumptions } from "../forecasting/forecast-engine.js";
+
+/** Format a Date as an ISO date (YYYY-MM-DD). */
+function isoDate(d: Date): string {
+  return d.toISOString().split("T")[0]!;
+}
+
+/** A date `daysAgo` days before now. */
+function daysAgo(days: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+/**
+ * Seed the full Helios Robotics company dataset onto an Olympus instance.
+ * Idempotency is NOT guaranteed — call once on a fresh instance.
+ */
+export function seedCompany(olympus: Olympus): void {
+  seedFinance(olympus);
+  seedPipeline(olympus);
+  seedRisk(olympus);
+  seedSla(olympus);
+  seedCapacity(olympus);
+  seedOkr(olympus);
+  seedVendors(olympus);
+  seedPeople(olympus);
+  seedProjects(olympus);
+  seedCustomerSuccess(olympus);
+  seedProductAnalytics(olympus);
+  seedCompliance(olympus);
+  seedCompetitiveIntel(olympus);
+  seedIncidents(olympus);
+  seedMarketing(olympus);
+  seedForecasting(olympus);
+  seedDataPipeline(olympus);
+  seedSupport(olympus);
+  seedCommunication(olympus);
+  seedPricing(olympus);
+  seedAssets(olympus);
+  seedExpenses(olympus);
+  seedRecruitment(olympus);
+  seedKnowledgeBase(olympus);
+  seedContractMgmt(olympus);
+  seedPayroll(olympus);
+  seedInventory(olympus);
+  seedPartners(olympus);
+  seedEventsMgmt(olympus);
+  seedAuditLog(olympus);
+  seedBilling(olympus);
+  seedAnalytics(olympus);
+  seedFeedback(olympus);
+  seedFeatureFlags(olympus);
+  seedAccessControl(olympus);
+  seedNotifCenter(olympus);
+  seedStrategy(olympus);
+  seedOrgIntel(olympus);
+  seedRevenueIntel(olympus);
+  seedChurnPrediction(olympus);
+  seedOnboarding(olympus);
+  seedEngagement(olympus);
+}
+
+function seedFinance(olympus: Olympus): void {
+  const ledger = olympus.ledger;
+  // Opening balances: ~$4.2M cash in the bank.
+  ledger.addAccount({ id: "cash", name: "Operating Cash", type: "asset", balance: 4_200_000 });
+  ledger.addAccount({ id: "revenue", name: "Subscription Revenue", type: "revenue" });
+  ledger.addAccount({ id: "opex", name: "Operating Expenses", type: "expense" });
+  ledger.addAccount({ id: "payroll", name: "Payroll", type: "expense" });
+
+  // ~2 months of activity. Each month: $380k revenue in, $520k spend out.
+  // Net burn ≈ $140k/mo on payroll + opex split, against $4.2M cash.
+  // Burn rate uses expense debits minus revenue credits over a 3mo window.
+  const months = [55, 35, 12]; // three monthly cycles within the last ~60 days
+  for (const offset of months) {
+    const revDate = isoDate(daysAgo(offset));
+    const payDate = isoDate(daysAgo(offset - 2));
+    const opexDate = isoDate(daysAgo(offset - 4));
+
+    // Revenue inflow: debit cash, credit revenue.
+    ledger.post({
+      date: revDate,
+      description: "Monthly subscription revenue",
+      debitAccountId: "cash",
+      creditAccountId: "revenue",
+      amount: 380_000,
+    });
+    // Payroll outflow: debit payroll expense, credit cash.
+    ledger.post({
+      date: payDate,
+      description: "Monthly payroll run",
+      debitAccountId: "payroll",
+      creditAccountId: "cash",
+      amount: 520_000,
+    });
+    // Other opex outflow: debit opex expense, credit cash.
+    ledger.post({
+      date: opexDate,
+      description: "Cloud, tooling, and G&A",
+      debitAccountId: "opex",
+      creditAccountId: "cash",
+      amount: 260_000,
+    });
+  }
+}
+
+function seedPipeline(olympus: Olympus): void {
+  const pipeline = olympus.pipeline;
+
+  pipeline.createDeal({ name: "Acme Manufacturing", arrUsd: 240_000, stage: "negotiation", owner: "Dana Reyes" });
+  pipeline.createDeal({ name: "Northwind Logistics", arrUsd: 180_000, stage: "proposal", owner: "Dana Reyes" });
+  pipeline.createDeal({ name: "Cascade Foods", arrUsd: 95_000, stage: "proposal", owner: "Sam Okafor" });
+  pipeline.createDeal({ name: "Pinnacle Health", arrUsd: 60_000, stage: "qualified", owner: "Sam Okafor" });
+  pipeline.createDeal({ name: "Vertex Components", arrUsd: 42_000, stage: "qualified", owner: "Dana Reyes" });
+  pipeline.createDeal({ name: "Orion Freight", arrUsd: 150_000, stage: "closed_won", owner: "Sam Okafor" });
+  pipeline.createDeal({ name: "Stellar Retail", arrUsd: 110_000, stage: "closed_lost", owner: "Dana Reyes" });
+}
+
+function seedRisk(olympus: Olympus): void {
+  const reg = olympus.riskRegister;
+
+  reg.raise({
+    id: "risk-concentration",
+    title: "Key customer concentration",
+    description: "Top 3 accounts represent 48% of ARR; loss of one materially dents revenue.",
+    category: "operational",
+    domain: "sales",
+    probability: 0.4,
+    impact: 4,
+    owner: "VP Sales",
+  });
+
+  reg.raise({
+    id: "risk-cloud-cost",
+    title: "Cloud cost overrun",
+    description: "Inference compute spend trending 18% over budget as usage scales.",
+    category: "financial",
+    domain: "finance",
+    probability: 0.6,
+    impact: 2,
+    owner: "Head of Infra",
+  });
+
+  reg.raise({
+    id: "risk-attrition",
+    title: "Senior engineer attrition",
+    description: "Two staff engineers hold critical control-systems knowledge with thin coverage.",
+    category: "operational",
+    domain: "people",
+    probability: 0.3,
+    impact: 4,
+    owner: "VP Engineering",
+  });
+
+  reg.raise({
+    id: "risk-soc2",
+    title: "SOC2 audit delay",
+    description: "Type II audit window slipping; enterprise deals gate on the report.",
+    category: "compliance",
+    domain: "operations",
+    probability: 0.5,
+    impact: 3,
+    owner: "Head of Security",
+  });
+
+  // Show the mitigation flow on the cloud-cost risk: add a mitigation and
+  // record a reduced residual exposure.
+  reg.addMitigation("risk-cloud-cost", {
+    description: "Reserved-capacity commitments + per-tenant compute budgets and alerts.",
+    owner: "Head of Infra",
+    dueDate: isoDate(daysAgo(-30)),
+  });
+  reg.setResidual("risk-cloud-cost", 0.3, 2);
+}
+
+function seedSla(olympus: Olympus): void {
+  const sla = olympus.sla;
+
+  sla.register({
+    id: "sla-uptime",
+    contractName: "Enterprise Platform SLA",
+    metric: "api_uptime_pct",
+    threshold: 99.9,
+    direction: "above",
+    penaltyUsd: 10_000,
+    atRiskPct: 0.02,
+  });
+  sla.register({
+    id: "sla-latency",
+    contractName: "Enterprise Platform SLA",
+    metric: "p99_latency_ms",
+    threshold: 250,
+    direction: "below",
+    penaltyUsd: 5_000,
+    atRiskPct: 10,
+  });
+  sla.register({
+    id: "sla-support",
+    contractName: "Premium Support SLA",
+    metric: "support_response_hrs",
+    threshold: 4,
+    direction: "below",
+    penaltyUsd: 2_000,
+    atRiskPct: 10,
+  });
+
+  // Healthy: uptime comfortably above 99.9.
+  sla.record("sla-uptime", 99.97, isoDate(daysAgo(1)));
+  // At-risk: latency under 250 but within the 10% at-risk zone (225–250).
+  sla.record("sla-latency", 238, isoDate(daysAgo(1)));
+  // Breached: support response over the 4h commitment.
+  sla.record("sla-support", 5.5, isoDate(daysAgo(1)));
+}
+
+function seedCapacity(olympus: Olympus): void {
+  const cap = olympus.capacity;
+
+  cap.addResource({ id: "eng-priya", name: "Priya Nair", role: "engineer", availability: 1.0 });
+  cap.addResource({ id: "eng-marcus", name: "Marcus Lee", role: "engineer", availability: 1.0 });
+  cap.addResource({ id: "eng-jo", name: "Jo Tanaka", role: "engineer", availability: 1.0 });
+  cap.addResource({ id: "design-ines", name: "Ines Costa", role: "designer", availability: 1.0 });
+  cap.addResource({ id: "pm-omar", name: "Omar Haddad", role: "pm", availability: 1.0 });
+
+  cap.addProject({
+    id: "proj-fleet",
+    name: "Fleet Autonomy v2",
+    startDate: isoDate(daysAgo(20)),
+    endDate: isoDate(daysAgo(-70)),
+    demands: { engineer: 2, designer: 0.5, pm: 0.5 },
+  });
+  cap.addProject({
+    id: "proj-observability",
+    name: "Observability Platform",
+    startDate: isoDate(daysAgo(10)),
+    endDate: isoDate(daysAgo(-50)),
+    demands: { engineer: 1.5, pm: 0.5 },
+  });
+  cap.addProject({
+    id: "proj-soc2",
+    name: "SOC2 Readiness",
+    startDate: isoDate(daysAgo(5)),
+    endDate: isoDate(daysAgo(-40)),
+    demands: { engineer: 0.5, pm: 0.5 },
+  });
+
+  // Priya is overallocated (0.8 + 0.5 = 1.3 > 1.0); everyone else fits.
+  cap.allocate({ resourceId: "eng-priya", projectId: "proj-fleet", utilization: 0.8 });
+  cap.allocate({ resourceId: "eng-priya", projectId: "proj-observability", utilization: 0.5 });
+  cap.allocate({ resourceId: "eng-marcus", projectId: "proj-fleet", utilization: 0.7 });
+  cap.allocate({ resourceId: "eng-jo", projectId: "proj-observability", utilization: 0.6 });
+  cap.allocate({ resourceId: "eng-jo", projectId: "proj-soc2", utilization: 0.3 });
+  cap.allocate({ resourceId: "design-ines", projectId: "proj-fleet", utilization: 0.5 });
+  cap.allocate({ resourceId: "pm-omar", projectId: "proj-fleet", utilization: 0.4 });
+  cap.allocate({ resourceId: "pm-omar", projectId: "proj-observability", utilization: 0.4 });
+}
+
+function seedVendors(olympus: Olympus): void {
+  const v = olympus.vendors;
+
+  const daysOut = (n: number): string =>
+    new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const aws = v.add({ id: "vendor-aws", name: "AWS", category: "infrastructure", annualValueUsd: 480_000, renewalDate: daysOut(95) });
+  const dd = v.add({ id: "vendor-datadog", name: "Datadog", category: "software", annualValueUsd: 96_000, renewalDate: daysOut(40) });
+  v.add({ id: "vendor-salesforce", name: "Salesforce", category: "software", annualValueUsd: 144_000, renewalDate: daysOut(200) });
+  v.add({ id: "vendor-wework", name: "WeWork", category: "facilities", annualValueUsd: 72_000, renewalDate: daysOut(18) });
+
+  v.recordSpend(aws.id, 42_000);
+  v.recordSpend(dd.id, 8_200);
+}
+
+function seedPeople(olympus: Olympus): void {
+  const p = olympus.people;
+
+  // Leadership
+  const alice = p.hire({
+    id: "emp-alice",
+    name: "Alice Chen",
+    role: "Chief Technology Officer",
+    department: "engineering",
+    level: "exec",
+    baseCompUsd: 280_000,
+    startDate: isoDate(daysAgo(730)),
+    tags: ["leadership", "c-suite"],
+  });
+
+  const bob = p.hire({
+    id: "emp-bob",
+    name: "Bob Kim",
+    role: "Engineering Manager",
+    department: "engineering",
+    level: "m1",
+    baseCompUsd: 195_000,
+    managerId: alice.id,
+    startDate: isoDate(daysAgo(540)),
+  });
+
+  p.hire({
+    id: "emp-priya",
+    name: "Priya Shah",
+    role: "Senior Software Engineer",
+    department: "engineering",
+    level: "ic4",
+    baseCompUsd: 175_000,
+    managerId: bob.id,
+    startDate: isoDate(daysAgo(365)),
+    tags: ["robotics", "controls"],
+  });
+
+  p.hire({
+    id: "emp-lei",
+    name: "Lei Zhang",
+    role: "Software Engineer",
+    department: "engineering",
+    level: "ic3",
+    baseCompUsd: 145_000,
+    managerId: bob.id,
+    startDate: isoDate(daysAgo(200)),
+  });
+
+  // Product
+  const maya = p.hire({
+    id: "emp-maya",
+    name: "Maya Okonkwo",
+    role: "VP of Product",
+    department: "product",
+    level: "m2",
+    baseCompUsd: 220_000,
+    startDate: isoDate(daysAgo(600)),
+    tags: ["leadership"],
+  });
+
+  p.hire({
+    id: "emp-daniel",
+    name: "Daniel Torres",
+    role: "Product Manager",
+    department: "product",
+    level: "ic3",
+    baseCompUsd: 155_000,
+    managerId: maya.id,
+    startDate: isoDate(daysAgo(290)),
+  });
+
+  // Sales
+  p.hire({
+    id: "emp-dana",
+    name: "Dana Reyes",
+    role: "Account Executive",
+    department: "sales",
+    level: "ic3",
+    baseCompUsd: 130_000,
+    startDate: isoDate(daysAgo(400)),
+    tags: ["enterprise"],
+  });
+
+  // Operations
+  p.hire({
+    id: "emp-omar-ops",
+    name: "Omar Haddad",
+    role: "Head of Operations",
+    department: "operations",
+    level: "m1",
+    baseCompUsd: 180_000,
+    startDate: isoDate(daysAgo(500)),
+  });
+
+  // Open roles
+  p.addOpenRole({
+    id: "role-ic5-eng",
+    title: "Staff Software Engineer",
+    department: "engineering",
+    level: "ic5",
+    targetCompUsd: 210_000,
+    openedAt: isoDate(daysAgo(30)),
+  });
+
+  p.addOpenRole({
+    id: "role-ic2-sales",
+    title: "Sales Development Representative",
+    department: "sales",
+    level: "ic2",
+    targetCompUsd: 90_000,
+    openedAt: isoDate(daysAgo(14)),
+  });
+
+  p.addOpenRole({
+    id: "role-ic3-product",
+    title: "Product Manager — Autonomy",
+    department: "product",
+    level: "ic3",
+    targetCompUsd: 160_000,
+    openedAt: isoDate(daysAgo(21)),
+  });
+}
+
+function seedOkr(olympus: Olympus): void {
+  const okr = olympus.okr;
+
+  okr.addObjective({
+    id: "okr-arr",
+    label: "Reach $5M ARR",
+    owner: "CEO",
+    dueDate: isoDate(daysAgo(-180)),
+    keyResults: [
+      { id: "kr-arr", label: "Grow ARR to $5M", metricKey: "arr", baseline: 3_200_000, target: 5_000_000 },
+    ],
+  });
+
+  okr.addObjective({
+    id: "okr-retention",
+    label: "Improve net retention",
+    owner: "VP Customer Success",
+    dueDate: isoDate(daysAgo(-180)),
+    keyResults: [
+      { id: "kr-nrr", label: "Lift NRR to 120%", metricKey: "nrr", baseline: 105, target: 120 },
+    ],
+  });
+
+  // Record partial progress (deterministic, not random):
+  //   ARR: 3.2M → 4.3M  ≈ 61% of the way to 5M.
+  //   NRR: 105  → 114    = 60% of the way to 120.
+  okr.recordMetric("arr", 4_300_000);
+  okr.recordMetric("nrr", 114);
+}
+
+function seedProjects(olympus: Olympus): void {
+  const tracker = olympus.sprints;
+
+  // --- Project 1: Platform v2 ---
+  const platform = tracker.addProject({
+    id: "proj-platform-v2",
+    name: "Platform v2",
+    description: "Next-generation fleet autonomy platform with improved reliability and observability.",
+    status: "active",
+    ownerId: "emp-alice",
+  });
+
+  // Completed sprint (Sprint 1) — shows historical velocity
+  tracker.addSprint({
+    id: "sprint-platform-1",
+    projectId: platform.id,
+    name: "Sprint 1 — Foundation",
+    startDate: isoDate(daysAgo(42)),
+    endDate: isoDate(daysAgo(28)),
+    status: "completed",
+    plannedPoints: 40,
+    completedPoints: 36,
+    velocity: 0.9,
+  });
+
+  // Active sprint (Sprint 2)
+  tracker.addSprint({
+    id: "sprint-platform-2",
+    projectId: platform.id,
+    name: "Sprint 2 — Core APIs",
+    startDate: isoDate(daysAgo(14)),
+    endDate: isoDate(daysAgo(-0)),
+    status: "active",
+    plannedPoints: 38,
+  });
+
+  // Work items for Sprint 2
+  const doneItem1 = tracker.addItem({ id: "item-p2-1", title: "Design REST API schema for fleet telemetry", type: "story", status: "in-progress", priority: "high", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 5, assigneeId: "emp-priya" });
+  const doneItem2 = tracker.addItem({ id: "item-p2-2", title: "Implement telemetry ingestion endpoint", type: "story", status: "in-progress", priority: "high", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 8, assigneeId: "emp-priya" });
+  tracker.addItem({ id: "item-p2-3", title: "Add authentication middleware", type: "task", status: "in-progress", priority: "critical", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 5, assigneeId: "emp-lei" });
+  tracker.addItem({ id: "item-p2-4", title: "Fix race condition in state machine transitions", type: "bug", status: "in-progress", priority: "critical", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 3, assigneeId: "emp-lei" });
+  tracker.addItem({ id: "item-p2-5", title: "Write integration tests for telemetry pipeline", type: "task", status: "review", priority: "medium", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 5, assigneeId: "emp-priya" });
+  tracker.addItem({ id: "item-p2-6", title: "Update API documentation", type: "task", status: "backlog", priority: "low", projectId: platform.id, sprintId: "sprint-platform-2", storyPoints: 2, assigneeId: "emp-daniel" });
+
+  // Mark done items
+  tracker.updateItemStatus(doneItem1.id, "done");
+  tracker.updateItemStatus(doneItem2.id, "done");
+
+  // Backlog items not in a sprint yet
+  tracker.addItem({ id: "item-p2-7", title: "Implement WebSocket streaming for real-time telemetry", type: "story", status: "backlog", priority: "high", projectId: platform.id, storyPoints: 13 });
+  tracker.addItem({ id: "item-p2-8", title: "Performance benchmarking — 10k concurrent fleets", type: "story", status: "backlog", priority: "medium", projectId: platform.id, storyPoints: 8 });
+
+  // --- Project 2: Developer Experience ---
+  const dx = tracker.addProject({
+    id: "proj-dx",
+    name: "Developer Experience",
+    description: "Improve internal tooling, onboarding docs, and CI/CD pipelines.",
+    status: "active",
+    ownerId: "emp-bob",
+  });
+
+  // One completed sprint with perfect velocity
+  tracker.addSprint({
+    id: "sprint-dx-1",
+    projectId: dx.id,
+    name: "Sprint 1 — CI/CD Overhaul",
+    startDate: isoDate(daysAgo(28)),
+    endDate: isoDate(daysAgo(14)),
+    status: "completed",
+    plannedPoints: 20,
+    completedPoints: 20,
+    velocity: 1.0,
+  });
+
+  // Active sprint
+  tracker.addSprint({
+    id: "sprint-dx-2",
+    projectId: dx.id,
+    name: "Sprint 2 — Onboarding",
+    startDate: isoDate(daysAgo(7)),
+    endDate: isoDate(daysAgo(-7)),
+    status: "active",
+    plannedPoints: 18,
+  });
+
+  const dxDoneItem = tracker.addItem({ id: "item-dx-1", title: "Create new-hire onboarding runbook", type: "task", status: "in-progress", priority: "high", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 3, assigneeId: "emp-bob" });
+  tracker.addItem({ id: "item-dx-2", title: "Set up preview environments for PRs", type: "story", status: "in-progress", priority: "high", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 8, assigneeId: "emp-lei" });
+  tracker.addItem({ id: "item-dx-3", title: "Add lint and type-check to pre-commit hooks", type: "task", status: "backlog", priority: "medium", projectId: dx.id, sprintId: "sprint-dx-2", storyPoints: 3 });
+
+  tracker.updateItemStatus(dxDoneItem.id, "done");
+}
+
+function seedProductAnalytics(olympus: Olympus): void {
+  const product = olympus.product;
+
+  // Set total tracked accounts denominator
+  product.setTotalAccounts(12);
+
+  // Register features
+  product.registerFeature({
+    key: "sso",
+    name: "Single Sign-On",
+    description: "SAML/OIDC-based SSO for enterprise accounts.",
+    launchedAt: isoDate(daysAgo(180)),
+    gated: false,
+  });
+
+  product.registerFeature({
+    key: "api_v2",
+    name: "API v2",
+    description: "Next-generation REST API with improved pagination and webhooks.",
+    launchedAt: isoDate(daysAgo(90)),
+    gated: false,
+  });
+
+  product.registerFeature({
+    key: "bulk_export",
+    name: "Bulk Export",
+    description: "Export large datasets as CSV or JSON in the background.",
+    launchedAt: isoDate(daysAgo(60)),
+    gated: false,
+  });
+
+  product.registerFeature({
+    key: "advanced_analytics",
+    name: "Advanced Analytics",
+    description: "Custom dashboards and cohort analysis (beta, gated to select accounts).",
+    launchedAt: isoDate(daysAgo(30)),
+    gated: true,
+    allowedAccounts: ["cs-acme", "cs-northwind"],
+  });
+
+  // Record usage across accounts
+  const accounts = ["cs-acme", "cs-northwind", "cs-cascade", "cs-pinnacle"];
+
+  // SSO: broadly used by 4 accounts
+  for (const acc of accounts) {
+    for (let i = 0; i < 5; i++) product.recordUsage("sso", acc);
+  }
+
+  // API v2: heavy usage by 3 accounts
+  for (const acc of ["cs-acme", "cs-northwind", "cs-cascade"]) {
+    for (let i = 0; i < 8; i++) product.recordUsage("api_v2", acc);
+  }
+
+  // Bulk export: light usage by 2 accounts
+  product.recordUsage("bulk_export", "cs-acme");
+  product.recordUsage("bulk_export", "cs-acme");
+  product.recordUsage("bulk_export", "cs-northwind");
+
+  // Advanced analytics: gated — only allowed accounts can use it
+  for (let i = 0; i < 6; i++) product.recordUsage("advanced_analytics", "cs-acme");
+  for (let i = 0; i < 4; i++) product.recordUsage("advanced_analytics", "cs-northwind");
+  // cs-cascade is not in allowedAccounts — this call is silently rejected
+  product.recordUsage("advanced_analytics", "cs-cascade");
+}
+
+function seedCustomerSuccess(olympus: Olympus): void {
+  const cs = olympus.customerSuccess;
+
+  // Healthy accounts: engaged, current payment, recent QBR
+  cs.addAccount({
+    accountId: "cs-acme",
+    name: "Acme Manufacturing",
+    arrUsd: 240_000,
+    openTickets: 1,
+    daysSinceLastActivity: 2,
+    paymentStatus: "current",
+    npsScore: 85,
+    lastQbrDate: isoDate(daysAgo(30)),
+  });
+
+  cs.addAccount({
+    accountId: "cs-northwind",
+    name: "Northwind Logistics",
+    arrUsd: 180_000,
+    openTickets: 0,
+    daysSinceLastActivity: 5,
+    paymentStatus: "current",
+    npsScore: 72,
+    lastQbrDate: isoDate(daysAgo(45)),
+  });
+
+  // At-risk: inactive, no recent QBR
+  cs.addAccount({
+    accountId: "cs-cascade",
+    name: "Cascade Foods",
+    arrUsd: 95_000,
+    openTickets: 3,
+    daysSinceLastActivity: 40,
+    paymentStatus: "current",
+    lastQbrDate: isoDate(daysAgo(100)),
+  });
+
+  // Red-zone: overdue payment, many tickets
+  cs.addAccount({
+    accountId: "cs-pinnacle",
+    name: "Pinnacle Health",
+    arrUsd: 60_000,
+    openTickets: 5,
+    daysSinceLastActivity: 20,
+    paymentStatus: "overdue",
+  });
+
+  // Churned: suspended, very inactive
+  cs.addAccount({
+    accountId: "cs-vertex",
+    name: "Vertex Components",
+    arrUsd: 42_000,
+    openTickets: 6,
+    daysSinceLastActivity: 90,
+    paymentStatus: "suspended",
+  });
+}
+
+function seedCompetitiveIntel(olympus: Olympus): void {
+  const ci = olympus.competitive;
+
+  // Competitors
+  const apex = ci.addCompetitor({ id: "comp-apex", name: "Apex Systems", website: "https://apexsystems.io", tags: ["enterprise", "automation"] });
+  const nova = ci.addCompetitor({ id: "comp-nova", name: "NovaTech", website: "https://novatech.ai", tags: ["ai", "startup"] });
+  const legacy = ci.addCompetitor({ id: "comp-legacy", name: "LegacyCorp", website: "https://legacycorp.com", tags: ["legacy", "on-prem"] });
+
+  // Signals for Apex Systems — pricing change (negative for us, positive for them)
+  ci.addSignal({
+    competitorId: apex.id,
+    type: "pricing_change",
+    title: "Apex cuts enterprise pricing by 15%",
+    summary: "Apex Systems announced a 15% reduction in enterprise tier pricing, likely to win deals in mid-market.",
+    sentiment: "negative",
+    source: "press release",
+  });
+
+  // Signals for NovaTech — product launch (neutral)
+  ci.addSignal({
+    competitorId: nova.id,
+    type: "product_launch",
+    title: "NovaTech launches AI-powered fleet analytics",
+    summary: "NovaTech shipped a new AI analytics module that competes directly with our observability features.",
+    sentiment: "negative",
+    source: "techcrunch.com",
+  });
+
+  // Signals for LegacyCorp — funding round (positive for us — competitor struggles)
+  ci.addSignal({
+    competitorId: legacy.id,
+    type: "funding",
+    title: "LegacyCorp fails to close Series C",
+    summary: "LegacyCorp's Series C fell through; engineering layoffs expected. Opportunity to win their unhappy customers.",
+    sentiment: "positive",
+    source: "bloomberg",
+  });
+
+  // Win/loss records — 4 records showing mixed win rate
+  // Apex: 1 win, 1 loss → 50% win rate
+  ci.recordWinLoss({ dealId: "deal-acme", competitorId: apex.id, outcome: "win", reason: "Superior integration and support quality", dealArrUsd: 240_000 });
+  ci.recordWinLoss({ dealId: "deal-stellar", competitorId: apex.id, outcome: "loss", reason: "Apex undercut on price by 20% at last minute", dealArrUsd: 110_000 });
+
+  // NovaTech: 1 win → 100% win rate
+  ci.recordWinLoss({ dealId: "deal-northwind", competitorId: nova.id, outcome: "win", reason: "Enterprise features and compliance certifications tipped the deal", dealArrUsd: 180_000 });
+
+  // LegacyCorp: 1 loss → 0% win rate (customer chose legacy vendor familiarity)
+  ci.recordWinLoss({ dealId: "deal-pinnacle", competitorId: legacy.id, outcome: "loss", reason: "Customer locked into existing LegacyCorp contracts for 2 more years", dealArrUsd: 60_000 });
+}
+
+function seedIncidents(olympus: Olympus): void {
+  const mgr = olympus.incidents;
+
+  // SEV1 — 45 days ago, fully resolved with postmortem
+  const sev1OccurredAt = new Date(Date.now() - 45 * 864e5);
+  const sev1DetectedAt = new Date(sev1OccurredAt.getTime() + 5 * 60_000);
+  const sev1AcknowledgedAt = new Date(sev1OccurredAt.getTime() + 15 * 60_000);
+  const sev1ResolvedAt = new Date(sev1OccurredAt.getTime() + 2 * 3_600_000);
+  const sev1ClosedAt = new Date(sev1OccurredAt.getTime() + 864e5);
+
+  const sev1 = mgr.openIncident({
+    title: "Total API outage — database connection pool exhausted",
+    description: "All API endpoints returned 503 due to exhausted PostgreSQL connection pool.",
+    severity: "SEV1",
+    occurredAt: sev1OccurredAt.toISOString(),
+    detectedAt: sev1DetectedAt.toISOString(),
+    affectedServices: ["api", "database"],
+    tags: ["database", "connection-pool"],
+  });
+  sev1.acknowledgedAt = sev1AcknowledgedAt.toISOString();
+  sev1.status = "acknowledged";
+  sev1.commander = "Alice Chen";
+  sev1.mitigatedAt = new Date(sev1OccurredAt.getTime() + 90 * 60_000).toISOString();
+  sev1.status = "mitigated";
+  sev1.resolvedAt = sev1ResolvedAt.toISOString();
+  sev1.status = "resolved";
+  sev1.closedAt = sev1ClosedAt.toISOString();
+  sev1.status = "closed";
+
+  mgr.publishPostmortem(sev1.id, {
+    summary: "Connection pool exhaustion caused a complete API outage lasting ~2 hours.",
+    rootCause: "A missing index on a high-frequency query caused runaway connections under peak load.",
+    timeline: "Occurred 00:00 → Detected 00:05 → Acknowledged 00:15 → Mitigated 01:30 → Resolved 02:00 → Closed +24h",
+    actionItems: [
+      "Add missing index on orders.user_id",
+      "Set per-tenant connection pool caps",
+      "Add connection saturation alerting at 80% threshold",
+    ],
+    publishedBy: "Alice Chen",
+  });
+
+  // SEV2 — 10 days ago, resolved, no postmortem
+  const sev2OccurredAt = new Date(Date.now() - 10 * 864e5);
+  const sev2DetectedAt = new Date(sev2OccurredAt.getTime() + 8 * 60_000);
+  const sev2AcknowledgedAt = new Date(sev2OccurredAt.getTime() + 20 * 60_000);
+  const sev2ResolvedAt = new Date(sev2OccurredAt.getTime() + 75 * 60_000);
+
+  const sev2 = mgr.openIncident({
+    title: "Elevated p99 latency — telemetry ingestion pipeline",
+    description: "p99 API latency spiked to 4s due to a backlog in the telemetry ingestion pipeline.",
+    severity: "SEV2",
+    occurredAt: sev2OccurredAt.toISOString(),
+    detectedAt: sev2DetectedAt.toISOString(),
+    affectedServices: ["telemetry", "api"],
+    tags: ["latency", "pipeline"],
+  });
+  sev2.acknowledgedAt = sev2AcknowledgedAt.toISOString();
+  sev2.status = "acknowledged";
+  sev2.commander = "Bob Kim";
+  sev2.resolvedAt = sev2ResolvedAt.toISOString();
+  sev2.status = "resolved";
+
+  // SEV3 — 2 days ago, still open (detected)
+  const sev3OccurredAt = new Date(Date.now() - 2 * 864e5);
+  const sev3DetectedAt = new Date(sev3OccurredAt.getTime() + 30 * 60_000);
+
+  mgr.openIncident({
+    title: "Intermittent 404s on /v1/fleet/:id endpoint",
+    description: "A subset of fleet device requests return 404 intermittently due to a cache invalidation race.",
+    severity: "SEV3",
+    occurredAt: sev3OccurredAt.toISOString(),
+    detectedAt: sev3DetectedAt.toISOString(),
+    affectedServices: ["api", "cache"],
+    tags: ["cache", "race-condition"],
+  });
+}
+
+function seedCompliance(olympus: Olympus): void {
+  const c = olympus.compliance;
+
+  // 1. SOC2 CC6.1 — Logical Access Controls (recent evidence → compliant)
+  const ctrl1 = c.addControl({
+    id: "ctrl-soc2-cc6-1",
+    title: "Logical Access Controls",
+    description: "Restrict logical access to systems and data to authorized users.",
+    framework: "SOC2",
+    category: "Access Control",
+    reviewCycleDays: 90,
+    owner: "security-team",
+  });
+  c.recordEvidence(ctrl1.id, {
+    type: "log_export",
+    description: "IAM access review — all accounts audited and confirmed.",
+    collectedAt: isoDate(daysAgo(10)),
+    collectedBy: "security-team",
+  });
+
+  // 2. SOC2 CC6.2 — Authentication (stale evidence → non-compliant)
+  const ctrl2 = c.addControl({
+    id: "ctrl-soc2-cc6-2",
+    title: "Authentication",
+    description: "Multi-factor authentication enforced for all privileged accounts.",
+    framework: "SOC2",
+    category: "Access Control",
+    reviewCycleDays: 90,
+    owner: "security-team",
+  });
+  c.recordEvidence(ctrl2.id, {
+    type: "screenshot",
+    description: "MFA enforcement screenshot from admin console.",
+    collectedAt: "2026-03-15",
+    collectedBy: "security-team",
+  });
+
+  // 3. ISO27001 A.12.6 — Patch Management (recent evidence → compliant)
+  const ctrl3 = c.addControl({
+    id: "ctrl-iso-a12-6",
+    title: "Patch Management",
+    description: "Technical vulnerabilities managed and patched in a timely manner.",
+    framework: "ISO27001",
+    category: "Operations Security",
+    reviewCycleDays: 30,
+    owner: "it-ops",
+  });
+  c.recordEvidence(ctrl3.id, {
+    type: "report",
+    description: "Patch compliance report — 100% of critical CVEs remediated within SLA.",
+    collectedAt: isoDate(daysAgo(5)),
+    collectedBy: "it-ops",
+  });
+
+  // 4. GDPR Art.32 — Encryption at Rest (recent evidence → compliant)
+  const ctrl4 = c.addControl({
+    id: "ctrl-gdpr-art32",
+    title: "Encryption at Rest",
+    description: "Personal data encrypted at rest using AES-256 or equivalent.",
+    framework: "GDPR",
+    category: "Data Security",
+    reviewCycleDays: 180,
+    owner: "engineering",
+  });
+  c.recordEvidence(ctrl4.id, {
+    type: "attestation",
+    description: "Engineering attestation: all datastores use AES-256 encryption at rest.",
+    collectedAt: isoDate(daysAgo(30)),
+    collectedBy: "engineering",
+  });
+
+  // 5. internal — Incident Response Plan (no evidence → not-started)
+  c.addControl({
+    id: "ctrl-internal-irp",
+    title: "Incident Response Plan",
+    description: "Documented and tested incident response plan covering detection, containment, and recovery.",
+    framework: "internal",
+    category: "Incident Management",
+    reviewCycleDays: 365,
+    owner: "security-team",
+  });
+}
+
+function seedMarketing(olympus: Olympus): void {
+  const mkt = olympus.marketing;
+
+  // 4 campaigns
+  const googleAds = mkt.addCampaign({
+    id: "mkt-google-ads-q2",
+    name: "Google Ads Q2",
+    channel: "paid_search",
+    startDate: isoDate(daysAgo(90)),
+    endDate: isoDate(daysAgo(-1)),
+    budgetUsd: 15_000,
+    spendUsd: 12_000,
+    impressions: 45_000,
+    clicks: 1_200,
+    leads: 28,
+  });
+
+  const linkedIn = mkt.addCampaign({
+    id: "mkt-linkedin-enterprise",
+    name: "LinkedIn Enterprise",
+    channel: "paid_social",
+    startDate: isoDate(daysAgo(90)),
+    endDate: isoDate(daysAgo(-1)),
+    budgetUsd: 8_000,
+    spendUsd: 7_500,
+    impressions: 22_000,
+    clicks: 340,
+    leads: 12,
+  });
+
+  const seoBlog = mkt.addCampaign({
+    id: "mkt-seo-blog",
+    name: "SEO Blog Initiative",
+    channel: "content",
+    startDate: isoDate(daysAgo(180)),
+    budgetUsd: 3_000,
+    spendUsd: 2_800,
+    impressions: 0,
+    clicks: 5_200,
+    leads: 45,
+  });
+
+  const emailNurture = mkt.addCampaign({
+    id: "mkt-email-nurture-q2",
+    name: "Q2 Nurture Sequence",
+    channel: "email",
+    startDate: isoDate(daysAgo(60)),
+    endDate: isoDate(daysAgo(-1)),
+    budgetUsd: 1_500,
+    spendUsd: 1_400,
+    impressions: 0,
+    clicks: 890,
+    leads: 18,
+  });
+
+  // 5 conversions with realistic touchpoints
+  mkt.recordConversion({
+    id: "conv-acme",
+    dealId: "deal-acme",
+    accountId: "cs-acme",
+    touchPoints: [
+      { channel: "organic_search", timestamp: new Date(Date.now() - 60 * 864e5).toISOString(), campaignId: seoBlog.id },
+      { channel: "paid_search", timestamp: new Date(Date.now() - 45 * 864e5).toISOString(), campaignId: googleAds.id },
+      { channel: "email", timestamp: new Date(Date.now() - 30 * 864e5).toISOString(), campaignId: emailNurture.id },
+      { channel: "direct", timestamp: new Date(Date.now() - 15 * 864e5).toISOString() },
+    ],
+    convertedAt: new Date(Date.now() - 10 * 864e5).toISOString(),
+    revenueUsd: 240_000,
+    model: "linear",
+  });
+
+  mkt.recordConversion({
+    id: "conv-northwind",
+    dealId: "deal-northwind",
+    accountId: "cs-northwind",
+    touchPoints: [
+      { channel: "paid_social", timestamp: new Date(Date.now() - 50 * 864e5).toISOString(), campaignId: linkedIn.id },
+      { channel: "content", timestamp: new Date(Date.now() - 35 * 864e5).toISOString(), campaignId: seoBlog.id },
+      { channel: "email", timestamp: new Date(Date.now() - 20 * 864e5).toISOString(), campaignId: emailNurture.id },
+    ],
+    convertedAt: new Date(Date.now() - 14 * 864e5).toISOString(),
+    revenueUsd: 180_000,
+    model: "time_decay",
+  });
+
+  mkt.recordConversion({
+    id: "conv-cascade",
+    accountId: "cs-cascade",
+    touchPoints: [
+      { channel: "paid_search", timestamp: new Date(Date.now() - 40 * 864e5).toISOString(), campaignId: googleAds.id },
+      { channel: "direct", timestamp: new Date(Date.now() - 10 * 864e5).toISOString() },
+    ],
+    convertedAt: new Date(Date.now() - 5 * 864e5).toISOString(),
+    revenueUsd: 95_000,
+    model: "first_touch",
+  });
+
+  mkt.recordConversion({
+    id: "conv-pinnacle",
+    accountId: "cs-pinnacle",
+    touchPoints: [
+      { channel: "referral", timestamp: new Date(Date.now() - 70 * 864e5).toISOString() },
+      { channel: "paid_social", timestamp: new Date(Date.now() - 55 * 864e5).toISOString(), campaignId: linkedIn.id },
+      { channel: "email", timestamp: new Date(Date.now() - 40 * 864e5).toISOString(), campaignId: emailNurture.id },
+      { channel: "paid_search", timestamp: new Date(Date.now() - 25 * 864e5).toISOString(), campaignId: googleAds.id },
+    ],
+    convertedAt: new Date(Date.now() - 20 * 864e5).toISOString(),
+    revenueUsd: 85_000,
+    model: "position_based",
+  });
+
+  mkt.recordConversion({
+    id: "conv-vertex",
+    accountId: "cs-vertex",
+    touchPoints: [
+      { channel: "content", timestamp: new Date(Date.now() - 90 * 864e5).toISOString(), campaignId: seoBlog.id },
+      { channel: "organic_search", timestamp: new Date(Date.now() - 75 * 864e5).toISOString() },
+      { channel: "email", timestamp: new Date(Date.now() - 50 * 864e5).toISOString(), campaignId: emailNurture.id },
+    ],
+    convertedAt: new Date(Date.now() - 45 * 864e5).toISOString(),
+    revenueUsd: 130_000,
+    model: "last_touch",
+  });
+}
+
+function seedForecasting(olympus: Olympus): void {
+  const heliosAssumptions: ForecastAssumptions = {
+    startingArrUsd: 3_200_000,
+    startingCashUsd: 4_200_000,
+    arrGrowthRate: 0.04,
+    churnRate: 0.012,
+    avgDealSizeUsd: 85_000,
+    newDealsPerMonth: 2,
+    monthlyOpexUsd: 95_000,
+    opexGrowthRate: 0.02,
+    monthlyPayrollUsd: 380_000,
+    headcountGrowthRate: 0.03,
+    grossMargin: 0.72,
+  };
+
+  // Base 18-month forecast
+  olympus.forecasting.generate(heliosAssumptions, 18, "base");
+
+  // Optimistic 12-month forecast
+  olympus.forecasting.generate(
+    {
+      ...heliosAssumptions,
+      arrGrowthRate: 0.07,
+      avgDealSizeUsd: 110_000,
+      churnRate: 0.008,
+    },
+    12,
+    "optimistic"
+  );
+}
+
+function seedDataPipeline(olympus: Olympus): void {
+  const dp = olympus.dataPipeline;
+
+  // 3 sources
+  const crmSource = dp.addSource({ name: "CRM Database", type: "postgres" });
+  const warehouseSource = dp.addSource({ name: "Analytics Warehouse", type: "bigquery" });
+  const s3Source = dp.addSource({ name: "Raw Event Bucket", type: "s3" });
+
+  // 3 pipelines
+  const crmPipeline = dp.addPipeline({
+    name: "CRM to Warehouse",
+    description: "Syncs CRM contacts and deals to the analytics warehouse",
+    sourceId: crmSource.id,
+    sinkDatasetId: "crm_contacts",
+    status: "active",
+    scheduleExpression: "0 0 * * *",
+  });
+
+  const eventsPipeline = dp.addPipeline({
+    name: "Events Aggregation",
+    description: "Aggregates raw S3 events into summary datasets",
+    sourceId: s3Source.id,
+    sinkDatasetId: "events_summary",
+    status: "active",
+    scheduleExpression: "0 * * * *",
+  });
+
+  dp.addPipeline({
+    name: "Marketing Attribution Feed",
+    description: "Pulls marketing attribution data from external API",
+    sourceId: warehouseSource.id,
+    sinkDatasetId: "marketing_attribution",
+    status: "active",
+    scheduleExpression: "0 */6 * * *",
+  });
+
+  // 4 runs: 2 completed for CRM, 1 failed + 1 completed for Events
+  dp.recordRun(crmPipeline.id, { rowsRead: 50_000, rowsWritten: 50_000, rowsErrored: 0, durationMs: 12_000 });
+  dp.recordRun(crmPipeline.id, { rowsRead: 50_000, rowsWritten: 50_000, rowsErrored: 0, durationMs: 11_500 });
+  dp.recordRun(eventsPipeline.id, { rowsRead: 0, rowsWritten: 0, rowsErrored: 0, durationMs: 3_000, status: "failed", error: "schema mismatch" });
+  dp.recordRun(eventsPipeline.id, { rowsRead: 48_000, rowsWritten: 48_000, rowsErrored: 0, durationMs: 9_800 });
+
+  // Quality scores
+  dp.recordQuality("crm_contacts", { completeness: 92, freshness: 88, validity: 95, uniqueness: 99, consistency: 91 });
+  dp.recordQuality("events_summary", { completeness: 78, freshness: 95, validity: 65, uniqueness: 88, consistency: 72 });
+}
+
+export function seedSupport(olympus: Olympus): void {
+  const support = olympus.support;
+
+  const now = Date.now();
+  const h = 3600000; // 1 hour in ms
+
+  // 1. Critical bug — API authentication failing — resolved quickly within SLA, CSAT 5
+  const t1 = support.openTicket({
+    subject: "API authentication failing",
+    description: "Users unable to authenticate via API tokens.",
+    priority: "critical",
+    category: "bug",
+    customerId: "cascade-corp",
+    createdAt: new Date(now - 3 * h).toISOString(),
+  });
+  support.assignTicket(t1.id, "eng-alice");
+  support.recordFirstReply(t1.id, new Date(now - 2.8 * h).toISOString()); // ~12 min FRT, within 1h
+  support.resolveTicket(t1.id, new Date(now - 1 * h).toISOString()); // 2h resolution, within 4h
+  support.submitCsat(t1.id, 5);
+
+  // 2. High — Export to CSV broken — resolved in 20h (within 24h SLA), CSAT 4
+  const t2 = support.openTicket({
+    subject: "Export to CSV broken",
+    description: "CSV export button produces empty files.",
+    priority: "high",
+    category: "bug",
+    customerId: "pinnacle-inc",
+    createdAt: new Date(now - 22 * h).toISOString(),
+  });
+  support.assignTicket(t2.id, "eng-bob");
+  support.recordFirstReply(t2.id, new Date(now - 21 * h).toISOString()); // ~1h FRT, within 4h
+  support.resolveTicket(t2.id, new Date(now - 2 * h).toISOString()); // 20h resolution, within 24h
+  support.submitCsat(t2.id, 4);
+
+  // 3. Medium — Dashboard loading slowly — in_progress, no resolution yet
+  const t3 = support.openTicket({
+    subject: "Dashboard loading slowly",
+    description: "Main dashboard takes 15+ seconds to load.",
+    priority: "medium",
+    category: "performance",
+    customerId: "vertex-tech",
+    createdAt: new Date(now - 5 * h).toISOString(),
+  });
+  support.assignTicket(t3.id, "eng-alice");
+  support.recordFirstReply(t3.id, new Date(now - 4 * h).toISOString()); // ~1h FRT, within 8h
+
+  // 4. High — Billing discrepancy Q2 invoice — open, no assignee (SLA risk)
+  support.openTicket({
+    subject: "Billing discrepancy Q2 invoice",
+    description: "Invoice for Q2 shows incorrect charges.",
+    priority: "high",
+    category: "billing",
+    customerId: "cascade-corp",
+    createdAt: new Date(now - 6 * h).toISOString(),
+  });
+
+  // 5. Low — Feature request: dark mode — open
+  support.openTicket({
+    subject: "Feature request: dark mode",
+    description: "Please add a dark mode option to the UI.",
+    priority: "low",
+    category: "feature_request",
+    customerId: "nova-systems",
+    createdAt: new Date(now - 2 * h).toISOString(),
+  });
+
+  // 6. Critical — Data export completely broken — resolved in 6h (breaches 4h SLA), CSAT 2
+  const t6 = support.openTicket({
+    subject: "Data export completely broken",
+    description: "All data export functionality returns 500 errors.",
+    priority: "critical",
+    category: "bug",
+    customerId: "vertex-tech",
+    createdAt: new Date(now - 8 * h).toISOString(),
+  });
+  support.assignTicket(t6.id, "eng-bob");
+  support.recordFirstReply(t6.id, new Date(now - 7.5 * h).toISOString()); // ~30 min FRT, within 1h
+  support.resolveTicket(t6.id, new Date(now - 2 * h).toISOString()); // 6h resolution, breaches 4h SLA
+  support.submitCsat(t6.id, 2);
+}
+
+export function seedCommunication(olympus: Olympus): void {
+  const comms = olympus.comms;
+
+  // Sequence 1: Enterprise Outbound Q3 (active)
+  const seq1 = comms.createSequence({
+    id: "seq-enterprise-q3",
+    name: "Enterprise Outbound Q3",
+    description: "Q3 enterprise outreach targeting mid-market accounts",
+    status: "active",
+    targetSegment: "mid-market",
+    steps: [
+      { stepNumber: 1, channel: "email", delayDays: 0, subject: "Intro from Helios Robotics", bodyTemplate: "Hi {{firstName}}, I wanted to reach out about how Helios could help {{company}}..." },
+      { stepNumber: 2, channel: "email", delayDays: 3, subject: "Following up", bodyTemplate: "Hi {{firstName}}, just following up on my previous note..." },
+      { stepNumber: 3, channel: "linkedin", delayDays: 7, subject: undefined, bodyTemplate: "Hi {{firstName}}, connecting to continue our conversation..." },
+    ],
+    tags: ["enterprise", "q3", "outbound"],
+  });
+
+  // Sequence 2: Product Launch (completed)
+  const seq2 = comms.createSequence({
+    id: "seq-product-launch",
+    name: "Product Launch",
+    description: "Product launch announcement sequence",
+    status: "active",
+    targetSegment: "all-customers",
+    steps: [
+      { stepNumber: 1, channel: "email", delayDays: 0, subject: "Introducing Helios 2.0", bodyTemplate: "We're thrilled to announce Helios 2.0, packed with new features..." },
+      { stepNumber: 2, channel: "email", delayDays: 2, subject: "Have you tried Helios 2.0 yet?", bodyTemplate: "Hoping you had a chance to check out the new features..." },
+    ],
+    tags: ["product", "launch"],
+  });
+
+  const base = new Date().toISOString();
+
+  // Enroll contacts 001-004 in sequence 1
+  const contacts1 = ["contact-001", "contact-002", "contact-003", "contact-004"];
+  for (const contactId of contacts1) {
+    const msgs = comms.enrollContact(seq1.id, contactId, base);
+    // Send step-1 messages for all 4
+    comms.sendMessage(msgs[0]!.id);
+  }
+
+  // Record opens for 2 of them
+  const msgs001 = comms.listMessages(seq1.id).filter((m) => m.contactId === "contact-001" && m.stepNumber === 1);
+  const msgs002 = comms.listMessages(seq1.id).filter((m) => m.contactId === "contact-002" && m.stepNumber === 1);
+  if (msgs001[0]) comms.recordEngagement(msgs001[0].id, "open");
+  if (msgs002[0]) comms.recordEngagement(msgs002[0].id, "open");
+
+  // Record reply for 1 of them
+  if (msgs001[0]) comms.recordEngagement(msgs001[0].id, "reply");
+
+  // Enroll 5 contacts in sequence 2; send all messages; high open rates
+  const contacts2 = ["contact-101", "contact-102", "contact-103", "contact-104", "contact-105"];
+  for (const contactId of contacts2) {
+    const msgs = comms.enrollContact(seq2.id, contactId, base);
+    for (const msg of msgs) {
+      comms.sendMessage(msg.id);
+    }
+  }
+
+  // Record opens for 4 of 5 contacts across step-1 messages
+  const seq2Step1Msgs = comms.listMessages(seq2.id).filter((m) => m.stepNumber === 1);
+  for (let i = 0; i < 4; i++) {
+    if (seq2Step1Msgs[i]) comms.recordEngagement(seq2Step1Msgs[i]!.id, "open");
+  }
+
+  // Complete sequence 2
+  comms.completeSequence(seq2.id);
+}
+
+export function seedPricing(olympus: Olympus): void {
+  const pricing = olympus.pricing;
+
+  // Products
+  const helios = pricing.addProduct({
+    id: "prod-helios-platform",
+    name: "Helios Platform",
+    description: "Core SaaS platform with per-seat billing",
+    billingModel: "per_seat",
+    basePriceUsd: 299,
+    tiers: [
+      { minUnits: 1, maxUnits: 10, pricePerUnit: 299, label: "Startup" },
+      { minUnits: 11, maxUnits: 50, pricePerUnit: 249, label: "Growth" },
+      { minUnits: 51, pricePerUnit: 199, label: "Enterprise" },
+    ],
+    annualDiscountPct: 20,
+    currency: "USD",
+    tags: ["core", "saas"],
+  });
+
+  const analytics = pricing.addProduct({
+    id: "prod-analytics",
+    name: "Analytics Add-on",
+    description: "Advanced analytics dashboard",
+    billingModel: "flat_fee",
+    basePriceUsd: 499,
+    annualDiscountPct: 0,
+    currency: "USD",
+    tags: ["addon"],
+  });
+
+  const support = pricing.addProduct({
+    id: "prod-enterprise-support",
+    name: "Enterprise Support",
+    description: "24/7 enterprise support tier",
+    billingModel: "flat_fee",
+    basePriceUsd: 999,
+    annualDiscountPct: 0,
+    currency: "USD",
+    tags: ["support"],
+  });
+
+  // Discounts
+  pricing.addDiscount({
+    id: "disc-launch20",
+    code: "LAUNCH20",
+    description: "Launch promotion — 20% off",
+    type: "percentage",
+    value: 20,
+    maxUsages: 100,
+  });
+
+  pricing.addDiscount({
+    id: "disc-partner50",
+    code: "PARTNER50",
+    description: "Partner discount — 50% off Helios Platform",
+    type: "percentage",
+    value: 50,
+    applicableProductIds: [helios.id],
+  });
+
+  // Quote 1: accepted — 10 seats annual + analytics, LAUNCH20 applied
+  const q1 = pricing.generateQuote({
+    id: "quote-001",
+    customerId: "cust-acme",
+    lineItems: [
+      { productId: helios.id, quantity: 10, annual: true },
+      { productId: analytics.id, quantity: 1, annual: false },
+    ],
+    discountCodes: ["LAUNCH20"],
+    notes: "Acme Corp onboarding deal",
+  });
+  pricing.updateQuoteStatus(q1.id, "accepted");
+
+  // Quote 2: sent — 25 seats monthly
+  const q2 = pricing.generateQuote({
+    id: "quote-002",
+    customerId: "cust-beta",
+    lineItems: [
+      { productId: helios.id, quantity: 25, annual: false },
+    ],
+    notes: "Beta Industries expansion",
+  });
+  pricing.updateQuoteStatus(q2.id, "sent");
+
+  // Quote 3: draft — enterprise 60 seats + all add-ons
+  pricing.generateQuote({
+    id: "quote-003",
+    customerId: "cust-gamma",
+    lineItems: [
+      { productId: helios.id, quantity: 60, annual: false },
+      { productId: analytics.id, quantity: 1, annual: false },
+      { productId: support.id, quantity: 1, annual: false },
+    ],
+    notes: "Gamma Corp enterprise evaluation",
+  });
+}
+
+function seedAssets(olympus: Olympus): void {
+  const assets = olympus.assets;
+
+  // MacBook Pro fleet — 15 units modeled as one asset
+  const macbook = assets.registerAsset({
+    name: "MacBook Pro Fleet (15 units)",
+    type: "hardware",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(365)),
+    purchasePriceUsd: 45_000,
+    depreciationMethod: "straight_line",
+    usefulLifeYears: 4,
+    vendor: "Apple",
+    location: "Helios HQ",
+    tags: ["laptops", "engineering"],
+  });
+
+  // AWS infrastructure — modeled as IP (cloud subscription, $0 capital purchase)
+  assets.registerAsset({
+    name: "AWS Infrastructure",
+    type: "infrastructure",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(730)),
+    purchasePriceUsd: 0,
+    depreciationMethod: "none",
+    usefulLifeYears: 5,
+    vendor: "Amazon Web Services",
+    notes: "$8k/mo cloud spend",
+    tags: ["cloud", "infrastructure"],
+  });
+
+  // GitHub Enterprise license
+  assets.registerAsset({
+    name: "GitHub Enterprise License",
+    type: "software_license",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(180)),
+    purchasePriceUsd: 12_000,
+    depreciationMethod: "straight_line",
+    usefulLifeYears: 1,
+    vendor: "GitHub",
+    warrantyExpiresAt: isoDate(new Date(Date.now() + 185 * 24 * 60 * 60 * 1000)),
+    tags: ["developer-tools"],
+  });
+
+  // Office furniture
+  assets.registerAsset({
+    name: "Office Furniture",
+    type: "furniture",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(500)),
+    purchasePriceUsd: 18_000,
+    depreciationMethod: "straight_line",
+    usefulLifeYears: 7,
+    location: "Helios HQ",
+    tags: ["office"],
+  });
+
+  // Company server rack — in maintenance, warranty expiring in ~60 days
+  const serverRack = assets.registerAsset({
+    name: "Company Server Rack",
+    type: "hardware",
+    status: "active",
+    purchaseDate: isoDate(daysAgo(400)),
+    purchasePriceUsd: 35_000,
+    depreciationMethod: "declining_balance",
+    usefulLifeYears: 5,
+    vendor: "Dell",
+    location: "Data Center",
+    warrantyExpiresAt: isoDate(new Date(Date.now() + 60 * 24 * 60 * 60 * 1000)),
+    maintenanceSchedule: "quarterly",
+    tags: ["servers", "infrastructure"],
+  });
+  assets.updateStatus(serverRack.id, "maintenance");
+
+  // Apply 2 months of depreciation to MacBook fleet and server rack
+  const twoMonthsAgo = new Date();
+  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+  const period1 = `${twoMonthsAgo.getFullYear()}-${String(twoMonthsAgo.getMonth() + 1).padStart(2, "0")}`;
+  const period2 = `${oneMonthAgo.getFullYear()}-${String(oneMonthAgo.getMonth() + 1).padStart(2, "0")}`;
+
+  assets.applyDepreciation(macbook.id, period1);
+  assets.applyDepreciation(macbook.id, period2);
+  assets.applyDepreciation(serverRack.id, period1);
+  assets.applyDepreciation(serverRack.id, period2);
+}
+
+function seedExpenses(olympus: Olympus): void {
+  const expenses = olympus.expenses;
+
+  // 1. emp-priya meals $68 (within limit) → approved → reimbursed
+  const e1 = expenses.submitExpense({
+    employeeId: "emp-priya",
+    category: "meals",
+    amountUsd: 68,
+    description: "Team lunch",
+    receiptUrl: "https://receipts.helios.io/meals-priya-1.pdf",
+    expenseDate: isoDate(daysAgo(20)),
+  });
+  expenses.approve(e1.id, "manager-helios");
+  expenses.reimburse(e1.id);
+
+  // 2. emp-james travel $450 (within limit) → approved
+  const e2 = expenses.submitExpense({
+    employeeId: "emp-james",
+    category: "travel",
+    amountUsd: 450,
+    description: "Flight to NYC client meeting",
+    receiptUrl: "https://receipts.helios.io/travel-james-1.pdf",
+    expenseDate: isoDate(daysAgo(15)),
+  });
+  expenses.approve(e2.id, "manager-helios");
+
+  // 3. emp-alice software $1200 (no receipt → violation) → under_review
+  expenses.submitExpense({
+    employeeId: "emp-alice",
+    category: "software",
+    amountUsd: 1200,
+    description: "Annual SaaS subscription",
+    expenseDate: isoDate(daysAgo(10)),
+  });
+
+  // 4. emp-priya entertainment $200 (exceeds $150 limit → violation) → rejected
+  const e4 = expenses.submitExpense({
+    employeeId: "emp-priya",
+    category: "entertainment",
+    amountUsd: 200,
+    description: "Client dinner",
+    receiptUrl: "https://receipts.helios.io/entertainment-priya-1.pdf",
+    expenseDate: isoDate(daysAgo(8)),
+  });
+  expenses.reject(e4.id, "Exceeds entertainment policy", "manager-helios");
+
+  // 5. emp-james training $3500 (needs finance approval) → submitted
+  expenses.submitExpense({
+    employeeId: "emp-james",
+    category: "training",
+    amountUsd: 3500,
+    description: "Industry conference registration",
+    receiptUrl: "https://receipts.helios.io/training-james-1.pdf",
+    expenseDate: isoDate(daysAgo(3)),
+  });
+
+  // 6. emp-alice meals $55 → submitted → reimbursed
+  const e6 = expenses.submitExpense({
+    employeeId: "emp-alice",
+    category: "meals",
+    amountUsd: 55,
+    description: "Working lunch",
+    receiptUrl: "https://receipts.helios.io/meals-alice-1.pdf",
+    expenseDate: isoDate(daysAgo(5)),
+  });
+  expenses.approve(e6.id, "manager-helios");
+  expenses.reimburse(e6.id);
+}
+
+export function seedRecruitment(olympus: Olympus): void {
+  const ats = olympus.recruitment;
+
+  // 3 open requisitions
+  const backendReq = ats.openRequisition({
+    title: "Senior Backend Engineer",
+    department: "engineering",
+    level: "L5",
+    status: "open",
+    headcount: 2,
+    salaryMinUsd: 180_000,
+    salaryMaxUsd: 230_000,
+    requiredSkills: ["TypeScript", "Node.js", "PostgreSQL"],
+    niceToHaveSkills: ["Rust", "Kafka"],
+    hiringManagerId: "eng-manager-1",
+    recruiterId: "recruiter-1",
+  });
+
+  const pmReq = ats.openRequisition({
+    title: "Product Manager",
+    department: "product",
+    level: "Senior",
+    status: "open",
+    headcount: 1,
+    salaryMinUsd: 150_000,
+    salaryMaxUsd: 190_000,
+    requiredSkills: ["Product strategy", "Roadmap planning", "Stakeholder management"],
+    hiringManagerId: "product-vp-1",
+    recruiterId: "recruiter-1",
+  });
+
+  const salesReq = ats.openRequisition({
+    title: "Head of Sales",
+    department: "sales",
+    level: "Director",
+    status: "open",
+    headcount: 1,
+    salaryMinUsd: 200_000,
+    salaryMaxUsd: 250_000,
+    equityPct: 0.25,
+    requiredSkills: ["Enterprise sales", "Team leadership", "CRM"],
+    hiringManagerId: "ceo-1",
+  });
+
+  // 5 candidates across these roles at various stages
+
+  // 1. Hired — Backend Engineer, started already
+  const c1 = ats.addCandidate({
+    jobId: backendReq.id,
+    name: "Priya Sharma",
+    email: "priya.sharma@example.com",
+    stage: "applied",
+    source: "linkedin",
+    currentCompany: "Stripe",
+    currentTitle: "Backend Engineer",
+  });
+  ats.advanceStage(c1.id, "screening");
+  ats.advanceStage(c1.id, "technical");
+  ats.advanceStage(c1.id, "onsite");
+  ats.extendOffer(c1.id, 210_000);
+  ats.hire(c1.id, isoDate(daysAgo(30)));
+
+  // 2. Offer stage — PM candidate
+  const c2 = ats.addCandidate({
+    jobId: pmReq.id,
+    name: "James Liu",
+    email: "james.liu@example.com",
+    stage: "applied",
+    source: "referral",
+    currentCompany: "Figma",
+    currentTitle: "Senior PM",
+  });
+  ats.advanceStage(c2.id, "screening");
+  ats.advanceStage(c2.id, "phone_screen");
+  ats.advanceStage(c2.id, "technical");
+  ats.extendOffer(c2.id, 175_000);
+  // Add scorecards for the offer-stage candidate
+  ats.addScorecard(c2.id, {
+    interviewType: "technical",
+    interviewerId: "eng-lead-1",
+    rating: 4,
+    notes: "Strong product thinking, solid technical understanding of trade-offs.",
+  });
+  ats.addScorecard(c2.id, {
+    interviewType: "panel",
+    interviewerId: "panel-lead-1",
+    rating: 5,
+    notes: "Exceptional communication, clear vision for roadmap. Strong yes.",
+  });
+
+  // 3. Interview stage — Backend candidate
+  const c3 = ats.addCandidate({
+    jobId: backendReq.id,
+    name: "Alex Okafor",
+    email: "alex.okafor@example.com",
+    stage: "applied",
+    source: "job_board",
+    currentCompany: "Shopify",
+    currentTitle: "Staff Engineer",
+  });
+  ats.advanceStage(c3.id, "screening");
+  ats.advanceStage(c3.id, "technical");
+
+  // 4. Interview stage — Sales candidate
+  const c4 = ats.addCandidate({
+    jobId: salesReq.id,
+    name: "Morgan Chen",
+    email: "morgan.chen@example.com",
+    stage: "applied",
+    source: "executive_search",
+    currentCompany: "Salesforce",
+    currentTitle: "VP Sales",
+  });
+  ats.advanceStage(c4.id, "screening");
+  ats.advanceStage(c4.id, "phone_screen");
+
+  // 5. Rejected — Backend candidate
+  const c5 = ats.addCandidate({
+    jobId: backendReq.id,
+    name: "Taylor Brooks",
+    email: "taylor.brooks@example.com",
+    stage: "applied",
+    source: "inbound",
+    currentCompany: "Startup XYZ",
+    currentTitle: "Junior Engineer",
+  });
+  ats.advanceStage(c5.id, "screening");
+  ats.advanceStage(c5.id, "rejected", "Skills not aligned with L5 requirements");
+}
+
+function seedKnowledgeBase(olympus: Olympus): void {
+  const kb = olympus.kb;
+
+  // Collections
+  const engCol = kb.createCollection({
+    id: "col-eng-runbooks",
+    name: "Engineering Runbooks",
+    description: "Operational runbooks for engineering incidents and on-call procedures",
+    ownerTeam: "engineering",
+  });
+  const productCol = kb.createCollection({
+    id: "col-product-playbooks",
+    name: "Product Playbooks",
+    description: "Playbooks guiding product launches, user research, and roadmap decisions",
+    ownerTeam: "product",
+  });
+  const companyCol = kb.createCollection({
+    id: "col-company-policies",
+    name: "Company Policies",
+    description: "HR, legal, and operational policies for all Helios Robotics staff",
+    ownerTeam: "hr",
+  });
+
+  // Articles
+  const runbook = kb.publishArticle({
+    id: "art-api-incident",
+    title: "API Incident Response Runbook",
+    content: "# API Incident Response\n\n## Steps\n1. Page on-call engineer\n2. Assess severity\n3. Open incident channel\n4. Communicate status",
+    type: "runbook",
+    collectionId: engCol.id,
+    authorId: "eng-lead-1",
+    tags: ["api", "incident", "on-call"],
+    reviewIntervalDays: 90,
+  });
+
+  const playbook = kb.publishArticle({
+    id: "art-onboarding-playbook",
+    title: "Customer Onboarding Playbook",
+    content: "# Customer Onboarding\n\n## Week 1\n- Kickoff call\n- Technical setup\n\n## Week 2\n- Training sessions",
+    type: "playbook",
+    collectionId: productCol.id,
+    authorId: "product-mgr-1",
+    tags: ["onboarding", "customer", "success"],
+    reviewIntervalDays: 90,
+  });
+
+  // Remote work policy — reviewed 100 days ago, will be stale
+  const hundredDaysAgo = new Date();
+  hundredDaysAgo.setDate(hundredDaysAgo.getDate() - 100);
+  kb.publishArticle({
+    id: "art-remote-work-policy",
+    title: "Remote Work Policy",
+    content: "# Remote Work Policy\n\nHelios Robotics supports flexible remote work arrangements...",
+    type: "policy",
+    collectionId: companyCol.id,
+    authorId: "hr-director-1",
+    tags: ["remote", "policy", "hr"],
+    reviewIntervalDays: 90,
+    lastReviewedAt: hundredDaysAgo.toISOString(),
+  });
+
+  kb.publishArticle({
+    id: "art-db-backup-howto",
+    title: "Database Backup Howto",
+    content: "# Database Backup\n\n## Daily Backups\nBackups run nightly at 02:00 UTC...",
+    type: "howto",
+    collectionId: engCol.id,
+    authorId: "eng-lead-1",
+    tags: ["database", "backup", "ops"],
+    reviewIntervalDays: 90,
+  });
+
+  kb.publishArticle({
+    id: "art-perf-review",
+    title: "Performance Review Process",
+    content: "# Performance Review Process\n\nReviews are conducted bi-annually...",
+    type: "reference",
+    collectionId: companyCol.id,
+    authorId: "hr-director-1",
+    tags: ["hr", "performance", "review"],
+    reviewIntervalDays: 180,
+  });
+
+  // Record views on popular articles
+  for (let i = 0; i < 12; i++) kb.recordView(runbook.id, `user-${i}`);
+  for (let i = 0; i < 8; i++) kb.recordView(playbook.id, `user-${i}`);
+}
+
+export function seedContractMgmt(olympus: Olympus): void {
+  const cm = olympus.contractMgmt;
+  const now = new Date();
+
+  // MSA with Acme Corp — active, $240k/yr, ends in 200 days
+  const acmeEnd = new Date(now);
+  acmeEnd.setDate(acmeEnd.getDate() + 200);
+  cm.createContract({
+    id: "contract-msa-acme",
+    title: "MSA with Acme Corp",
+    type: "msa",
+    status: "active",
+    counterpartyName: "Acme Corp",
+    counterpartyType: "customer",
+    ownerId: "legal-1",
+    annualValueUsd: 240_000,
+    endDate: isoDate(acmeEnd),
+    autoRenews: true,
+    renewalNoticeDays: 60,
+    executedAt: isoDate(daysAgo(180)),
+  });
+
+  // NDA with ProspectCo — active, no value, ends in 400 days
+  const prospectEnd = new Date(now);
+  prospectEnd.setDate(prospectEnd.getDate() + 400);
+  cm.createContract({
+    id: "contract-nda-prospectco",
+    title: "NDA with ProspectCo",
+    type: "nda",
+    status: "active",
+    counterpartyName: "ProspectCo",
+    counterpartyType: "partner",
+    ownerId: "legal-1",
+    endDate: isoDate(prospectEnd),
+    autoRenews: false,
+    renewalNoticeDays: 30,
+    executedAt: isoDate(daysAgo(10)),
+  });
+
+  // SaaS subscription Salesforce — active, $48k/yr, ends in 45 days (expiring soon)
+  const sfEnd = new Date(now);
+  sfEnd.setDate(sfEnd.getDate() + 45);
+  cm.createContract({
+    id: "contract-saas-salesforce",
+    title: "Salesforce SaaS Subscription",
+    type: "saas_subscription",
+    status: "active",
+    counterpartyName: "Salesforce",
+    counterpartyType: "vendor",
+    ownerId: "ops-1",
+    annualValueUsd: 48_000,
+    endDate: isoDate(sfEnd),
+    autoRenews: true,
+    renewalNoticeDays: 60,
+    executedAt: isoDate(daysAgo(320)),
+  });
+
+  // SOW with Agency X — active, $85k, ends in 20 days (expiring soon)
+  const agencyEnd = new Date(now);
+  agencyEnd.setDate(agencyEnd.getDate() + 20);
+  cm.createContract({
+    id: "contract-sow-agencyx",
+    title: "SOW with Agency X",
+    type: "sow",
+    status: "active",
+    counterpartyName: "Agency X",
+    counterpartyType: "vendor",
+    ownerId: "ops-1",
+    valueUsd: 85_000,
+    endDate: isoDate(agencyEnd),
+    autoRenews: false,
+    renewalNoticeDays: 30,
+    executedAt: isoDate(daysAgo(160)),
+  });
+
+  // Old lease — terminated
+  cm.createContract({
+    id: "contract-lease-old",
+    title: "Old Office Lease",
+    type: "lease",
+    status: "terminated",
+    counterpartyName: "City Properties LLC",
+    counterpartyType: "landlord",
+    ownerId: "ops-1",
+    autoRenews: false,
+    renewalNoticeDays: 90,
+    terminatedAt: isoDate(daysAgo(30)),
+    terminationReason: "Office moved to remote-first",
+  });
+}
+
+function seedPayroll(olympus: Olympus): void {
+  const payroll = olympus.payroll;
+
+  // Set compensation for 6 employees
+  payroll.setCompensation({ employeeId: "emp-priya", annualSalaryUsd: 185_000, payType: "salary", payFrequency: "semimonthly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-james", annualSalaryUsd: 145_000, payType: "salary", payFrequency: "biweekly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-alice", annualSalaryUsd: 165_000, payType: "salary", payFrequency: "semimonthly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-bob", annualSalaryUsd: 135_000, payType: "salary", payFrequency: "biweekly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-carol", annualSalaryUsd: 120_000, payType: "salary", payFrequency: "monthly", effectiveDate: isoDate(daysAgo(180)) });
+  payroll.setCompensation({ employeeId: "emp-dev1", annualSalaryUsd: 155_000, payType: "salary", payFrequency: "semimonthly", effectiveDate: isoDate(daysAgo(180)) });
+
+  const allEmployees = ["emp-priya", "emp-james", "emp-alice", "emp-bob", "emp-carol", "emp-dev1"];
+
+  // Last month's two semi-monthly periods (1st–15th and 16th–end)
+  const now = new Date();
+  const lastMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+  const lastMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+
+  const period1Start = isoDate(new Date(lastMonthYear, lastMonth, 1));
+  const period1End = isoDate(new Date(lastMonthYear, lastMonth, 15));
+  const period2Start = isoDate(new Date(lastMonthYear, lastMonth, 16));
+  const period2End = isoDate(new Date(lastMonthYear, lastMonth + 1, 0));
+
+  payroll.processPayPeriod({ startDate: period1Start, endDate: period1End, frequency: "semimonthly", employeeIds: allEmployees });
+  payroll.processPayPeriod({ startDate: period2Start, endDate: period2End, frequency: "semimonthly", employeeIds: allEmployees });
+}
+
+export function seedPartners(olympus: Olympus): void {
+  const pm = olympus.partners;
+
+  // 3 partners
+  const techBridge = pm.registerPartner({
+    name: "TechBridge Solutions",
+    type: "reseller",
+    tier: "gold",
+    region: "North America",
+    contactName: "Sarah Mitchell",
+    contactEmail: "sarah@techbridgesolutions.com",
+    certifiedProducts: ["helios-platform"],
+    commissionRate: 15,
+    tags: ["enterprise", "reseller"],
+  });
+  // Set ytdRevenue directly by closing a deal
+  const tbDeal = pm.registerDeal({
+    partnerId: techBridge.id,
+    dealName: "TechBridge Q1 Resell",
+    customerName: "Midwest Manufacturing Co",
+    type: "resell",
+    valueUsd: 85_000,
+    status: "registered",
+  });
+  pm.closeDeal(tbDeal.id, true);
+
+  const cloudNova = pm.registerPartner({
+    name: "CloudNova Partners",
+    type: "referral",
+    tier: "silver",
+    region: "EMEA",
+    contactName: "James Osei",
+    contactEmail: "james@cloudnovapartners.com",
+    certifiedProducts: [],
+    commissionRate: 10,
+    tags: ["referral", "cloud"],
+  });
+  // Set ytdRevenue by closing a deal
+  const cnDeal = pm.registerDeal({
+    partnerId: cloudNova.id,
+    dealName: "CloudNova Referral Q2",
+    customerName: "Berlin Tech GmbH",
+    type: "referral",
+    valueUsd: 32_000,
+    status: "registered",
+  });
+  pm.closeDeal(cnDeal.id, true);
+
+  const apex = pm.registerPartner({
+    name: "Apex Implementations",
+    type: "implementation",
+    tier: "platinum",
+    region: "North America",
+    contactName: "Priya Mehta",
+    contactEmail: "priya@apenimplementations.com",
+    certifiedProducts: ["helios-platform", "helios-analytics"],
+    commissionRate: 12,
+    tags: ["implementation", "enterprise"],
+  });
+  // Set ytdRevenue by closing a deal
+  const apexDeal = pm.registerDeal({
+    partnerId: apex.id,
+    dealName: "Apex Enterprise Impl Q1",
+    customerName: "Pacific Coast Logistics",
+    type: "co_sell",
+    valueUsd: 240_000,
+    status: "registered",
+  });
+  pm.closeDeal(apexDeal.id, true);
+
+  // 1 approved deal
+  pm.registerDeal({
+    partnerId: techBridge.id,
+    dealName: "TechBridge Q3 Pipeline",
+    customerName: "Great Lakes Auto",
+    type: "resell",
+    valueUsd: 60_000,
+    status: "approved",
+  });
+}
+
+function seedEventsMgmt(olympus: Olympus): void {
+  const em = olympus.eventsMgmt;
+
+  // 1. SaaStr Annual 2025 — completed trade show
+  const saastr = em.createEvent({
+    name: "SaaStr Annual 2025",
+    type: "trade_show",
+    status: "completed",
+    startDate: isoDate(daysAgo(120)),
+    endDate: isoDate(daysAgo(117)),
+    location: "San Francisco, CA",
+    budgetUsd: 45_000,
+    expectedAttendees: 10,
+    ownerId: "marketing-team",
+    tags: ["pipeline", "brand"],
+  });
+  for (let i = 0; i < 8; i++) {
+    const reg = em.registerAttendee(saastr.id, {
+      attendeeId: `saastr-attendee-${i}`,
+      attendeeName: `Attendee ${i}`,
+      attendeeType: i < 4 ? "prospect" : "customer",
+      company: `Company ${i}`,
+    });
+    if (reg) {
+      em.recordAttendance(reg.id);
+      if (i < 5) em.qualifyLead(reg.id);
+    }
+  }
+  em.completeEvent(saastr.id, 42_000, 380_000);
+
+  // 2. Product Webinar: Platform v2 — completed webinar
+  const webinar = em.createEvent({
+    name: "Product Webinar: Platform v2",
+    type: "webinar",
+    status: "completed",
+    startDate: isoDate(daysAgo(60)),
+    endDate: isoDate(daysAgo(60)),
+    location: "virtual",
+    budgetUsd: 3_000,
+    expectedAttendees: 100,
+    ownerId: "product-team",
+    tags: ["product", "launch"],
+  });
+  for (let i = 0; i < 85; i++) {
+    const reg = em.registerAttendee(webinar.id, {
+      attendeeId: `webinar-attendee-${i}`,
+      attendeeName: `Webinar Attendee ${i}`,
+      attendeeType: i % 3 === 0 ? "prospect" : "customer",
+      company: `Webinar Co ${i}`,
+    });
+    if (reg && i < 70) em.recordAttendance(reg.id);
+    if (reg && i < 12) em.qualifyLead(reg.id);
+  }
+  em.completeEvent(webinar.id, 2_800, 95_000);
+
+  // 3. Q3 Customer Advisory Board — registration open
+  em.createEvent({
+    name: "Q3 Customer Advisory Board",
+    type: "user_conference",
+    status: "registration_open",
+    startDate: isoDate(new Date(new Date().setDate(new Date().getDate() + 30))),
+    endDate: isoDate(new Date(new Date().setDate(new Date().getDate() + 31))),
+    location: "Austin, TX",
+    budgetUsd: 12_000,
+    expectedAttendees: 25,
+    ownerId: "customer-success-team",
+    tags: ["advisory", "retention"],
+  });
+}
+
+function seedAuditLog(olympus: Olympus): void {
+  const al = olympus.auditLog;
+
+  al.record({
+    action: "user.login",
+    severity: "info",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "session",
+    description: "User alice@heliosrobotics.com logged in",
+    ipAddress: "192.168.1.10",
+    sessionId: "sess-abc123",
+  });
+
+  al.record({
+    action: "user.login",
+    severity: "info",
+    actorId: "user-002",
+    actorType: "user",
+    resourceType: "session",
+    description: "User bob@heliosrobotics.com logged in",
+    ipAddress: "10.0.0.5",
+    sessionId: "sess-def456",
+  });
+
+  al.record({
+    action: "user.permission_changed",
+    severity: "warning",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "user",
+    resourceId: "user-003",
+    description: "Admin elevated user-003 to editor role",
+    metadata: { previousRole: "viewer", newRole: "editor" },
+  });
+
+  al.record({
+    action: "data.exported",
+    severity: "warning",
+    actorId: "user-002",
+    actorType: "user",
+    resourceType: "report",
+    resourceId: "board-report-q3",
+    description: "Board report Q3 exported to PDF",
+    metadata: { format: "pdf", rows: 1200 },
+  });
+
+  al.record({
+    action: "config.changed",
+    severity: "info",
+    actorId: "system",
+    actorType: "system",
+    resourceType: "config",
+    resourceId: "notification-router",
+    description: "Notification thresholds updated for anomaly alerts",
+  });
+
+  al.record({
+    action: "autonomy.level_changed",
+    severity: "critical",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "autonomy_grant",
+    resourceId: "finance:reallocate_budget",
+    description: "Autonomy level for finance:reallocate_budget raised to 5",
+    metadata: { previousLevel: 2, newLevel: 5, blastRadiusUsd: 250_000 },
+  });
+
+  al.record({
+    action: "policy.updated",
+    severity: "info",
+    actorId: "user-001",
+    actorType: "user",
+    resourceType: "policy",
+    resourceId: "exposure-ceiling",
+    description: "Exposure ceiling policy updated — max $500k per domain",
+    metadata: { oldCeiling: 250_000, newCeiling: 500_000 },
+  });
+
+  al.record({
+    action: "integration.connected",
+    severity: "info",
+    actorId: "system",
+    actorType: "system",
+    resourceType: "integration",
+    resourceId: "salesforce-crm",
+    description: "Salesforce CRM integration connected and syncing",
+    metadata: { syncedRecords: 4823 },
+  });
+}
+
+function seedInventory(olympus: Olympus): void {
+  const inv = olympus.inventory;
+
+  const laptop = inv.addSKU({ name: "Development Laptop", sku: "HW-001", category: "hardware", unitCostUsd: 1800, currentQty: 12, reservedQty: 0, reorderPoint: 3, reorderQty: 5, supplierName: "TechSupplier Inc" });
+  const chair = inv.addSKU({ name: "Office Chair", sku: "FURN-001", category: "furniture", unitCostUsd: 450, currentQty: 8, reservedQty: 0, reorderPoint: 5, reorderQty: 10, supplierName: "OfficePlus" });
+  inv.addSKU({ name: "API Credits Bundle", sku: "SW-001", category: "software", unitCostUsd: 500, currentQty: 2, reservedQty: 0, reorderPoint: 3, reorderQty: 5 });
+  inv.addSKU({ name: "HDMI Cable 6ft", sku: "ACC-001", category: "accessories", unitCostUsd: 12, currentQty: 25, reservedQty: 0, reorderPoint: 10, reorderQty: 20 });
+  inv.addSKU({ name: "Standing Desk", sku: "FURN-002", category: "furniture", unitCostUsd: 800, currentQty: 0, reservedQty: 0, reorderPoint: 2, reorderQty: 3, supplierName: "OfficePlus" });
+
+  // Record movements
+  inv.recordMovement(laptop.id, "sale", -2, { notes: "Sold 2 laptops to new hires" });
+  inv.recordMovement(chair.id, "purchase", 5, { notes: "Received 5 chairs from OfficePlus" });
+}
+
+function seedBilling(olympus: Olympus): void {
+  const billing = olympus.billing;
+
+  // 4 subscriptions
+  const cascade = billing.addSubscription({
+    customerId: "cust-cascade-corp",
+    planId: "plan-growth",
+    planName: "Growth",
+    mrrUsd: 2400,
+    status: "active",
+    billingCycleDay: 1,
+    startDate: isoDate(daysAgo(180)),
+    paymentMethod: "card",
+    seats: 8,
+  });
+
+  const pinnacle = billing.addSubscription({
+    customerId: "cust-pinnacle-inc",
+    planId: "plan-starter",
+    planName: "Starter",
+    mrrUsd: 1800,
+    status: "active",
+    billingCycleDay: 15,
+    startDate: isoDate(daysAgo(120)),
+    paymentMethod: "ach",
+    seats: 6,
+  });
+
+  const vertex = billing.addSubscription({
+    customerId: "cust-vertex-tech",
+    planId: "plan-enterprise",
+    planName: "Enterprise",
+    mrrUsd: 3200,
+    status: "active",
+    billingCycleDay: 1,
+    startDate: isoDate(daysAgo(365)),
+    paymentMethod: "card",
+    seats: 20,
+  });
+
+  billing.addSubscription({
+    customerId: "cust-nova-systems",
+    planId: "plan-trial",
+    planName: "Trial",
+    mrrUsd: 800,
+    status: "trial",
+    billingCycleDay: 1,
+    startDate: isoDate(daysAgo(14)),
+    trialEndsAt: isoDate(daysAgo(-16)),
+    paymentMethod: "card",
+  });
+
+  // 4 invoices: 3 paid (last month), 1 open/overdue (Pinnacle)
+  const lastMonthStart = isoDate(daysAgo(60));
+  const lastMonthEnd = isoDate(daysAgo(30));
+  const lastMonthDue = isoDate(daysAgo(30));
+
+  const inv1 = billing.createInvoice({
+    customerId: cascade.customerId,
+    subscriptionId: cascade.id,
+    status: "open",
+    amountUsd: 2400,
+    periodStart: lastMonthStart,
+    periodEnd: lastMonthEnd,
+    dueDate: lastMonthDue,
+    lineItems: [{ description: "Growth plan — 8 seats", quantity: 8, unitPriceUsd: 300, totalUsd: 2400 }],
+  });
+  billing.recordPayment(inv1.id, 2400, isoDate(daysAgo(28)));
+
+  const inv2 = billing.createInvoice({
+    customerId: vertex.customerId,
+    subscriptionId: vertex.id,
+    status: "open",
+    amountUsd: 3200,
+    periodStart: lastMonthStart,
+    periodEnd: lastMonthEnd,
+    dueDate: lastMonthDue,
+    lineItems: [{ description: "Enterprise plan — 20 seats", quantity: 20, unitPriceUsd: 160, totalUsd: 3200 }],
+  });
+  billing.recordPayment(inv2.id, 3200, isoDate(daysAgo(25)));
+
+  const inv3 = billing.createInvoice({
+    customerId: "cust-nova-systems",
+    subscriptionId: "sub-nova",
+    status: "open",
+    amountUsd: 800,
+    periodStart: lastMonthStart,
+    periodEnd: lastMonthEnd,
+    dueDate: lastMonthDue,
+    lineItems: [{ description: "Trial plan", quantity: 1, unitPriceUsd: 800, totalUsd: 800 }],
+  });
+  billing.recordPayment(inv3.id, 800, isoDate(daysAgo(22)));
+
+  // Overdue open invoice for Pinnacle (30 days past due)
+  billing.createInvoice({
+    customerId: pinnacle.customerId,
+    subscriptionId: pinnacle.id,
+    status: "open",
+    amountUsd: 1800,
+    periodStart: isoDate(daysAgo(90)),
+    periodEnd: isoDate(daysAgo(60)),
+    dueDate: isoDate(daysAgo(30)),
+    lineItems: [{ description: "Starter plan — 6 seats", quantity: 6, unitPriceUsd: 300, totalUsd: 1800 }],
+  });
+
+  // MRR movements
+  billing.recordMrrMovement(cascade.customerId, "new_business", 2400);
+  billing.recordMrrMovement(vertex.customerId, "expansion", 3200);
+  billing.recordMrrMovement("cust-nova-systems", "reactivation", 800);
+}
+
+function seedAnalytics(olympus: Olympus): void {
+  const analytics = olympus.analytics;
+
+  const mrr = analytics.defineMetric({
+    name: "Monthly Recurring Revenue",
+    description: "Total MRR across all active subscriptions",
+    type: "currency",
+    unit: "usd",
+    thresholdLow: 3_000_000,
+  });
+
+  const churn = analytics.defineMetric({
+    name: "Customer Churn Rate",
+    description: "Monthly customer churn rate as a percentage",
+    type: "rate",
+    unit: "%",
+    thresholdHigh: 3,
+  });
+
+  const latency = analytics.defineMetric({
+    name: "API p99 Latency",
+    description: "99th percentile API response latency",
+    type: "gauge",
+    unit: "ms",
+    thresholdHigh: 500,
+  });
+
+  const dau = analytics.defineMetric({
+    name: "Daily Active Users",
+    description: "Number of unique active users per day",
+    type: "gauge",
+    unit: "count",
+  });
+
+  // Record 3 data points each over past 3 months with realistic trends
+  const threeMonthsAgo = new Date(Date.now() - 90 * 864e5).toISOString();
+  const twoMonthsAgo = new Date(Date.now() - 60 * 864e5).toISOString();
+  const oneMonthAgo = new Date(Date.now() - 30 * 864e5).toISOString();
+
+  // MRR: growing trend
+  analytics.record(mrr.id, 3_100_000, threeMonthsAgo);
+  analytics.record(mrr.id, 3_450_000, twoMonthsAgo);
+  analytics.record(mrr.id, 3_820_000, oneMonthAgo);
+
+  // Churn rate: slight improvement (decreasing)
+  analytics.record(churn.id, 2.1, threeMonthsAgo);
+  analytics.record(churn.id, 1.8, twoMonthsAgo);
+  analytics.record(churn.id, 1.5, oneMonthAgo);
+
+  // API p99 latency: increasing — trending toward threshold
+  analytics.record(latency.id, 180, threeMonthsAgo);
+  analytics.record(latency.id, 240, twoMonthsAgo);
+  analytics.record(latency.id, 310, oneMonthAgo);
+
+  // DAU: growing
+  analytics.record(dau.id, 420, threeMonthsAgo);
+  analytics.record(dau.id, 510, twoMonthsAgo);
+  analytics.record(dau.id, 680, oneMonthAgo);
+}
+
+function seedFeedback(olympus: Olympus): void {
+  const fb = olympus.feedback;
+
+  // 1 NPS survey (active)
+  const npsSurvey = fb.createSurvey({
+    name: "Q2 NPS Survey",
+    type: "nps",
+    questions: [
+      { id: "q1", text: "How likely are you to recommend Helios to a colleague?", type: "rating" },
+      { id: "q2", text: "What's the main reason for your score?", type: "text" },
+    ],
+    status: "active",
+  });
+
+  // 8 responses with scores: 9,10,8,7,4,9,10,6
+  // Promoters (9-10): 9,10,9,10 = 4; Passives (7-8): 8,7 = 2; Detractors (0-6): 4,6 = 2
+  // NPS = (4/8 - 2/8) * 100 = 25.0
+  const npsScores = [9, 10, 8, 7, 4, 9, 10, 6];
+  for (let i = 0; i < npsScores.length; i++) {
+    fb.submitResponse({
+      surveyId: npsSurvey.id,
+      respondentId: `respondent-${i + 1}`,
+      answers: [{ questionId: "q1", value: npsScores[i]! }],
+      npsScore: npsScores[i],
+    });
+  }
+
+  // 3 feature requests
+  const customDashboard = fb.createFeatureRequest({
+    title: "Custom Dashboard Builder",
+    description: "Allow users to build and customize their own dashboard with drag-and-drop widgets.",
+    requesterId: "user-marketing-1",
+    status: "planned",
+    tags: ["dashboard", "ux"],
+  });
+  for (let i = 0; i < 12; i++) fb.voteForRequest(customDashboard.id);
+
+  const webhooks = fb.createFeatureRequest({
+    title: "API Webhooks v2",
+    description: "Revamped webhook system with retry logic, filtering, and delivery guarantees.",
+    requesterId: "user-eng-1",
+    status: "in_progress",
+    tags: ["api", "integrations"],
+  });
+  for (let i = 0; i < 8; i++) fb.voteForRequest(webhooks.id);
+
+  const sso = fb.createFeatureRequest({
+    title: "SSO via SAML",
+    description: "Enterprise-grade single sign-on via SAML 2.0 for large customers.",
+    requesterId: "user-sales-1",
+    status: "open",
+    tags: ["security", "enterprise"],
+  });
+  for (let i = 0; i < 23; i++) fb.voteForRequest(sso.id);
+}
+
+function seedFeatureFlags(olympus: Olympus): void {
+  const fm = olympus.flags;
+
+  // 1. new-dashboard-v2 — active, percentage 25%
+  fm.createFlag({
+    key: "new-dashboard-v2",
+    name: "New Dashboard V2",
+    description: "Rolls out the redesigned dashboard to a percentage of users.",
+    status: "active",
+    rolloutStrategy: "percentage",
+    rolloutPct: 25,
+    defaultValue: false,
+    tags: ["dashboard", "experiment"],
+  });
+
+  // 2. ai-recommendations — active, allowlist
+  fm.createFlag({
+    key: "ai-recommendations",
+    name: "AI Recommendations",
+    description: "AI-powered action recommendations for specific accounts.",
+    status: "active",
+    rolloutStrategy: "allowlist",
+    rolloutPct: 100,
+    allowlist: ["acct-cascade", "acct-vertex"],
+    defaultValue: false,
+    tags: ["ai", "recommendations"],
+  });
+
+  // 3. legacy-export — active, all, but rolloutPct=0 (kill switch)
+  fm.createFlag({
+    key: "legacy-export",
+    name: "Legacy Export",
+    description: "Legacy CSV/XLS export feature. Kill switch to disable if issues arise.",
+    status: "active",
+    rolloutStrategy: "all",
+    rolloutPct: 0,
+    defaultValue: true,
+    tags: ["export", "legacy"],
+  });
+
+  // 4. multi-currency — inactive, percentage 0%
+  fm.createFlag({
+    key: "multi-currency",
+    name: "Multi-Currency Support",
+    description: "Enables multi-currency pricing and invoicing.",
+    status: "inactive",
+    rolloutStrategy: "percentage",
+    rolloutPct: 0,
+    defaultValue: false,
+    tags: ["billing", "international"],
+  });
+
+  // 1 experiment: concluded, treatment won (8.2% vs 5.1%)
+  const exp = fm.createExperiment({
+    flagKey: "new-dashboard-v2",
+    name: "Dashboard Engagement Experiment",
+    hypothesis: "The redesigned dashboard will increase session engagement by 30%.",
+    startDate: isoDate(daysAgo(45)),
+    status: "running",
+  });
+  fm.concludeExperiment(exp.id, 0.051, 0.082);
+}
+
+function seedAccessControl(olympus: Olympus): void {
+  const ac = olympus.access;
+
+  // 4 roles
+  ac.createRole({
+    id: "role-admin",
+    name: "Admin",
+    description: "Full access to all resources and actions",
+    permissions: [{ resource: "*", actions: ["*"], effect: "allow" }],
+  });
+  ac.createRole({
+    id: "role-engineer",
+    name: "Engineer",
+    description: "Read/write access to incidents, pipeline, and knowledge base",
+    permissions: [
+      { resource: "incidents", actions: ["read", "write"], effect: "allow" },
+      { resource: "pipeline", actions: ["read", "write"], effect: "allow" },
+      { resource: "kb", actions: ["read", "write"], effect: "allow" },
+    ],
+  });
+  ac.createRole({
+    id: "role-finance-analyst",
+    name: "Finance Analyst",
+    description: "Read access to finance, expenses, and payroll",
+    permissions: [
+      { resource: "finance", actions: ["read"], effect: "allow" },
+      { resource: "expenses", actions: ["read"], effect: "allow" },
+      { resource: "payroll", actions: ["read"], effect: "allow" },
+    ],
+  });
+  ac.createRole({
+    id: "role-viewer",
+    name: "Viewer",
+    description: "Read-only access to all resources",
+    permissions: [{ resource: "*", actions: ["read"], effect: "allow" }],
+  });
+
+  // 4 principals
+  ac.createPrincipal({
+    id: "user-ceo",
+    type: "user",
+    name: "CEO",
+    roleIds: ["role-admin"],
+    directPermissions: [],
+    active: true,
+  });
+  ac.createPrincipal({
+    id: "user-cto",
+    type: "user",
+    name: "CTO",
+    roleIds: ["role-engineer", "role-admin"],
+    directPermissions: [],
+    active: true,
+  });
+  ac.createPrincipal({
+    id: "user-cfo",
+    type: "user",
+    name: "CFO",
+    roleIds: ["role-finance-analyst"],
+    directPermissions: [],
+    active: true,
+  });
+  ac.createPrincipal({
+    id: "svc-automation",
+    type: "service",
+    name: "Automation Service",
+    roleIds: [],
+    directPermissions: [{ resource: "autonomy", actions: ["execute"], effect: "allow" }],
+    active: true,
+  });
+
+  // 2 API keys
+  ac.createApiKey("svc-automation", "Automation Key", ["incidents:write", "pipeline:read"]);
+  ac.createApiKey("user-cto", "Integration Key", ["kb:read", "incidents:read", "pipeline:read"]);
+}
+
+function seedNotifCenter(olympus: Olympus): void {
+  const nc = olympus.notifCenter;
+
+  // Preferences for 3 users
+  nc.setPreference({
+    userId: "user-ceo",
+    channel: "email",
+    enabled: true,
+    categories: ["incident", "approval", "mention", "digest", "alert", "billing", "security", "product_update"],
+    digestFrequency: "daily",
+  });
+  nc.setPreference({
+    userId: "user-cto",
+    channel: "slack",
+    enabled: true,
+    categories: ["incident", "alert", "approval"],
+    digestFrequency: "realtime",
+  });
+  nc.setPreference({
+    userId: "user-cfo",
+    channel: "email",
+    enabled: true,
+    categories: ["billing", "approval"],
+    digestFrequency: "daily",
+  });
+
+  // 4 notifications
+  nc.send({
+    userId: "user-cto",
+    category: "incident",
+    title: "Production Incident P1",
+    body: "API latency spike detected in region us-east-1",
+    channel: "slack",
+    priority: "urgent",
+  });
+  nc.send({
+    userId: "user-cto",
+    category: "alert",
+    title: "High Error Rate",
+    body: "Error rate exceeded 5% threshold on pipeline service",
+    channel: "slack",
+    priority: "high",
+  });
+  nc.send({
+    userId: "user-cfo",
+    category: "billing",
+    title: "Invoice Due",
+    body: "Invoice INV-2024-042 for $12,500 is due in 3 days",
+    channel: "email",
+    priority: "normal",
+  });
+  // Digest for CEO (will be pending until sendDigest is called)
+  nc.send({
+    userId: "user-ceo",
+    category: "digest",
+    title: "Daily Executive Digest",
+    body: "Your daily summary of company metrics and alerts",
+    channel: "email",
+    priority: "low",
+  });
+}
+
+function seedStrategy(olympus: Olympus): void {
+  const se = olympus.strategy;
+
+  const plg = se.addPillar({
+    id: "pillar-plg",
+    name: "Product-Led Growth",
+    description: "Drive adoption and expansion through product experience",
+    owner: "emp-cpo",
+    horizon: "now",
+  });
+  const enterprise = se.addPillar({
+    id: "pillar-enterprise",
+    name: "Enterprise Expansion",
+    description: "Land and expand enterprise accounts",
+    owner: "emp-cro",
+    horizon: "next",
+  });
+  const ops = se.addPillar({
+    id: "pillar-ops",
+    name: "Operational Excellence",
+    description: "Build scalable, reliable, and efficient operations",
+    owner: "emp-cto",
+    horizon: "now",
+  });
+
+  se.addInitiative({
+    id: "init-onboarding",
+    pillarId: plg.id,
+    title: "Launch self-serve onboarding",
+    description: "Build a fully self-serve onboarding flow for new users",
+    owner: "emp-pm1",
+    status: "on_track",
+    progressPct: 65,
+    startDate: isoDate(daysAgo(60)),
+    targetDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+  });
+  se.addInitiative({
+    id: "init-enterprise",
+    pillarId: enterprise.id,
+    title: "Close 5 enterprise logos",
+    description: "Sign 5 enterprise reference customers this quarter",
+    owner: "emp-ae1",
+    status: "at_risk",
+    progressPct: 40,
+    startDate: isoDate(daysAgo(45)),
+    targetDate: isoDate(new Date(Date.now() + 45 * 86400_000)),
+  });
+  se.addInitiative({
+    id: "init-latency",
+    pillarId: ops.id,
+    title: "Reduce p99 latency to 200ms",
+    description: "Profile and optimize API latency to sub-200ms p99",
+    owner: "emp-alice",
+    status: "on_track",
+    progressPct: 80,
+    startDate: isoDate(daysAgo(30)),
+    targetDate: isoDate(new Date(Date.now() + 14 * 86400_000)),
+  });
+  se.addInitiative({
+    id: "init-marketplace",
+    pillarId: plg.id,
+    title: "Build partner integration marketplace",
+    description: "Create a public marketplace for third-party integrations",
+    owner: "emp-pm2",
+    status: "not_started",
+    progressPct: 0,
+    startDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+    targetDate: isoDate(new Date(Date.now() + 180 * 86400_000)),
+  });
+  const soc2 = se.addInitiative({
+    id: "init-soc2",
+    pillarId: ops.id,
+    title: "SOC2 Type II certification",
+    description: "Achieve SOC2 Type II compliance for enterprise sales",
+    owner: "emp-security",
+    status: "on_track",
+    progressPct: 90,
+    startDate: isoDate(daysAgo(120)),
+    targetDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+  });
+
+  // Milestones for SOC2
+  const gap = se.addMilestone({
+    id: "ms-gap",
+    initiativeId: soc2.id,
+    title: "Complete gap assessment",
+    dueDate: isoDate(daysAgo(90)),
+  });
+  se.completeMilestone(gap.id);
+
+  const controls = se.addMilestone({
+    id: "ms-controls",
+    initiativeId: soc2.id,
+    title: "Implement controls",
+    dueDate: isoDate(daysAgo(30)),
+  });
+  se.completeMilestone(controls.id);
+
+  se.addMilestone({
+    id: "ms-audit",
+    initiativeId: soc2.id,
+    title: "External audit",
+    dueDate: isoDate(new Date(Date.now() + 30 * 86400_000)),
+  });
+}
+
+function seedOrgIntel(olympus: Olympus): void {
+  const oi = olympus.orgIntel;
+
+  oi.addTeam({
+    id: "team-platform",
+    name: "Platform Engineering",
+    topology: "platform",
+    managerId: "emp-cto",
+    memberIds: ["emp-alice", "emp-bob", "emp-dev1"],
+  });
+  oi.addTeam({
+    id: "team-product",
+    name: "Product",
+    topology: "stream_aligned",
+    managerId: "emp-cpo",
+    memberIds: ["emp-priya", "emp-james"],
+  });
+  oi.addTeam({
+    id: "team-cs",
+    name: "Customer Success",
+    topology: "enabling",
+    managerId: "emp-vp-cs",
+    memberIds: ["emp-carol"],
+  });
+  oi.addTeam({
+    id: "team-data",
+    name: "Data",
+    topology: "complicated_subsystem",
+    managerId: "emp-cto",
+    memberIds: ["emp-analyst1", "emp-analyst2", "emp-analyst3"],
+  });
+}
+
+function seedRevenueIntel(olympus: Olympus): void {
+  const ri = olympus.revenueIntel;
+
+  ri.addCohort({
+    id: "cohort-2024q1-ent",
+    period: "2024-Q1",
+    cohortPeriod: "quarterly",
+    segment: "enterprise",
+    accountCount: 8,
+    initialArrUsd: 320_000,
+    currentArrUsd: 304_000,
+    avgLtvUsd: 120_000,
+    churnedCount: 2,
+    expandedCount: 1,
+  });
+
+  ri.addCohort({
+    id: "cohort-2024q2-ent",
+    period: "2024-Q2",
+    cohortPeriod: "quarterly",
+    segment: "enterprise",
+    accountCount: 6,
+    initialArrUsd: 240_000,
+    currentArrUsd: 252_000,
+    avgLtvUsd: 130_000,
+    churnedCount: 0,
+    expandedCount: 2,
+  });
+
+  ri.addCohort({
+    id: "cohort-2024q1-mm",
+    period: "2024-Q1",
+    cohortPeriod: "quarterly",
+    segment: "mid_market",
+    accountCount: 15,
+    initialArrUsd: 180_000,
+    currentArrUsd: 162_000,
+    avgLtvUsd: 40_000,
+    churnedCount: 3,
+    expandedCount: 0,
+  });
+
+  ri.addCohort({
+    id: "cohort-2024q2-smb",
+    period: "2024-Q2",
+    cohortPeriod: "quarterly",
+    segment: "smb",
+    accountCount: 22,
+    initialArrUsd: 88_000,
+    currentArrUsd: 79_000,
+    avgLtvUsd: 12_000,
+    churnedCount: 4,
+    expandedCount: 1,
+  });
+
+  ri.recordExpansion({
+    accountId: "cascade-corp",
+    type: "seat_expansion",
+    previousArrUsd: 2_400,
+    newArrUsd: 3_200,
+    expansionUsd: 800,
+    occurredAt: isoDate(daysAgo(30)),
+  });
+
+  ri.recordExpansion({
+    accountId: "vertex-tech",
+    type: "upsell",
+    previousArrUsd: 3_200,
+    newArrUsd: 4_800,
+    expansionUsd: 1_600,
+    occurredAt: isoDate(daysAgo(20)),
+  });
+
+  ri.recordExpansion({
+    accountId: "pinnacle-inc",
+    type: "cross_sell",
+    previousArrUsd: 1_800,
+    newArrUsd: 2_400,
+    expansionUsd: 600,
+    occurredAt: isoDate(daysAgo(10)),
+  });
+
+  ri.setLtvModel({
+    segment: "enterprise",
+    avgContractLengthMonths: 24,
+    avgMrrUsd: 8_000,
+    avgChurnRateMonthly: 0.012,
+    predictedLtvUsd: 0, // computed by setLtvModel
+    confidenceScore: 85,
+  });
+
+  ri.setLtvModel({
+    segment: "mid_market",
+    avgContractLengthMonths: 18,
+    avgMrrUsd: 2_000,
+    avgChurnRateMonthly: 0.02,
+    predictedLtvUsd: 0, // computed by setLtvModel
+    confidenceScore: 75,
+  });
+}
+
+function seedChurnPrediction(olympus: Olympus): void {
+  const cp = olympus.churnPredictor;
+
+  cp.addPlaybook({
+    id: "pb-high-risk",
+    name: "High Risk Retention",
+    triggerTier: "high",
+    steps: ["Executive outreach", "QBR", "Custom success plan"],
+    owner: "VP Customer Success",
+  });
+
+  cp.addPlaybook({
+    id: "pb-critical-save",
+    name: "Critical Save",
+    triggerTier: "critical",
+    steps: ["CEO call", "SLA credits", "Dedicated CSM"],
+    owner: "CEO",
+  });
+
+  // cascade-corp: champion_left (sev 3) + nps_decline (sev 2) → high/critical
+  cp.recordSignal({ type: "champion_left", accountId: "cascade-corp", severity: 3, detail: "Primary champion left the company" });
+  cp.recordSignal({ type: "nps_decline", accountId: "cascade-corp", severity: 2, detail: "NPS dropped from 8 to 4" });
+
+  // pinnacle-inc: payment_failure (sev 2) + usage_drop (sev 1) → medium/high
+  cp.recordSignal({ type: "payment_failure", accountId: "pinnacle-inc", severity: 2, detail: "Payment failed twice this quarter" });
+  cp.recordSignal({ type: "usage_drop", accountId: "pinnacle-inc", severity: 1, detail: "DAU dropped 30%" });
+
+  // vertex-tech: contract_aging (sev 1) → low
+  cp.recordSignal({ type: "contract_aging", accountId: "vertex-tech", severity: 1, detail: "Contract is 18 months old" });
+
+  cp.scoreAccount("cascade-corp");
+  cp.scoreAccount("pinnacle-inc");
+  cp.scoreAccount("vertex-tech");
+}
+
+function seedOnboarding(olympus: Olympus): void {
+  const ob = olympus.onboarding;
+
+  // Enterprise Track plan (60 days, 5 milestones)
+  const entPlan = ob.createPlan({
+    id: "plan-enterprise",
+    name: "Enterprise Track",
+    estimatedDays: 60,
+    milestones: [
+      { id: "ms-kickoff", title: "Kickoff Call", category: "technical", dueOffsetDays: 2, required: true },
+      { id: "ms-technical", title: "Technical Setup", category: "technical", dueOffsetDays: 14, required: true },
+      { id: "ms-integration", title: "Integration Complete", category: "integration", dueOffsetDays: 30, required: true },
+      { id: "ms-training", title: "User Training", category: "training", dueOffsetDays: 45, required: true },
+      { id: "ms-go-live", title: "Go Live", category: "go_live", dueOffsetDays: 60, required: true },
+    ],
+  });
+
+  // SMB Fast Track plan (14 days, 3 milestones)
+  const smbPlan = ob.createPlan({
+    id: "plan-smb",
+    name: "SMB Fast Track",
+    estimatedDays: 14,
+    milestones: [
+      { id: "ms-setup", title: "Account Setup", category: "technical", dueOffsetDays: 2, required: true },
+      { id: "ms-smb-training", title: "Training Session", category: "training", dueOffsetDays: 7, required: true },
+      { id: "ms-smb-go-live", title: "Go Live", category: "go_live", dueOffsetDays: 14, required: true },
+    ],
+  });
+
+  // Journey 1: Cascade — enterprise, completed, all milestones done
+  const cascadeJourney = ob.startJourney({
+    id: "journey-cascade",
+    accountId: "cascade-corp",
+    planId: entPlan.id,
+    assignedCsmId: "csm-alice",
+    startedAt: isoDate(daysAgo(65)),
+  });
+  for (const ms of entPlan.milestones) {
+    ob.completeMilestone(cascadeJourney.id, ms.id);
+  }
+
+  // Journey 2: Pinnacle — enterprise, in_progress, 2/5 done
+  const pinnacleJourney = ob.startJourney({
+    id: "journey-pinnacle",
+    accountId: "pinnacle-inc",
+    planId: entPlan.id,
+    assignedCsmId: "csm-bob",
+    startedAt: isoDate(daysAgo(20)),
+  });
+  ob.completeMilestone(pinnacleJourney.id, "ms-kickoff");
+  ob.completeMilestone(pinnacleJourney.id, "ms-technical");
+
+  // Journey 3: Nova — SMB fast track, stalled
+  const novaJourney = ob.startJourney({
+    id: "journey-nova",
+    accountId: "nova-systems",
+    planId: smbPlan.id,
+    startedAt: isoDate(daysAgo(10)),
+  });
+  ob.markStalled(novaJourney.id, "No technical contact assigned");
+}
+
+function seedEngagement(olympus: Olympus): void {
+  const et = olympus.engagement;
+
+  // 1 closed pulse survey
+  const survey = et.createSurvey({
+    id: "survey-q2-2025",
+    name: "Q2 2025 Pulse Survey",
+    sentAt: isoDate(daysAgo(30)),
+    closedAt: isoDate(daysAgo(15)),
+    targetEmployeeIds: [
+      "emp-alice", "emp-bob", "emp-dev1", "emp-dev2",
+      "emp-james", "emp-sarah", "emp-mike", "emp-lisa",
+    ],
+    status: "closed",
+  });
+
+  // 8 responses with eNPS scores [9,10,7,8,5,9,10,6]
+  const employeeData: Array<{ empId: string; eNps: number; drivers: Partial<Record<import("../engagement/engagement-tracker.js").EngagementDriver, number>> }> = [
+    { empId: "emp-alice", eNps: 9, drivers: { management: 4, growth: 5, culture: 4, mission: 5, peers: 4 } },
+    { empId: "emp-bob", eNps: 10, drivers: { management: 5, growth: 4, culture: 5, worklife: 4, peers: 5 } },
+    { empId: "emp-dev1", eNps: 7, drivers: { management: 3, growth: 4, compensation: 3, culture: 3, worklife: 3 } },
+    { empId: "emp-dev2", eNps: 8, drivers: { management: 4, growth: 3, compensation: 4, mission: 4, peers: 3 } },
+    { empId: "emp-james", eNps: 5, drivers: { management: 2, growth: 2, compensation: 2, culture: 2, worklife: 2 } },
+    { empId: "emp-sarah", eNps: 9, drivers: { management: 5, culture: 5, mission: 5, peers: 4, worklife: 4 } },
+    { empId: "emp-mike", eNps: 10, drivers: { management: 5, growth: 5, culture: 4, mission: 5, compensation: 4 } },
+    { empId: "emp-lisa", eNps: 6, drivers: { management: 3, growth: 2, compensation: 2, worklife: 3, peers: 3 } },
+  ];
+
+  for (const { empId, eNps, drivers } of employeeData) {
+    et.submitResponse({
+      surveyId: survey.id,
+      employeeId: empId,
+      eNpsScore: eNps,
+      driverScores: drivers,
+    });
+  }
+
+  // Flight risk for emp-james: 3 signals → high risk
+  et.assessFlightRisk("emp-james", [
+    "missed 3 1:1s",
+    "declined promotion",
+    "LinkedIn activity up",
+  ]);
+
+  // Score team-eng
+  et.scoreTeam("team-eng", ["emp-alice", "emp-bob", "emp-dev1"]);
+}
