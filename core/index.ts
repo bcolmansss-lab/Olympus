@@ -295,6 +295,8 @@ import { CurbsidePickupManager } from "./curbside-pickup/curbside-pickup-manager
 import { ReturnsPortalManager } from "./returns-portal/returns-portal-manager.js";
 import { TradeInManager } from "./trade-in/trade-in-manager.js";
 import { PriceMatchManager } from "./price-match/price-match-manager.js";
+import { ConsignmentManager } from "./consignment/consignment-manager.js";
+import { RentalManager } from "./rental/rental-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -678,6 +680,8 @@ export class Olympus {
   readonly returnsPortal: ReturnsPortalManager;
   readonly tradeIn: TradeInManager;
   readonly priceMatch: PriceMatchManager;
+  readonly consignment: ConsignmentManager;
+  readonly rental: RentalManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -965,6 +969,8 @@ export class Olympus {
     this.returnsPortal = new ReturnsPortalManager(this.bus);
     this.tradeIn = new TradeInManager(this.bus);
     this.priceMatch = new PriceMatchManager(this.bus);
+    this.consignment = new ConsignmentManager(this.bus);
+    this.rental = new RentalManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1258,3 +1264,5 @@ export { CurbsidePickupManager, type PickupStatus, type PickupOrder, type Curbsi
 export { ReturnsPortalManager, type ReturnReason, type ReturnStatus, type ReturnDisposition, type ReturnRequest, type ReturnsPortalSummary } from "./returns-portal/index.js";
 export { TradeInManager, type TradeInCondition, type TradeInStatus, type TradeIn, type TradeInSummary } from "./trade-in/index.js";
 export { PriceMatchManager, type PriceMatchClaimStatus, type PriceMatchClaim, type PriceMatchSummary } from "./price-match/index.js";
+export { ConsignmentManager, type ConsignmentStatus, type ConsignmentItem, type ConsignmentSummary } from "./consignment/index.js";
+export { RentalManager, type RentalStatus, type RentableAsset, type Rental, type RentalSummary } from "./rental/index.js";

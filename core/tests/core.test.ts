@@ -198,6 +198,8 @@ import { CurbsidePickupManager } from "../curbside-pickup/curbside-pickup-manage
 import { ReturnsPortalManager } from "../returns-portal/returns-portal-manager.js";
 import { TradeInManager } from "../trade-in/trade-in-manager.js";
 import { PriceMatchManager } from "../price-match/price-match-manager.js";
+import { ConsignmentManager } from "../consignment/consignment-manager.js";
+import { RentalManager } from "../rental/rental-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -21032,5 +21034,136 @@ describe("PriceMatchManager", () => {
     assert.equal(s.approvalRatePct, 50);
     assert.equal(s.totalAdjustmentsUsd, 10);
     assert.equal(s.byCompetitor["megamart"], 2);
+  });
+});
+
+describe("ConsignmentManager", () => {
+  it("intake creates item with default commission", () => {
+    const cm = new ConsignmentManager(new EventBus());
+    const item = cm.intake({ consignorId: "seller-1", description: "Vintage lamp", listPriceUsd: 120, receivedAt: "2026-07-01T00:00:00Z" });
+    assert.equal(item.status, "intake");
+    assert.equal(item.commissionPct, 40);
+  });
+
+  it("sale splits proceeds by commission", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("consignment.sold", (e) => { events.push(e.payload); });
+    const cm = new ConsignmentManager(bus, 40);
+    const item = cm.intake({ consignorId: "s1", description: "Lamp", listPriceUsd: 100, receivedAt: "2026-07-01T00:00:00Z" });
+    cm.list(item.id);
+    const sold = cm.recordSale(item.id, 100, "2026-07-02T00:00:00Z")!;
+    assert.equal(sold.storeShareUsd, 40);
+    assert.equal(sold.consignorShareUsd, 60);
+    assert.equal(events[0].consignorShareUsd, 60);
+  });
+
+  it("cannot sell an unlisted item", () => {
+    const cm = new ConsignmentManager(new EventBus());
+    const item = cm.intake({ consignorId: "s1", description: "Lamp", listPriceUsd: 100, receivedAt: "2026-07-01T00:00:00Z" });
+    assert.equal(cm.recordSale(item.id, 100, "2026-07-02T00:00:00Z"), undefined);
+  });
+
+  it("returnToConsignor blocks sold items", () => {
+    const cm = new ConsignmentManager(new EventBus());
+    const item = cm.intake({ consignorId: "s1", description: "Lamp", listPriceUsd: 100, receivedAt: "2026-07-01T00:00:00Z" });
+    cm.list(item.id);
+    cm.recordSale(item.id, 90, "2026-07-02T00:00:00Z");
+    assert.equal(cm.returnToConsignor(item.id), undefined);
+  });
+
+  it("payoutOwed accrues per consignor", () => {
+    const cm = new ConsignmentManager(new EventBus(), 50);
+    const a = cm.intake({ consignorId: "s1", description: "A", listPriceUsd: 100, receivedAt: "2026-07-01T00:00:00Z" });
+    const b = cm.intake({ consignorId: "s1", description: "B", listPriceUsd: 60, receivedAt: "2026-07-01T00:00:00Z" });
+    cm.list(a.id); cm.list(b.id);
+    cm.recordSale(a.id, 100, "2026-07-02T00:00:00Z");
+    cm.recordSale(b.id, 60, "2026-07-02T00:00:00Z");
+    assert.equal(cm.payoutOwed("s1"), 80);
+    assert.equal(cm.payoutOwed("s2"), 0);
+  });
+
+  it("summary computes sell-through and revenue", () => {
+    const cm = new ConsignmentManager(new EventBus(), 40);
+    const a = cm.intake({ consignorId: "s1", description: "A", listPriceUsd: 100, receivedAt: "2026-07-01T00:00:00Z" });
+    const b = cm.intake({ consignorId: "s2", description: "B", listPriceUsd: 50, receivedAt: "2026-07-01T00:00:00Z" });
+    cm.list(a.id); cm.list(b.id);
+    cm.recordSale(a.id, 100, "2026-07-02T00:00:00Z");
+    cm.returnToConsignor(b.id);
+    const s = cm.summary();
+    assert.equal(s.totalItems, 2);
+    assert.equal(s.sold, 1);
+    assert.equal(s.sellThroughPct, 50);
+    assert.equal(s.totalStoreRevenueUsd, 40);
+    assert.equal(s.totalConsignorPayoutsUsd, 60);
+  });
+});
+
+describe("RentalManager", () => {
+  it("checkout marks asset unavailable and publishes event", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("rental.checked_out", (e) => { events.push(e.payload); });
+    const rm = new RentalManager(bus);
+    const asset = rm.addAsset("Pressure washer", 30);
+    const rental = rm.checkout(asset.id, "cust-1", "2026-07-01T00:00:00Z", "2026-07-03T00:00:00Z")!;
+    assert.equal(rental.status, "active");
+    assert.equal(rm.getAsset(asset.id)!.available, false);
+    assert.equal(events.length, 1);
+  });
+
+  it("cannot checkout an asset already out", () => {
+    const rm = new RentalManager(new EventBus());
+    const asset = rm.addAsset("Drill", 10);
+    rm.checkout(asset.id, "c1", "2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z");
+    assert.equal(rm.checkout(asset.id, "c2", "2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z"), undefined);
+  });
+
+  it("on-time return charges base rate only", () => {
+    const rm = new RentalManager(new EventBus());
+    const asset = rm.addAsset("Ladder", 20);
+    const rental = rm.checkout(asset.id, "c1", "2026-07-01T00:00:00Z", "2026-07-03T00:00:00Z")!;
+    const done = rm.processReturn(rental.id, "2026-07-03T00:00:00Z")!;
+    assert.equal(done.baseChargeUsd, 40);
+    assert.equal(done.lateFeeUsd, 0);
+    assert.equal(done.totalUsd, 40);
+    assert.equal(rm.getAsset(asset.id)!.available, true);
+  });
+
+  it("late return adds multiplied late fee", () => {
+    const rm = new RentalManager(new EventBus(), 1.5);
+    const asset = rm.addAsset("Ladder", 20);
+    const rental = rm.checkout(asset.id, "c1", "2026-07-01T00:00:00Z", "2026-07-03T00:00:00Z")!;
+    const done = rm.processReturn(rental.id, "2026-07-05T00:00:00Z")!;
+    assert.equal(done.baseChargeUsd, 40);
+    assert.equal(done.lateFeeUsd, 60);
+    assert.equal(done.totalUsd, 100);
+  });
+
+  it("flagOverdue flags only past-due active rentals", () => {
+    const rm = new RentalManager(new EventBus());
+    const a = rm.addAsset("A", 10);
+    const b = rm.addAsset("B", 10);
+    rm.checkout(a.id, "c1", "2026-07-01T00:00:00Z", "2026-07-02T00:00:00Z");
+    rm.checkout(b.id, "c2", "2026-07-01T00:00:00Z", "2026-07-10T00:00:00Z");
+    const flagged = rm.flagOverdue("2026-07-05T00:00:00Z");
+    assert.equal(flagged.length, 1);
+    assert.equal(flagged[0]!.assetId, a.id);
+  });
+
+  it("summary totals revenue and late fees", () => {
+    const rm = new RentalManager(new EventBus(), 1.5);
+    const a = rm.addAsset("A", 20);
+    const b = rm.addAsset("B", 20);
+    const r1 = rm.checkout(a.id, "c1", "2026-07-01T00:00:00Z", "2026-07-03T00:00:00Z")!;
+    rm.checkout(b.id, "c2", "2026-07-01T00:00:00Z", "2026-07-08T00:00:00Z");
+    rm.processReturn(r1.id, "2026-07-04T00:00:00Z");
+    const s = rm.summary();
+    assert.equal(s.totalAssets, 2);
+    assert.equal(s.assetsOut, 1);
+    assert.equal(s.activeRentals, 1);
+    assert.equal(s.completedRentals, 1);
+    assert.equal(s.totalRevenueUsd, 70);
+    assert.equal(s.totalLateFeesUsd, 30);
   });
 });
