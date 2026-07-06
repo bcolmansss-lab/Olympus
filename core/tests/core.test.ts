@@ -224,6 +224,8 @@ import { HackathonManager } from "../hackathon/hackathon-manager.js";
 import { OpenSourceManager } from "../open-source/open-source-manager.js";
 import { SandboxManager } from "../sandbox/sandbox-manager.js";
 import { DevRelManager } from "../devrel/devrel-manager.js";
+import { LoadTestManager } from "../load-test/load-test-manager.js";
+import { ChaosEngineeringManager } from "../chaos/chaos-manager.js";
 import { NotificationRouter, InMemoryChannel, WebhookChannel, type Alert } from "../notifications/notification-router.js";
 import { PolicyEngine, exposureCeilingPolicy, blockedCapabilityPolicy, domainFreezePolicy } from "../policy/policy-engine.js";
 import { OKG } from "../knowledge/graph/okg.js";
@@ -22751,5 +22753,129 @@ describe("DevRelManager", () => {
     dm.logActivity("other", "talk", "T", 100, "2026-07-01T00:00:00Z");
     dm.attributeSignups(a.id, 40);
     assert.equal(dm.summary().topAdvocate, "star");
+  });
+});
+
+describe("LoadTestManager", () => {
+  it("run passes when all SLOs met", () => {
+    const lm = new LoadTestManager(new EventBus());
+    const plan = lm.definePlan("checkout", 1000, 250, 1);
+    const run = lm.recordRun(plan.id, 1200, 200, 0.5, "2026-07-06T00:00:00Z")!;
+    assert.equal(run.passed, true);
+  });
+
+  it("run fails on any SLO breach", () => {
+    const lm = new LoadTestManager(new EventBus());
+    const plan = lm.definePlan("checkout", 1000, 250, 1);
+    assert.equal(lm.recordRun(plan.id, 900, 200, 0.5, "2026-07-06T00:00:00Z")!.passed, false);
+    assert.equal(lm.recordRun(plan.id, 1200, 300, 0.5, "2026-07-06T01:00:00Z")!.passed, false);
+    assert.equal(lm.recordRun(plan.id, 1200, 200, 2, "2026-07-06T02:00:00Z")!.passed, false);
+  });
+
+  it("detects >20% p95 latency regression", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("loadtest.regression", (e) => { events.push(e.payload); });
+    const lm = new LoadTestManager(bus);
+    const plan = lm.definePlan("api", 500, 400);
+    lm.recordRun(plan.id, 600, 200, 0.1, "2026-07-06T00:00:00Z");
+    lm.recordRun(plan.id, 600, 250, 0.1, "2026-07-06T01:00:00Z");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].previous, 200);
+    assert.equal(events[0].current, 250);
+  });
+
+  it("no regression within 20% tolerance", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("loadtest.regression", (e) => { events.push(e.payload); });
+    const lm = new LoadTestManager(bus);
+    const plan = lm.definePlan("api", 500, 400);
+    lm.recordRun(plan.id, 600, 200, 0.1, "2026-07-06T00:00:00Z");
+    lm.recordRun(plan.id, 600, 230, 0.1, "2026-07-06T01:00:00Z");
+    assert.equal(events.length, 0);
+  });
+
+  it("latestRun returns most recent by time", () => {
+    const lm = new LoadTestManager(new EventBus());
+    const plan = lm.definePlan("api", 500, 400);
+    lm.recordRun(plan.id, 600, 200, 0.1, "2026-07-06T00:00:00Z");
+    lm.recordRun(plan.id, 700, 210, 0.1, "2026-07-06T05:00:00Z");
+    assert.equal(lm.latestRun(plan.id)!.achievedRps, 700);
+  });
+
+  it("summary computes pass rate and regressions", () => {
+    const lm = new LoadTestManager(new EventBus());
+    const plan = lm.definePlan("api", 500, 400);
+    lm.recordRun(plan.id, 600, 200, 0.1, "2026-07-06T00:00:00Z");
+    lm.recordRun(plan.id, 400, 500, 0.1, "2026-07-06T01:00:00Z");
+    const s = lm.summary();
+    assert.equal(s.totalRuns, 2);
+    assert.equal(s.passRatePct, 50);
+    assert.equal(s.regressions, 1);
+  });
+});
+
+describe("ChaosEngineeringManager", () => {
+  it("start requires designed status", () => {
+    const cm = new ChaosEngineeringManager(new EventBus());
+    const e = cm.design("Kill one API pod", "instance_kill", "Traffic reroutes with no 5xx spike");
+    assert.notEqual(cm.start(e.id), undefined);
+    assert.equal(cm.start(e.id), undefined);
+  });
+
+  it("observe concludes within blast radius", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("chaos.experiment_concluded", (e) => { events.push(e.payload); });
+    const cm = new ChaosEngineeringManager(bus);
+    const e = cm.design("Latency", "latency_injection", "p99 stays under 1s", 10);
+    cm.start(e.id);
+    const done = cm.observe(e.id, 4, true)!;
+    assert.equal(done.status, "concluded");
+    assert.equal(events[0].hypothesisHeld, true);
+  });
+
+  it("auto-aborts when blast radius exceeded", () => {
+    const bus = new EventBus();
+    const events: any[] = [];
+    bus.subscribe("chaos.aborted", (e) => { events.push(e.payload); });
+    const cm = new ChaosEngineeringManager(bus);
+    const e = cm.design("Partition", "network_partition", "Failover in 30s", 5);
+    cm.start(e.id);
+    const aborted = cm.observe(e.id, 12, true)!;
+    assert.equal(aborted.status, "aborted");
+    assert.equal(aborted.abortReason, "blast_radius_exceeded");
+    assert.equal(events[0].reason, "blast_radius_exceeded");
+  });
+
+  it("manual abort records reason", () => {
+    const cm = new ChaosEngineeringManager(new EventBus());
+    const e = cm.design("CPU", "cpu_stress", "Autoscaler compensates");
+    cm.start(e.id);
+    const aborted = cm.abort(e.id, "oncall_request")!;
+    assert.equal(aborted.abortReason, "oncall_request");
+    assert.equal(cm.observe(e.id, 1, true), undefined);
+  });
+
+  it("observe requires running status", () => {
+    const cm = new ChaosEngineeringManager(new EventBus());
+    const e = cm.design("Outage", "dependency_outage", "Circuit breaker opens");
+    assert.equal(cm.observe(e.id, 1, true), undefined);
+  });
+
+  it("summary computes hypothesis hold rate", () => {
+    const cm = new ChaosEngineeringManager(new EventBus());
+    const a = cm.design("A", "instance_kill", "h1");
+    const b = cm.design("B", "cpu_stress", "h2");
+    const c = cm.design("C", "latency_injection", "h3", 5);
+    cm.start(a.id); cm.observe(a.id, 1, true);
+    cm.start(b.id); cm.observe(b.id, 1, false);
+    cm.start(c.id); cm.observe(c.id, 50, true);
+    const s = cm.summary();
+    assert.equal(s.totalExperiments, 3);
+    assert.equal(s.concluded, 2);
+    assert.equal(s.aborted, 1);
+    assert.equal(s.hypothesisHoldRatePct, 50);
   });
 });

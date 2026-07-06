@@ -321,6 +321,8 @@ import { HackathonManager } from "./hackathon/hackathon-manager.js";
 import { OpenSourceManager } from "./open-source/open-source-manager.js";
 import { SandboxManager } from "./sandbox/sandbox-manager.js";
 import { DevRelManager } from "./devrel/devrel-manager.js";
+import { LoadTestManager } from "./load-test/load-test-manager.js";
+import { ChaosEngineeringManager } from "./chaos/chaos-manager.js";
 
 export interface OlympusOptions {
   llm?: LLMClient;
@@ -730,6 +732,8 @@ export class Olympus {
   readonly openSource: OpenSourceManager;
   readonly sandbox: SandboxManager;
   readonly devRel: DevRelManager;
+  readonly loadTest: LoadTestManager;
+  readonly chaos: ChaosEngineeringManager;
 
   constructor(opts: OlympusOptions = {}) {
     this.bus = new EventBus(opts.sink);
@@ -1043,6 +1047,8 @@ export class Olympus {
     this.openSource = new OpenSourceManager(this.bus);
     this.sandbox = new SandboxManager(this.bus);
     this.devRel = new DevRelManager(this.bus);
+    this.loadTest = new LoadTestManager(this.bus);
+    this.chaos = new ChaosEngineeringManager(this.bus);
     this.health = new HealthScorer(this);
     this.boardReport = new BoardReportGenerator(this);
   }
@@ -1362,3 +1368,5 @@ export { HackathonManager, type HackathonPhase, type HackathonTeam, type Hackath
 export { OpenSourceManager, type ContributionStatus, type OSSProject, type OSSContribution, type OpenSourceSummary } from "./open-source/index.js";
 export { SandboxManager, type SandboxStatus, type SandboxTier, type Sandbox, type SandboxSummary } from "./sandbox/index.js";
 export { DevRelManager, type DevRelActivityKind, type DevRelActivity, type DevRelSummary } from "./devrel/index.js";
+export { LoadTestManager, type LoadTestPlan, type LoadTestRun, type LoadTestSummary } from "./load-test/index.js";
+export { ChaosEngineeringManager, type ChaosFaultKind, type ChaosExperimentStatus, type ChaosExperiment, type ChaosSummary } from "./chaos/index.js";

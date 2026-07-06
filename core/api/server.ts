@@ -426,6 +426,8 @@ export class OlympusApiServer {
       { method: "GET", pattern: "/v1/open-source", handler: (_req, res) => res.json(200, { summary: this.olympus.openSource.summary(), open: this.olympus.openSource.listContributions(undefined, "opened") }) },
       { method: "GET", pattern: "/v1/sandboxes", handler: (_req, res) => res.json(200, { summary: this.olympus.sandbox.summary(), active: this.olympus.sandbox.listSandboxes("active") }) },
       { method: "GET", pattern: "/v1/devrel", handler: (_req, res) => res.json(200, { summary: this.olympus.devRel.summary(), leaderboard: this.olympus.devRel.advocateLeaderboard() }) },
+      { method: "GET", pattern: "/v1/load-tests", handler: (_req, res) => res.json(200, { summary: this.olympus.loadTest.summary(), runs: this.olympus.loadTest.listRuns() }) },
+      { method: "GET", pattern: "/v1/chaos", handler: (_req, res) => res.json(200, { summary: this.olympus.chaos.summary(), running: this.olympus.chaos.listExperiments("running") }) },
 
       { method: "GET", pattern: "/v1/forecast/scenarios", handler: (_req, res) => {
         const heliosAssumptions = {
