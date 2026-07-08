@@ -191,6 +191,9 @@ document.addEventListener("blur", (ev) => {
 }, true);
 document.addEventListener("keydown", (ev) => {
   if (ev.target.classList && ev.target.classList.contains("editable") && ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); }
+  if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) && !ev.target.isContentEditable) {
+    ev.preventDefault(); document.getElementById("search").focus();
+  }
 });
 
 /* ============================ floating windows ============================ */
@@ -243,9 +246,30 @@ function drill(coll, id) {
         `<div class="hist"><a class="link" onclick="drill('transactions','${t.id}')">${t.date} · ${fmt$(t.amount)} · ${t.memo}</a></div>`).join("");
     }
   }
+  const actions = coll === "invoices" && rec.status !== "paid"
+    ? `<button class="primary" onclick="recordPayment('${rec.id}',this)">✓ Record payment (${fmt$(rec.amount)})</button> `
+    : "";
   openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.memo || rec.id}`,
     `<div class="kv">${rows}</div>${related}${provenanceHtml(rec)}
-     <div style="margin-top:14px"><button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete record</button></div>`);
+     <div style="margin-top:14px">${actions}<button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete record</button></div>`);
+}
+/* Mark an invoice paid and write the matching ledger transaction, linked by ref. */
+function recordPayment(invoiceId, btn) {
+  const inv = db.invoices.find((i) => i.id === invoiceId);
+  if (!inv || inv.status === "paid") return;
+  inv.history = inv.history || [];
+  inv.history.push({ at: now(), field: "status", from: inv.status, to: "paid", by: "operator" });
+  inv.status = "paid";
+  const bank = db.accounts.find((a) => a.type === "bank") || db.accounts[0];
+  db.transactions.unshift({ id: uid(), source: "manual", createdAt: now(), history: [],
+    date: today(), amount: inv.amount, direction: "in",
+    account: bank ? bank.name : "Undeposited", category: "Sales",
+    counterparty: inv.customer, memo: "Payment for " + inv.number, ref: inv.number });
+  if (bank) bank.balance = Math.round((bank.balance + inv.amount) * 100) / 100;
+  audit("payment", `${inv.number}: ${fmt$(inv.amount)} received from ${inv.customer} → ${bank ? bank.name : "Undeposited"}`);
+  btn.closest(".win").remove();
+  toast(`Payment recorded — ${fmt$(inv.amount)} posted to the ledger`);
+  render();
 }
 function delRec(coll, id, btn) {
   const rec = db[coll].find((r) => r.id === id);
@@ -355,6 +379,7 @@ function disconnectIntegration(key) {
 const VIEWS = {
   overview: { label: "Overview", group: "Company" },
   ledger: { label: "Ledger", group: "Money" },
+  reports: { label: "Reports", group: "Money" },
   invoices: { label: "Invoices", group: "Money" },
   accounts: { label: "Accounts", group: "Money" },
   customers: { label: "Customers", group: "Relationships" },
@@ -383,6 +408,30 @@ function tbl(coll, cols, renderRow) {
 }
 const srcTag = (r) => `<span class="tag src-${(r.source||"manual").split(":")[0]}" title="${r.source}">${(r.source||"").split(":")[0]}</span>`;
 
+/* Inline SVG bar chart of monthly net cash flow — no dependencies. */
+function cashflowChart() {
+  const byMonth = {};
+  for (const t of db.transactions) {
+    const m = (t.date || "").slice(0, 7);
+    if (!m) continue;
+    byMonth[m] = byMonth[m] || { in: 0, out: 0 };
+    if (t.amount >= 0) byMonth[m].in += t.amount; else byMonth[m].out += -t.amount;
+  }
+  const months = Object.keys(byMonth).sort().slice(-8);
+  if (!months.length) return "";
+  const max = Math.max(...months.flatMap((m) => [byMonth[m].in, byMonth[m].out]), 1);
+  const bw = 26, gap = 46, H = 130;
+  const bars = months.map((m, i) => {
+    const x = 20 + i * (bw * 2 + gap);
+    const hi = Math.round((byMonth[m].in / max) * H), ho = Math.round((byMonth[m].out / max) * H);
+    return `<rect x="${x}" y="${150 - hi}" width="${bw}" height="${hi}" rx="3" fill="var(--good)" opacity=".85"><title>${m} in: ${fmt$(byMonth[m].in)}</title></rect>
+      <rect x="${x + bw + 3}" y="${150 - ho}" width="${bw}" height="${ho}" rx="3" fill="var(--bad)" opacity=".8"><title>${m} out: ${fmt$(byMonth[m].out)}</title></rect>
+      <text x="${x + bw}" y="164" fill="var(--dim)" font-size="10" text-anchor="middle">${m.slice(2)}</text>`;
+  }).join("");
+  const width = 40 + months.length * (bw * 2 + gap);
+  return `<div class="card" style="margin-top:16px"><div class="k">Cash flow by month — <span style="color:var(--good)">in</span> vs <span style="color:var(--bad)">out</span> (hover bars for amounts)</div>
+    <svg viewBox="0 0 ${width} 170" style="width:100%;max-width:${width * 1.4}px;margin-top:8px">${bars}</svg></div>`;
+}
 function renderView() {
   if (view === "overview") {
     const cashIn = db.transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -397,6 +446,7 @@ function renderView() {
       <div class="card"><div class="k">Money out</div><div class="v neg">${fmt$(cashOut)}</div><div class="d">recorded outflows</div></div>
       <div class="card"><div class="k">Outstanding A/R</div><div class="v ${overdue.length ? "wrn" : ""}">${fmt$(ar)}</div><div class="d">${overdue.length} overdue — <a class="link" href="#invoices">open invoices</a></div></div>
     </div>
+    ${cashflowChart()}
     <div class="section-title" style="margin-top:22px">Latest money movement (click any row to drill into where it came from)</div>
     ${tbl("transactions", ["Date","Amount","Counterparty","Category","Memo","Source"], (t) =>
       `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.memo||""}</td><td>${srcTag(t)}</td>`)}`;
@@ -407,6 +457,39 @@ function renderView() {
     <div class="toolbar"><button class="primary" onclick="addForm('transactions')">+ Add transaction</button><button onclick="importCsv()">⬆ Import CSV (bank/QuickBooks export)</button></div>
     ${tbl("transactions", ["Date","Amount","Direction","Account","Counterparty","Category","Memo","Ref","Source"], (t) =>
       `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.direction}</td><td>${t.account}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.memo||""}</td><td>${t.ref||"—"}</td><td>${srcTag(t)}</td>`)}`;
+  }
+  if (view === "reports") {
+    const cats = {};
+    for (const t of db.transactions) {
+      const c = t.category || "Uncategorized";
+      cats[c] = cats[c] || { in: 0, out: 0 };
+      if (t.amount >= 0) cats[c].in += t.amount; else cats[c].out += -t.amount;
+    }
+    const catRows = Object.entries(cats).sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out)).map(([c, v]) =>
+      `<tr><td>${c}</td><td class="num pos">${v.in ? fmt$(v.in) : "—"}</td><td class="num neg">${v.out ? fmt$(v.out) : "—"}</td><td class="num ${v.in - v.out >= 0 ? "pos" : "neg"}">${fmt$(v.in - v.out)}</td></tr>`).join("");
+    const totIn = Object.values(cats).reduce((s, v) => s + v.in, 0);
+    const totOut = Object.values(cats).reduce((s, v) => s + v.out, 0);
+    const t = today();
+    const aging = { current: 0, d30: 0, d60: 0, d90: 0 };
+    for (const i of db.invoices) {
+      if (i.status === "paid" || i.status === "draft") continue;
+      const days = Math.floor((new Date(t) - new Date(i.due)) / 86400000);
+      if (days <= 0) aging.current += i.amount; else if (days <= 30) aging.d30 += i.amount;
+      else if (days <= 60) aging.d60 += i.amount; else aging.d90 += i.amount;
+    }
+    return `<h2>Reports</h2><div class="crumb">Profit & loss by category, plus receivables aging — built live from the ledger and invoices.</div>
+    <div class="section-title">P&L by category</div>
+    <div class="tablewrap" style="max-height:none"><table><thead><tr><th>Category</th><th style="text-align:right">Money in</th><th style="text-align:right">Money out</th><th style="text-align:right">Net</th></tr></thead><tbody>${catRows}
+      <tr style="font-weight:700"><td>Total</td><td class="num pos">${fmt$(totIn)}</td><td class="num neg">${fmt$(totOut)}</td><td class="num ${totIn - totOut >= 0 ? "pos" : "neg"}">${fmt$(totIn - totOut)}</td></tr>
+    </tbody></table></div>
+    <div class="section-title" style="margin-top:20px">Accounts receivable aging (unpaid invoices by days past due)</div>
+    <div class="grid g4">
+      <div class="card"><div class="k">Current</div><div class="v">${fmt$(aging.current)}</div></div>
+      <div class="card"><div class="k">1–30 days</div><div class="v wrn">${fmt$(aging.d30)}</div></div>
+      <div class="card"><div class="k">31–60 days</div><div class="v wrn">${fmt$(aging.d60)}</div></div>
+      <div class="card"><div class="k">60+ days</div><div class="v neg">${fmt$(aging.d90)}</div></div>
+    </div>
+    ${cashflowChart()}`;
   }
   if (view === "invoices") {
     return `<h2>Invoices</h2><div class="crumb">Click a row to open it in a window — edit amounts, mark paid, see linked payments.</div>
