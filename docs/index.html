@@ -3,149 +3,238 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Olympus — Operator Console</title>
+<title>Olympus — Business Operations</title>
 <style>
-:root {
-  --bg:#0f0f1a; --panel:#1a1a2e; --panel2:#20203a; --line:#252540; --ink:#e8e8f0;
-  --dim:#8888aa; --accent:#6366f1; --accent2:#818cf8; --good:#22d3a5; --warn:#f59e0b; --bad:#ef4444;
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --panel2:#fafbfc; --line:#e4e7ec; --line2:#eef0f3;
+  --ink:#1d2433; --dim:#667085; --faint:#98a2b3;
+  --accent:#34518c; --accent-ink:#ffffff; --accent-soft:#eef2f9;
+  --good:#067647; --good-bg:#ecfdf3; --bad:#b42318; --bad-bg:#fef3f2; --warn:#b54708; --warn-bg:#fffaeb;
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,sans-serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,"Helvetica Neue",sans-serif;
+  --shadow:0 1px 2px rgba(16,24,40,.05);
+  --shadow-lg:0 8px 24px rgba(16,24,40,.12),0 2px 6px rgba(16,24,40,.06);
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 var(--sans);overflow:hidden}
-header{display:flex;align-items:center;gap:14px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);position:relative;z-index:50}
-header h1{font-size:16px;margin:0;font-weight:700}
-header h1 span{color:var(--accent2)}
-header .sub{color:var(--dim);font-size:12px}
-#search{margin-left:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:6px 12px;width:260px;font:13px var(--sans)}
-#search:focus{outline:none;border-color:var(--accent)}
-#layout{display:flex;height:calc(100vh - 53px)}
-nav{width:200px;background:var(--panel);border-right:1px solid var(--line);padding:12px 0;overflow-y:auto;flex-shrink:0}
-nav a{display:block;padding:8px 20px;color:var(--dim);text-decoration:none;font-size:13px;border-left:3px solid transparent;cursor:pointer}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.55 var(--sans);overflow:hidden}
+header.top{display:flex;align-items:center;gap:16px;padding:0 20px;height:52px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;letter-spacing:.1px}
+.brand .mark{width:24px;height:24px;border-radius:6px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.brand small{color:var(--dim);font-weight:400}
+#search{margin-left:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:6px 12px;width:300px;font:13px var(--sans)}
+#search::placeholder{color:var(--faint)}
+#search:focus{outline:none;border-color:var(--accent);background:#fff}
+.bell{position:relative;cursor:pointer;padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-size:14px;line-height:1}
+.bell:hover{background:var(--panel2)}
+.bell .cnt{position:absolute;top:-6px;right:-6px;background:var(--bad);color:#fff;border-radius:99px;font-size:10px;font-weight:700;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+#layout{display:flex;height:calc(100vh - 52px)}
+nav{width:216px;background:var(--panel);border-right:1px solid var(--line);padding:10px 8px 20px;overflow-y:auto;flex-shrink:0}
+nav a{display:flex;align-items:center;gap:8px;padding:6px 12px;margin:1px 0;color:var(--dim);text-decoration:none;font-size:13px;border-radius:7px;cursor:pointer}
 nav a:hover{color:var(--ink);background:var(--panel2)}
-nav a.active{color:var(--ink);border-left-color:var(--accent);background:var(--panel2)}
-nav .navgroup{padding:14px 20px 4px;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);opacity:.7}
-main{flex:1;overflow-y:auto;padding:22px 26px;position:relative}
-h2{font-size:18px;margin:0 0 4px}
-.crumb{color:var(--dim);font-size:12px;margin-bottom:16px}
+nav a.active{color:var(--accent);background:var(--accent-soft);font-weight:600}
+nav .navgroup{padding:16px 12px 5px;font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;color:var(--faint);font-weight:600}
+main{flex:1;overflow-y:auto;padding:24px 28px;position:relative}
+h2{font-size:19px;margin:0 0 2px;font-weight:650;letter-spacing:-.2px}
+.crumb{color:var(--dim);font-size:12.5px;margin-bottom:18px}
 .grid{display:grid;gap:14px}
-.g4{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.card .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px}
-.card .v{font-size:22px;font-weight:700;font-family:var(--mono);margin-top:2px}
-.card .d{font-size:11px;color:var(--dim);margin-top:2px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow)}
+.card .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.card .v{font-size:21px;font-weight:650;font-family:var(--mono);margin-top:3px;letter-spacing:-.3px}
+.card .d{font-size:11.5px;color:var(--dim);margin-top:3px}
 .pos{color:var(--good)} .neg{color:var(--bad)} .wrn{color:var(--warn)}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{color:var(--dim);text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.6px;padding:8px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
-td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{color:var(--dim);text-align:left;font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;padding:9px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);cursor:pointer;user-select:none;white-space:nowrap}
+th:hover{color:var(--ink)}
+th .arr{font-size:9px;margin-left:3px}
+td{padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
 tr.row:hover{background:var(--panel2);cursor:pointer}
-.num{font-family:var(--mono);text-align:right;white-space:nowrap}
-.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
-.tag.src-quickbooks{color:#2ca01c;border-color:#2ca01c44}
-.tag.src-stripe{color:#8f7fff;border-color:#8f7fff44}
-.tag.src-csv{color:var(--warn);border-color:#f59e0b44}
-.tag.src-manual{color:var(--accent2);border-color:#818cf844}
-.tag.src-seed{color:var(--dim)}
-.tag.st-paid,.tag.st-active,.tag.st-connected{color:var(--good);border-color:#22d3a544}
-.tag.st-overdue,.tag.st-error{color:var(--bad);border-color:#ef444444}
-.tag.st-sent,.tag.st-pending{color:var(--warn);border-color:#f59e0b44}
+.num{font-family:var(--mono);text-align:right;white-space:nowrap;font-size:12px}
+.tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:500;background:var(--line2);color:var(--dim);white-space:nowrap}
+.tag.ok{background:var(--good-bg);color:var(--good)}
+.tag.bad{background:var(--bad-bg);color:var(--bad)}
+.tag.warn{background:var(--warn-bg);color:var(--warn)}
+.tag.acc{background:var(--accent-soft);color:var(--accent)}
 .toolbar{display:flex;gap:8px;align-items:center;margin:0 0 14px;flex-wrap:wrap}
-button{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 14px;font:13px var(--sans);cursor:pointer}
-button:hover{border-color:var(--accent)}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.toolbar .spacer{flex:1}
+button{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 13px;font:12.5px var(--sans);font-weight:500;cursor:pointer;box-shadow:var(--shadow)}
+button:hover{background:var(--panel2);border-color:#d0d5dd}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.primary:hover{background:#2b4477}
 button.danger{color:var(--bad)}
-select,input[type=text],input[type=number],input[type=date],textarea{background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:6px 10px;font:13px var(--sans)}
+button.ghost{border-color:transparent;box-shadow:none;background:transparent;color:var(--dim)}
+button.ghost:hover{color:var(--ink);background:var(--line2)}
+select,input[type=text],input[type=number],input[type=date],textarea{background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:6px 10px;font:12.5px var(--sans)}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
-.editable{border-bottom:1px dashed var(--line);cursor:text;min-width:30px;display:inline-block}
-.editable:hover{border-bottom-color:var(--accent2);color:var(--accent2)}
-.editable:focus{outline:none;border-bottom:1px solid var(--accent);color:var(--ink)}
-.win{position:absolute;background:var(--panel);border:1px solid var(--accent);border-radius:12px;box-shadow:0 12px 48px rgba(0,0,0,.6);min-width:420px;max-width:660px;max-height:76vh;display:flex;flex-direction:column;z-index:100}
-.win header{cursor:move;border-radius:12px 12px 0 0;padding:9px 14px;background:var(--panel2);border-bottom:1px solid var(--line);user-select:none}
-.win header b{font-size:13px}
-.win header .x{margin-left:auto;cursor:pointer;color:var(--dim);font-size:16px;padding:0 4px}
-.win header .x:hover{color:var(--bad)}
-.win .body{padding:14px 16px;overflow-y:auto}
-.kv{display:grid;grid-template-columns:150px 1fr;gap:5px 12px;font-size:13px;margin-bottom:12px}
+.editable{border-bottom:1px dashed transparent;cursor:text;min-width:24px;display:inline-block;border-radius:2px}
+.editable:hover{border-bottom-color:var(--faint);background:var(--warn-bg)}
+.editable:focus{outline:none;border-bottom:1px solid var(--accent);background:var(--accent-soft)}
+.win{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-lg);min-width:440px;max-width:680px;max-height:76vh;display:flex;flex-direction:column;z-index:100}
+.win .whead{display:flex;align-items:center;cursor:move;border-radius:12px 12px 0 0;padding:10px 16px;background:var(--panel2);border-bottom:1px solid var(--line);user-select:none;font-weight:600;font-size:13px}
+.win .whead .x{margin-left:auto;cursor:pointer;color:var(--dim);font-size:15px;padding:0 4px;border-radius:4px}
+.win .whead .x:hover{color:var(--bad);background:var(--bad-bg)}
+.win .body{padding:16px 18px;overflow-y:auto}
+.kv{display:grid;grid-template-columns:160px 1fr;gap:6px 14px;font-size:12.5px;margin-bottom:12px}
 .kv .k{color:var(--dim)}
-.hist{font-size:12px;color:var(--dim);border-left:2px solid var(--line);padding-left:10px;margin:4px 0}
-.section-title{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:14px 0 6px;font-weight:600}
+.hist{font-size:12px;color:var(--dim);border-left:2px solid var(--line);padding-left:10px;margin:5px 0}
+.section-title{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:16px 0 7px;font-weight:650}
 .intcard{display:flex;gap:12px;align-items:center}
-.intcard .logo{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:#fff;flex-shrink:0}
-.formrow{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
-.formrow label{font-size:12px;color:var(--dim)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--good);border-radius:10px;padding:10px 18px;z-index:999;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
-.empty{color:var(--dim);padding:30px;text-align:center}
-.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:calc(100vh - 240px)}
-a.link{color:var(--accent2);cursor:pointer;text-decoration:none}
+.intcard .logo{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0}
+.formrow{display:flex;flex-direction:column;gap:4px;margin-bottom:11px}
+.formrow label{font-size:11.5px;color:var(--dim);font-weight:550}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;border-radius:9px;padding:10px 18px;z-index:999;font-size:12.5px;box-shadow:var(--shadow-lg)}
+.empty{color:var(--faint);padding:36px;text-align:center;font-size:13px}
+.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:auto;max-height:calc(100vh - 250px);box-shadow:var(--shadow)}
+a.link{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:500}
 a.link:hover{text-decoration:underline}
+.bar{height:7px;border-radius:99px;background:var(--line2);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.bar i.over{background:var(--bad)}
+.pill-toggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.pill-toggle span{padding:4px 12px;cursor:pointer;font-size:12px;color:var(--dim)}
+.pill-toggle span.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+#palette{position:fixed;inset:0;background:rgba(16,24,40,.4);z-index:500;display:none;align-items:flex-start;justify-content:center;padding-top:14vh}
+#palette .box{background:var(--panel);border-radius:12px;box-shadow:var(--shadow-lg);width:520px;overflow:hidden}
+#palette input{width:100%;border:none;border-bottom:1px solid var(--line);border-radius:0;padding:14px 18px;font-size:14px}
+#palette .opts{max-height:320px;overflow-y:auto}
+#palette .opt{padding:10px 18px;cursor:pointer;font-size:13px;display:flex;gap:10px;align-items:center}
+#palette .opt.sel,#palette .opt:hover{background:var(--accent-soft)}
+#palette .opt .hint{margin-left:auto;color:var(--faint);font-size:11px}
+kbd{background:var(--line2);border:1px solid var(--line);border-radius:4px;padding:0 5px;font:11px var(--mono);color:var(--dim)}
 </style>
 </head>
 <body>
-<header>
-  <h1>OLYMPUS <span>◆</span> Operator Console</h1>
-  <div class="sub" id="companyName"></div>
-  <input id="search" placeholder="Search everything…  (name, memo, amount)" />
+<header class="top">
+  <div class="brand"><div class="mark">O</div><div>Olympus <small id="companyName"></small></div></div>
+  <div class="pill-toggle" id="quickadd" style="margin-left:8px">
+    <span onclick="addForm('transactions')">+ Transaction</span><span onclick="addForm('invoices')">+ Invoice</span><span onclick="addForm('bills')">+ Bill</span>
+  </div>
+  <input id="search" placeholder="Search everything — press / to focus, Ctrl+K for commands" />
+  <div class="bell" id="bell" title="Notifications">🔔</div>
 </header>
 <div id="layout">
   <nav id="nav"></nav>
   <main id="main"></main>
 </div>
 <div id="windows"></div>
+<div id="palette"><div class="box"><input id="palinput" placeholder="Type a page or action…" /><div class="opts" id="palopts"></div></div></div>
 <script>
 "use strict";
-/* ============================ data layer ============================ */
-const LS_KEY = "olympus-console-v1";
+/* ================= core data ================= */
+const LS_KEY = "olympus-console-v3";
 const uid = () => Math.random().toString(36).slice(2, 10);
 const today = () => new Date().toISOString().slice(0, 10);
 const now = () => new Date().toISOString();
+const thisMonth = () => today().slice(0, 7);
 const fmt$ = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const fmtK = (n) => { const a = Math.abs(n); const s = a >= 1e9 ? (a/1e9).toFixed(1)+"B" : a >= 1e6 ? (a/1e6).toFixed(1)+"M" : a >= 1e3 ? (a/1e3).toFixed(1)+"K" : a.toFixed(0); return (n<0?"-$":"$")+s; };
 
 function seedData() {
   const mk = (extra) => ({ id: uid(), source: "seed", createdAt: now(), history: [], ...extra });
+  const txns = [];
+  const flows = [
+    ["2026-01", 412000, 371000], ["2026-02", 428500, 380200], ["2026-03", 445100, 401800],
+    ["2026-04", 462300, 388400], ["2026-05", 471900, 415600], ["2026-06", 489200, 398900],
+  ];
+  for (const [m, inc, out] of flows) {
+    txns.push(mk({ date: m+"-05", amount: Math.round(inc*0.62), account: "Operating — Main", category: "Product revenue", department: "Commerce", counterparty: "Marketplace settlements", memo: "Marketplace payout batch" }));
+    txns.push(mk({ date: m+"-12", amount: Math.round(inc*0.23), account: "Operating — Main", category: "Subscription revenue", department: "Commerce", counterparty: "Prime memberships", memo: "Recurring membership billing" }));
+    txns.push(mk({ date: m+"-19", amount: Math.round(inc*0.15), account: "Operating — Main", category: "Services revenue", department: "Cloud", counterparty: "Enterprise contracts", memo: "Cloud services invoicing" }));
+    txns.push(mk({ date: m+"-01", amount: -Math.round(out*0.41), account: "Payroll", category: "Payroll", department: "People", counterparty: "Payroll run "+m, memo: "Semi-monthly payroll A" }));
+    txns.push(mk({ date: m+"-15", amount: -Math.round(out*0.24), account: "Payroll", category: "Payroll", department: "People", counterparty: "Payroll run "+m, memo: "Semi-monthly payroll B" }));
+    txns.push(mk({ date: m+"-08", amount: -Math.round(out*0.18), account: "Operating — Main", category: "Fulfillment", department: "Logistics", counterparty: "Regional carriers", memo: "Carrier invoices" }));
+    txns.push(mk({ date: m+"-21", amount: -Math.round(out*0.11), account: "Operating — Main", category: "Cloud infrastructure", department: "Cloud", counterparty: "DataCenter West", memo: "Compute + storage" }));
+    txns.push(mk({ date: m+"-26", amount: -Math.round(out*0.06), account: "Corporate card", category: "Marketing", department: "Growth", counterparty: "Ad platforms", memo: "Performance marketing" }));
+  }
+  txns.push(mk({ date: "2026-07-01", amount: 148200, account: "Operating — Main", category: "Product revenue", department: "Commerce", counterparty: "Marketplace settlements", memo: "Marketplace payout batch" }));
+  txns.push(mk({ date: "2026-07-02", amount: -186500, account: "Payroll", category: "Payroll", department: "People", counterparty: "Payroll run 2026-07", memo: "Semi-monthly payroll A" }));
+  txns.push(mk({ date: "2026-07-05", amount: -42800, account: "Operating — Main", category: "Fulfillment", department: "Logistics", counterparty: "Regional carriers", memo: "Carrier invoices" }));
   return {
-    company: { name: "Acme Rentals LLC" },
+    companyMeta: [{ id: "company", name: "Meridian Commerce Group", source: "seed", createdAt: now(), history: [] }],
     accounts: [
-      mk({ name: "Operating Checking", type: "bank", balance: 84210.55 }),
-      mk({ name: "Payroll Account", type: "bank", balance: 22040.00 }),
-      mk({ name: "Business Credit Card", type: "credit", balance: -4315.22 }),
+      mk({ name: "Operating — Main", type: "bank", balance: 8421055.22 }),
+      mk({ name: "Operating — EU", type: "bank", balance: 2204410.90 }),
+      mk({ name: "Payroll", type: "bank", balance: 1450200.00 }),
+      mk({ name: "Corporate card", type: "credit", balance: -431522.10 }),
+      mk({ name: "Treasury reserve", type: "bank", balance: 25000000.00 }),
+    ],
+    departments: [
+      mk({ name: "Commerce", lead: "A. Okafor", headcount: 3120 }),
+      mk({ name: "Logistics", lead: "M. Chen", headcount: 8450 }),
+      mk({ name: "Cloud", lead: "S. Duval", headcount: 1980 }),
+      mk({ name: "Growth", lead: "R. Patel", headcount: 640 }),
+      mk({ name: "People", lead: "J. Whitfield", headcount: 310 }),
     ],
     customers: [
-      mk({ name: "Northwind Traders", email: "ap@northwind.com", phone: "555-0102", terms: "Net 30" }),
-      mk({ name: "Fabrikam Inc", email: "billing@fabrikam.com", phone: "555-0177", terms: "Net 15" }),
+      mk({ name: "Northwind Traders", email: "ap@northwind.com", phone: "555-0102", terms: "Net 30", owner: "Enterprise East" }),
+      mk({ name: "Fabrikam Inc", email: "billing@fabrikam.com", phone: "555-0177", terms: "Net 15", owner: "Enterprise West" }),
+      mk({ name: "Contoso Ltd", email: "finance@contoso.com", phone: "555-0143", terms: "Net 45", owner: "Strategic" }),
     ],
     vendors: [
-      mk({ name: "Metro Office Supply", email: "sales@metro-os.com", category: "Supplies" }),
-      mk({ name: "CloudHost Pro", email: "billing@cloudhost.pro", category: "Software" }),
+      mk({ name: "Regional carriers", email: "billing@regcarriers.com", category: "Fulfillment", terms: "Net 30" }),
+      mk({ name: "DataCenter West", email: "ar@dcwest.io", category: "Cloud infrastructure", terms: "Net 30" }),
+      mk({ name: "Ad platforms", email: "invoices@adplat.com", category: "Marketing", terms: "Net 15" }),
+      mk({ name: "Metro Office Supply", email: "sales@metro-os.com", category: "Facilities", terms: "Due on receipt" }),
     ],
     employees: [
-      mk({ name: "Jordan Ellis", role: "Operations Manager", salary: 78000, startDate: "2024-03-11" }),
-      mk({ name: "Sam Rivera", role: "Field Technician", salary: 54000, startDate: "2025-01-06" }),
+      mk({ name: "Jordan Ellis", role: "VP Operations", department: "Logistics", salary: 248000, startDate: "2021-03-11" }),
+      mk({ name: "Sam Rivera", role: "Director, Fulfillment", department: "Logistics", salary: 196000, startDate: "2022-01-06" }),
+      mk({ name: "Priya Nair", role: "Head of FP&A", department: "People", salary: 214000, startDate: "2020-09-14" }),
     ],
     projects: [
-      mk({ name: "Warehouse Expansion", budget: 45000, spent: 12800, status: "active" }),
+      mk({ name: "Same-day delivery expansion", department: "Logistics", budget: 12500000, spent: 4830000, status: "active" }),
+      mk({ name: "Checkout latency program", department: "Commerce", budget: 2400000, spent: 2510000, status: "active" }),
+      mk({ name: "EU data residency", department: "Cloud", budget: 8800000, spent: 1200000, status: "active" }),
     ],
     invoices: [
-      mk({ number: "INV-1041", customer: "Northwind Traders", amount: 6200, issued: "2026-06-10", due: "2026-07-10", status: "sent" }),
-      mk({ number: "INV-1042", customer: "Fabrikam Inc", amount: 3450, issued: "2026-06-18", due: "2026-07-03", status: "overdue" }),
-      mk({ number: "INV-1039", customer: "Northwind Traders", amount: 8800, issued: "2026-05-02", due: "2026-06-01", status: "paid" }),
+      mk({ number: "INV-98041", customer: "Northwind Traders", amount: 620000, issued: "2026-06-10", due: "2026-07-10", status: "sent" }),
+      mk({ number: "INV-98042", customer: "Fabrikam Inc", amount: 345000, issued: "2026-05-18", due: "2026-06-02", status: "sent" }),
+      mk({ number: "INV-98039", customer: "Contoso Ltd", amount: 880000, issued: "2026-05-02", due: "2026-06-16", status: "paid" }),
+      mk({ number: "INV-98043", customer: "Contoso Ltd", amount: 1240000, issued: "2026-06-28", due: "2026-08-12", status: "sent" }),
     ],
-    transactions: [
-      mk({ date: "2026-07-01", amount: 8800, direction: "in", account: "Operating Checking", category: "Sales", counterparty: "Northwind Traders", memo: "Payment for INV-1039", ref: "INV-1039" }),
-      mk({ date: "2026-07-02", amount: -1249.99, direction: "out", account: "Business Credit Card", category: "Software", counterparty: "CloudHost Pro", memo: "Annual hosting renewal" }),
-      mk({ date: "2026-07-03", amount: -6500, direction: "out", account: "Payroll Account", category: "Payroll", counterparty: "Payroll run 2026-07-A", memo: "Semi-monthly payroll" }),
-      mk({ date: "2026-07-05", amount: -312.4, direction: "out", account: "Operating Checking", category: "Supplies", counterparty: "Metro Office Supply", memo: "Packing materials" }),
+    bills: [
+      mk({ number: "BILL-5521", vendor: "DataCenter West", amount: 412000, received: "2026-06-25", due: "2026-07-25", status: "open", category: "Cloud infrastructure", department: "Cloud" }),
+      mk({ number: "BILL-5522", vendor: "Regional carriers", amount: 388400, received: "2026-06-28", due: "2026-07-12", status: "open", category: "Fulfillment", department: "Logistics" }),
+      mk({ number: "BILL-5509", vendor: "Ad platforms", amount: 96500, received: "2026-06-01", due: "2026-06-16", status: "paid", category: "Marketing", department: "Growth" }),
     ],
+    transactions: txns,
+    budgets: [
+      mk({ category: "Payroll", monthlyUsd: 420000 }),
+      mk({ category: "Fulfillment", monthlyUsd: 95000 }),
+      mk({ category: "Cloud infrastructure", monthlyUsd: 60000 }),
+      mk({ category: "Marketing", monthlyUsd: 40000 }),
+      mk({ category: "Facilities", monthlyUsd: 15000 }),
+    ],
+    tasks: [
+      mk({ title: "Q3 carrier contract renegotiation", assignee: "Jordan Ellis", due: "2026-07-20", status: "open", linked: "Regional carriers" }),
+      mk({ title: "Close June books", assignee: "Priya Nair", due: "2026-07-08", status: "open", linked: "" }),
+    ],
+    rules: [
+      mk({ name: "Categorize carrier spend", kind: "categorize", matchField: "counterparty", contains: "carrier", setCategory: "Fulfillment", setDepartment: "Logistics", enabled: true }),
+      mk({ name: "Flag overdue invoices", kind: "flag_overdue", graceDays: 0, enabled: true }),
+      mk({ name: "Approval for large outflows", kind: "approval_threshold", thresholdUsd: 250000, enabled: true }),
+      mk({ name: "Low-balance alert — Payroll", kind: "alert_balance", account: "Payroll", belowUsd: 1000000, enabled: true }),
+      mk({ name: "Monthly office lease", kind: "recurring", day: 1, amount: -84000, account: "Operating — Main", category: "Facilities", department: "People", counterparty: "Harborview Properties", memo: "HQ + regional office leases", lastRun: thisMonth(), enabled: true }),
+    ],
+    approvals: [],
+    notifications: [],
+    notifKeys: [],
+    autoLog: [],
     integrations: [
       { key: "quickbooks", name: "QuickBooks Online", color: "#2ca01c", desc: "Chart of accounts, invoices, bills, payments", status: "disconnected", config: {} },
+      { key: "netsuite", name: "NetSuite", color: "#1f6bb0", desc: "ERP master records and consolidation", status: "disconnected", config: {} },
+      { key: "sap", name: "SAP S/4HANA", color: "#1870c5", desc: "Enterprise financials and supply chain", status: "disconnected", config: {} },
       { key: "xero", name: "Xero", color: "#13b5ea", desc: "Accounting sync — ledgers and contacts", status: "disconnected", config: {} },
       { key: "stripe", name: "Stripe", color: "#635bff", desc: "Payments, payouts, subscriptions", status: "disconnected", config: {} },
-      { key: "plaid", name: "Plaid", color: "#111", desc: "Live bank feeds and balance checks", status: "disconnected", config: {} },
-      { key: "gusto", name: "Gusto", color: "#f45d48", desc: "Payroll runs and benefits", status: "disconnected", config: {} },
+      { key: "plaid", name: "Plaid", color: "#374151", desc: "Live bank feeds and balance checks", status: "disconnected", config: {} },
+      { key: "adp", name: "ADP", color: "#d0271d", desc: "Enterprise payroll and HR", status: "disconnected", config: {} },
+      { key: "workday", name: "Workday", color: "#f38b00", desc: "HCM, headcount, and compensation", status: "disconnected", config: {} },
       { key: "salesforce", name: "Salesforce", color: "#00a1e0", desc: "CRM pipeline and accounts", status: "disconnected", config: {} },
-      { key: "hubspot", name: "HubSpot", color: "#ff7a59", desc: "Marketing and deal flow", status: "disconnected", config: {} },
+      { key: "coupa", name: "Coupa", color: "#0073ab", desc: "Procurement and spend management", status: "disconnected", config: {} },
       { key: "shopify", name: "Shopify", color: "#95bf47", desc: "Orders, products, storefront revenue", status: "disconnected", config: {} },
-      { key: "asana", name: "Asana", color: "#f06a6a", desc: "Project and task planning", status: "disconnected", config: {} },
-      { key: "netsuite", name: "NetSuite", color: "#125580", desc: "ERP master records", status: "disconnected", config: {} },
+      { key: "snowflake", name: "Snowflake", color: "#29b5e8", desc: "Warehouse-scale analytics export", status: "disconnected", config: {} },
     ],
     audit: [],
   };
@@ -154,17 +243,85 @@ let db = (() => { try { const raw = localStorage.getItem(LS_KEY); if (raw) retur
 function save() { localStorage.setItem(LS_KEY, JSON.stringify(db)); }
 function audit(action, detail) {
   db.audit.unshift({ at: now(), action, detail });
-  if (db.audit.length > 500) db.audit.pop();
+  if (db.audit.length > 1000) db.audit.pop();
   save();
 }
 function toast(msg) {
   const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
 }
+function notify(text, key) {
+  if (key) { if (db.notifKeys.includes(key)) return; db.notifKeys.push(key); if (db.notifKeys.length > 800) db.notifKeys.shift(); }
+  db.notifications.unshift({ id: uid(), at: now(), text, read: false });
+  if (db.notifications.length > 200) db.notifications.pop();
+}
 
-/* ============================ edit-in-place ============================ */
-/* Any field on any record is editable: renders a contenteditable span that
-   writes back to the record, stamps provenance history, and logs to audit. */
+/* ================= automation engine ================= */
+function logAuto(rule, detail) {
+  db.autoLog.unshift({ at: now(), rule: rule.name, detail });
+  if (db.autoLog.length > 300) db.autoLog.pop();
+}
+function runAutomations() {
+  let changed = false;
+  for (const rule of db.rules) {
+    if (!rule.enabled) continue;
+    if (rule.kind === "categorize") {
+      for (const t of db.transactions) {
+        if (t.autoTagged) continue;
+        const hay = String(t[rule.matchField] || "").toLowerCase();
+        if (hay.includes(String(rule.contains).toLowerCase())) {
+          if (rule.setCategory && t.category !== rule.setCategory) { t.category = rule.setCategory; changed = true; }
+          if (rule.setDepartment && t.department !== rule.setDepartment) { t.department = rule.setDepartment; changed = true; }
+          t.autoTagged = true;
+          logAuto(rule, `tagged ${t.memo || t.counterparty} → ${rule.setCategory || ""} ${rule.setDepartment || ""}`);
+        }
+      }
+    }
+    if (rule.kind === "flag_overdue") {
+      for (const i of db.invoices) {
+        if (i.status === "sent" && i.due && i.due < today()) {
+          i.status = "overdue"; changed = true;
+          notify(`Invoice ${i.number} (${i.customer}, ${fmt$(i.amount)}) is overdue`, "ov:" + i.number);
+          db.tasks.unshift({ id: uid(), source: "automation", createdAt: now(), history: [], title: `Chase overdue ${i.number} — ${i.customer}`, assignee: "AR team", due: today(), status: "open", linked: i.number });
+          logAuto(rule, `${i.number} marked overdue; collection task created`);
+        }
+      }
+      for (const b of db.bills) {
+        if (b.status === "open" && b.due && b.due < today()) {
+          notify(`Bill ${b.number} (${b.vendor}, ${fmt$(b.amount)}) is past due`, "bv:" + b.number);
+        }
+      }
+    }
+    if (rule.kind === "alert_balance") {
+      const acct = db.accounts.find((a) => a.name === rule.account);
+      if (acct && acct.balance < rule.belowUsd) {
+        notify(`${acct.name} balance ${fmt$(acct.balance)} is below the ${fmt$(rule.belowUsd)} floor`, "bal:" + acct.name + ":" + thisMonth());
+        logAuto(rule, `${acct.name} below floor`);
+      }
+    }
+    if (rule.kind === "recurring") {
+      const m = thisMonth();
+      const dom = Number(today().slice(8, 10));
+      if (rule.lastRun !== m && dom >= rule.day) {
+        db.transactions.unshift({ id: uid(), source: "automation", createdAt: now(), history: [],
+          date: m + "-" + String(rule.day).padStart(2, "0"), amount: rule.amount,
+          account: rule.account, category: rule.category, department: rule.department || "",
+          counterparty: rule.counterparty, memo: rule.memo });
+        rule.lastRun = m; changed = true;
+        notify(`Recurring: posted ${fmt$(rule.amount)} — ${rule.memo}`, "rec:" + rule.id + ":" + m);
+        logAuto(rule, `posted ${fmt$(rule.amount)} for ${m}`);
+      }
+    }
+  }
+  if (changed) save();
+  return changed;
+}
+function approvalThreshold() {
+  const r = db.rules.find((r) => r.kind === "approval_threshold" && r.enabled);
+  return r ? r.thresholdUsd : Infinity;
+}
+
+/* ================= edit-in-place ================= */
 function editable(coll, rec, field, opts = {}) {
   const isNum = opts.num;
   const val = rec[field] ?? "";
@@ -185,35 +342,29 @@ document.addEventListener("blur", (ev) => {
   rec.history.push({ at: now(), field, from: old, to: nv, by: "operator" });
   rec[field] = nv;
   if (rec.source === "seed") rec.source = "manual";
-  audit("edit", `${coll}/${rec.name || rec.number || rec.memo || rec.id}: ${field} ${JSON.stringify(old)} → ${JSON.stringify(nv)}`);
-  toast("Saved — change logged to audit trail");
+  audit("edit", `${coll}/${rec.name || rec.number || rec.title || rec.memo || rec.id}: ${field} ${JSON.stringify(old)} → ${JSON.stringify(nv)}`);
+  toast("Saved");
   render();
 }, true);
-document.addEventListener("keydown", (ev) => {
-  if (ev.target.classList && ev.target.classList.contains("editable") && ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); }
-  if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) && !ev.target.isContentEditable) {
-    ev.preventDefault(); document.getElementById("search").focus();
-  }
-});
 
-/* ============================ floating windows ============================ */
+/* ================= windows ================= */
 let zTop = 100;
 function openWindow(title, bodyHtml) {
   const host = document.getElementById("windows");
   const w = document.createElement("div");
   w.className = "win";
   const n = host.children.length;
-  w.style.left = (120 + n * 34) + "px";
-  w.style.top = (90 + n * 30) + "px";
+  w.style.left = (140 + n * 36) + "px";
+  w.style.top = (86 + n * 32) + "px";
   w.style.zIndex = ++zTop;
-  w.innerHTML = `<header><b>${title}</b><span class="x" title="Close">✕</span></header><div class="body">${bodyHtml}</div>`;
+  w.innerHTML = `<div class="whead">${title}<span class="x" title="Close">✕</span></div><div class="body">${bodyHtml}</div>`;
   w.querySelector(".x").onclick = () => w.remove();
   w.onmousedown = () => { w.style.zIndex = ++zTop; };
-  const h = w.querySelector("header");
+  const h = w.querySelector(".whead");
   h.onmousedown = (e) => {
     if (e.target.classList.contains("x")) return;
     const sx = e.clientX - w.offsetLeft, sy = e.clientY - w.offsetTop;
-    const mv = (e2) => { w.style.left = (e2.clientX - sx) + "px"; w.style.top = Math.max(56, e2.clientY - sy) + "px"; };
+    const mv = (e2) => { w.style.left = (e2.clientX - sx) + "px"; w.style.top = Math.max(54, e2.clientY - sy) + "px"; };
     const up = () => { document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); };
     document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
   };
@@ -222,19 +373,19 @@ function openWindow(title, bodyHtml) {
 }
 function provenanceHtml(rec) {
   const hist = (rec.history || []).slice().reverse().map((h) =>
-    `<div class="hist">${new Date(h.at).toLocaleString()} — <b>${h.field}</b> changed from <i>${h.from ?? "—"}</i> to <i>${h.to}</i> (${h.by})</div>`).join("") || `<div class="hist">No edits since creation.</div>`;
+    `<div class="hist">${new Date(h.at).toLocaleString()} — <b>${h.field}</b>: <i>${h.from ?? "—"}</i> → <i>${h.to}</i> (${h.by})</div>`).join("") || `<div class="hist">No edits since creation.</div>`;
   return `<div class="section-title">Provenance</div>
-    <div class="kv"><div class="k">Source</div><div><span class="tag src-${(rec.source||"manual").split(":")[0]}">${rec.source}</span></div>
+    <div class="kv"><div class="k">Source</div><div><span class="tag acc">${rec.source || "manual"}</span></div>
     <div class="k">Created</div><div>${new Date(rec.createdAt).toLocaleString()}</div>
-    <div class="k">Record ID</div><div style="font-family:var(--mono)">${rec.id}</div></div>
+    <div class="k">Record ID</div><div style="font-family:var(--mono);font-size:11px">${rec.id}</div></div>
     <div class="section-title">Change history</div>${hist}`;
 }
 function drill(coll, id) {
   const rec = db[coll].find((r) => r.id === id);
   if (!rec) return;
-  const skip = new Set(["id", "source", "createdAt", "history"]);
+  const skip = new Set(["id", "source", "createdAt", "history", "autoTagged"]);
   const rows = Object.keys(rec).filter((k) => !skip.has(k)).map((k) => {
-    const isNum = typeof rec[k] === "number" && /amount|balance|salary|budget|spent/.test(k);
+    const isNum = typeof rec[k] === "number" && /amount|balance|salary|budget|spent|monthlyUsd|thresholdUsd|belowUsd|headcount/.test(k);
     return `<div class="k">${k}</div><div>${editable(coll, rec, k, { num: isNum })}</div>`;
   }).join("");
   let related = "";
@@ -242,62 +393,113 @@ function drill(coll, id) {
   if (nm) {
     const rel = db.transactions.filter((t) => t.id !== rec.id && (t.counterparty === nm || t.ref === nm || t.account === nm));
     if (rel.length) {
-      related = `<div class="section-title">Linked money movement</div>` + rel.map((t) =>
+      related = `<div class="section-title">Linked money movement</div>` + rel.slice(0, 8).map((t) =>
         `<div class="hist"><a class="link" onclick="drill('transactions','${t.id}')">${t.date} · ${fmt$(t.amount)} · ${t.memo}</a></div>`).join("");
     }
   }
-  const actions = coll === "invoices" && rec.status !== "paid"
-    ? `<button class="primary" onclick="recordPayment('${rec.id}',this)">✓ Record payment (${fmt$(rec.amount)})</button> `
-    : "";
-  openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.memo || rec.id}`,
+  let actions = "";
+  if (coll === "invoices" && rec.status !== "paid") actions += `<button class="primary" onclick="recordPayment('${rec.id}',this)">✓ Record payment (${fmt$(rec.amount)})</button> `;
+  if (coll === "bills" && rec.status !== "paid") actions += `<button class="primary" onclick="payBill('${rec.id}',this)">Pay bill (${fmt$(rec.amount)})</button> `;
+  if (coll === "tasks" && rec.status === "open") actions += `<button class="primary" onclick="completeTask('${rec.id}',this)">Mark complete</button> `;
+  openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.title || rec.memo || rec.id}`,
     `<div class="kv">${rows}</div>${related}${provenanceHtml(rec)}
-     <div style="margin-top:14px">${actions}<button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete record</button></div>`);
-}
-/* Mark an invoice paid and write the matching ledger transaction, linked by ref. */
-function recordPayment(invoiceId, btn) {
-  const inv = db.invoices.find((i) => i.id === invoiceId);
-  if (!inv || inv.status === "paid") return;
-  inv.history = inv.history || [];
-  inv.history.push({ at: now(), field: "status", from: inv.status, to: "paid", by: "operator" });
-  inv.status = "paid";
-  const bank = db.accounts.find((a) => a.type === "bank") || db.accounts[0];
-  db.transactions.unshift({ id: uid(), source: "manual", createdAt: now(), history: [],
-    date: today(), amount: inv.amount, direction: "in",
-    account: bank ? bank.name : "Undeposited", category: "Sales",
-    counterparty: inv.customer, memo: "Payment for " + inv.number, ref: inv.number });
-  if (bank) bank.balance = Math.round((bank.balance + inv.amount) * 100) / 100;
-  audit("payment", `${inv.number}: ${fmt$(inv.amount)} received from ${inv.customer} → ${bank ? bank.name : "Undeposited"}`);
-  btn.closest(".win").remove();
-  toast(`Payment recorded — ${fmt$(inv.amount)} posted to the ledger`);
-  render();
+     <div style="margin-top:14px">${actions}<button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete</button></div>`);
 }
 function delRec(coll, id, btn) {
   const rec = db[coll].find((r) => r.id === id);
   if (!rec) return;
-  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Click again to confirm delete"; return; }
+  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Confirm delete"; return; }
   db[coll] = db[coll].filter((r) => r.id !== id);
-  audit("delete", `${coll}: removed ${rec.name || rec.number || rec.memo || id}`);
+  audit("delete", `${coll}: removed ${rec.name || rec.number || rec.title || rec.memo || id}`);
   btn.closest(".win").remove();
-  toast("Deleted — logged to audit trail");
+  toast("Deleted"); render();
+}
+
+/* ================= money actions ================= */
+function recordPayment(invoiceId, btn) {
+  const inv = db.invoices.find((i) => i.id === invoiceId);
+  if (!inv || inv.status === "paid") return;
+  inv.history.push({ at: now(), field: "status", from: inv.status, to: "paid", by: "operator" });
+  inv.status = "paid";
+  const bank = db.accounts.find((a) => a.type === "bank") || db.accounts[0];
+  db.transactions.unshift({ id: uid(), source: "manual", createdAt: now(), history: [],
+    date: today(), amount: inv.amount, account: bank ? bank.name : "Undeposited",
+    category: "Product revenue", department: "", counterparty: inv.customer, memo: "Payment for " + inv.number, ref: inv.number });
+  if (bank) bank.balance = Math.round((bank.balance + inv.amount) * 100) / 100;
+  audit("payment", `${inv.number}: ${fmt$(inv.amount)} received from ${inv.customer}`);
+  if (btn) btn.closest(".win").remove();
+  toast(`Payment recorded — ${fmt$(inv.amount)}`); render();
+}
+function payBill(billId, btn) {
+  const bill = db.bills.find((b) => b.id === billId);
+  if (!bill || bill.status === "paid") return;
+  const amt = -Math.abs(bill.amount);
+  if (Math.abs(amt) >= approvalThreshold()) {
+    db.approvals.unshift({ id: uid(), createdAt: now(), kind: "bill_payment", refId: bill.id,
+      summary: `Pay ${bill.number} — ${bill.vendor}`, amount: amt, status: "pending", requestedBy: "operator" });
+    notify(`Approval requested: pay ${bill.number} (${fmt$(bill.amount)}) — over the ${fmt$(approvalThreshold())} threshold`, "apr:" + bill.id);
+    audit("approval", `Payment for ${bill.number} routed to approvals (${fmt$(bill.amount)})`);
+    if (btn) btn.closest(".win").remove();
+    toast("Routed to Approvals — exceeds auto-pay threshold"); render(); return;
+  }
+  executeBillPayment(bill);
+  if (btn) btn.closest(".win").remove();
+  toast(`Bill paid — ${fmt$(bill.amount)}`); render();
+}
+function executeBillPayment(bill) {
+  bill.history.push({ at: now(), field: "status", from: bill.status, to: "paid", by: "operator" });
+  bill.status = "paid";
+  const bank = db.accounts.find((a) => a.type === "bank") || db.accounts[0];
+  db.transactions.unshift({ id: uid(), source: "manual", createdAt: now(), history: [],
+    date: today(), amount: -Math.abs(bill.amount), account: bank ? bank.name : "Operating",
+    category: bill.category || "Accounts payable", department: bill.department || "", counterparty: bill.vendor, memo: "Payment of " + bill.number, ref: bill.number });
+  if (bank) bank.balance = Math.round((bank.balance - Math.abs(bill.amount)) * 100) / 100;
+  audit("payment", `${bill.number}: paid ${fmt$(bill.amount)} to ${bill.vendor}`);
+}
+function decideApproval(id, ok) {
+  const ap = db.approvals.find((a) => a.id === id);
+  if (!ap || ap.status !== "pending") return;
+  ap.status = ok ? "approved" : "rejected";
+  ap.decidedAt = now();
+  if (ok && ap.kind === "bill_payment") {
+    const bill = db.bills.find((b) => b.id === ap.refId);
+    if (bill && bill.status !== "paid") executeBillPayment(bill);
+  }
+  if (ok && ap.kind === "transaction") {
+    db.transactions.unshift({ ...ap.payload, id: uid(), source: "manual", createdAt: now(), history: [] });
+  }
+  audit("approval", `${ap.summary}: ${ap.status}`);
+  toast(ok ? "Approved and executed" : "Rejected"); render();
+}
+function completeTask(id, btn) {
+  const t = db.tasks.find((x) => x.id === id);
+  if (!t) return;
+  t.status = "done"; t.history.push({ at: now(), field: "status", from: "open", to: "done", by: "operator" });
+  audit("task", `Completed: ${t.title}`);
+  if (btn) btn.closest(".win").remove();
   render();
 }
 
-/* ============================ add records ============================ */
+/* ================= add records ================= */
 const SCHEMAS = {
-  transactions: [["date","date",""],["amount","number",""],["account","select:accounts"],["category","text","General"],["counterparty","text",""],["memo","text",""],["ref","text",""]],
+  transactions: [["date","date",""],["amount","number",""],["account","select:accounts"],["category","text","General"],["department","select:departments"],["counterparty","text",""],["memo","text",""],["ref","text",""]],
   invoices: [["number","text","INV-"],["customer","select:customers"],["amount","number",""],["issued","date",""],["due","date",""],["status","choice:draft,sent,paid,overdue"]],
-  customers: [["name","text",""],["email","text",""],["phone","text",""],["terms","text","Net 30"]],
-  vendors: [["name","text",""],["email","text",""],["category","text",""]],
-  employees: [["name","text",""],["role","text",""],["salary","number",""],["startDate","date",""]],
+  bills: [["number","text","BILL-"],["vendor","select:vendors"],["amount","number",""],["received","date",""],["due","date",""],["category","text",""],["department","select:departments"],["status","choice:open,paid"]],
+  customers: [["name","text",""],["email","text",""],["phone","text",""],["terms","text","Net 30"],["owner","text",""]],
+  vendors: [["name","text",""],["email","text",""],["category","text",""],["terms","text","Net 30"]],
+  employees: [["name","text",""],["role","text",""],["department","select:departments"],["salary","number",""],["startDate","date",""]],
   accounts: [["name","text",""],["type","choice:bank,credit,cash,loan"],["balance","number","0"]],
-  projects: [["name","text",""],["budget","number",""],["spent","number","0"],["status","choice:active,paused,done"]],
+  projects: [["name","text",""],["department","select:departments"],["budget","number",""],["spent","number","0"],["status","choice:active,paused,done"]],
+  departments: [["name","text",""],["lead","text",""],["headcount","number","0"]],
+  budgets: [["category","text",""],["monthlyUsd","number",""]],
+  tasks: [["title","text",""],["assignee","text",""],["due","date",""],["status","choice:open,done"],["linked","text",""]],
 };
 function addForm(coll) {
   const rows = SCHEMAS[coll].map(([f, kind, dflt]) => {
     let input;
     if (kind.startsWith("select:")) {
       const src = kind.split(":")[1];
-      input = `<select data-f="${f}">${db[src].map((r) => `<option>${r.name}</option>`).join("")}</select>`;
+      input = `<select data-f="${f}"><option value=""></option>${db[src].map((r) => `<option>${r.name}</option>`).join("")}</select>`;
     } else if (kind.startsWith("choice:")) {
       input = `<select data-f="${f}">${kind.split(":")[1].split(",").map((o) => `<option>${o}</option>`).join("")}</select>`;
     } else {
@@ -312,14 +514,20 @@ function addForm(coll) {
     w.querySelectorAll("[data-f]").forEach((el) => {
       rec[el.dataset.f] = el.type === "number" ? Number(el.value) || 0 : el.value;
     });
-    if (coll === "transactions") rec.direction = rec.amount >= 0 ? "in" : "out";
+    if (coll === "transactions" && Math.abs(rec.amount) >= approvalThreshold()) {
+      db.approvals.unshift({ id: uid(), createdAt: now(), kind: "transaction", payload: rec,
+        summary: `${rec.amount < 0 ? "Outflow" : "Inflow"} ${fmt$(rec.amount)} — ${rec.memo || rec.counterparty}`, amount: rec.amount, status: "pending", requestedBy: "operator" });
+      notify(`Approval requested: ${fmt$(rec.amount)} ${rec.memo || ""}`, "aprt:" + rec.id);
+      audit("approval", `Transaction ${fmt$(rec.amount)} routed to approvals`);
+      w.remove(); toast("Routed to Approvals — exceeds threshold"); render(); return;
+    }
     db[coll].unshift(rec);
-    audit("create", `${coll}: added ${rec.name || rec.number || rec.memo || rec.id}`);
-    w.remove(); toast("Created"); render();
+    audit("create", `${coll}: added ${rec.name || rec.number || rec.title || rec.memo || rec.id}`);
+    w.remove(); toast("Created"); runAutomations(); render();
   };
 }
 
-/* ============================ CSV import (real) ============================ */
+/* ================= CSV import ================= */
 function importCsv() {
   const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".csv";
   inp.onchange = () => {
@@ -330,32 +538,32 @@ function importCsv() {
       const head = lines[0].split(",").map((h) => h.trim().toLowerCase());
       const col = (names) => head.findIndex((h) => names.includes(h));
       const ci = { date: col(["date","transaction date"]), amount: col(["amount","value"]), memo: col(["memo","description","desc"]), cp: col(["counterparty","payee","name","merchant"]), cat: col(["category"]) };
-      if (ci.date < 0 || ci.amount < 0) { toast("CSV needs at least 'date' and 'amount' columns"); return; }
+      if (ci.date < 0 || ci.amount < 0) { toast("CSV needs 'date' and 'amount' columns"); return; }
       let added = 0;
       for (const line of lines.slice(1)) {
         const c = line.split(",");
         const amount = Number(String(c[ci.amount]).replace(/[$," ]/g, ""));
         if (isNaN(amount)) continue;
         db.transactions.unshift({ id: uid(), source: "csv:" + file.name, createdAt: now(), history: [],
-          date: c[ci.date].trim(), amount, direction: amount >= 0 ? "in" : "out",
-          account: db.accounts[0] ? db.accounts[0].name : "Imported",
+          date: c[ci.date].trim(), amount,
+          account: db.accounts[0] ? db.accounts[0].name : "Imported", department: "",
           category: ci.cat >= 0 ? (c[ci.cat] || "Imported").trim() : "Imported",
           counterparty: ci.cp >= 0 ? (c[ci.cp] || "").trim() : "", memo: ci.memo >= 0 ? (c[ci.memo] || "").trim() : "" });
         added++;
       }
       audit("import", `CSV ${file.name}: ${added} transactions`);
-      toast(`Imported ${added} transactions from ${file.name}`); render();
+      toast(`Imported ${added} transactions`); runAutomations(); render();
     };
     reader.readAsText(file);
   };
   inp.click();
 }
 
-/* ============================ integrations ============================ */
+/* ================= integrations ================= */
 function connectIntegration(key) {
   const integ = db.integrations.find((i) => i.key === key);
   const w = openWindow(`Connect ${integ.name}`, `
-    <p style="color:var(--dim);font-size:13px;margin-top:0">${integ.desc}. Credentials are stored only in this browser (localStorage). Live two-way sync activates when this console is served by the Olympus API server; until then the connection is registered and used to label imported data.</p>
+    <p style="color:var(--dim);font-size:12.5px;margin-top:0">${integ.desc}. Credentials are stored only in this browser. Live two-way sync activates when this console is served by the Olympus API server; until then the connection is registered and used to label imported data.</p>
     <div class="formrow"><label>Account / Company ID</label><input type="text" data-f="companyId" placeholder="e.g. 9341823647"/></div>
     <div class="formrow"><label>API key / token</label><input type="text" data-f="apiKey" placeholder="sk_… or OAuth token"/></div>
     <div class="formrow"><label>Environment</label><select data-f="env"><option>production</option><option>sandbox</option></select></div>
@@ -366,6 +574,7 @@ function connectIntegration(key) {
     if (!integ.config.apiKey) { toast("An API key/token is required"); return; }
     integ.status = "connected"; integ.connectedAt = now();
     audit("integration", `${integ.name} connected (${integ.config.env})`);
+    notify(`${integ.name} connected`, "int:" + integ.key);
     w.remove(); toast(`${integ.name} connected`); render();
   };
 }
@@ -375,40 +584,76 @@ function disconnectIntegration(key) {
   audit("integration", `${integ.name} disconnected`); render();
 }
 
-/* ============================ views ============================ */
-const VIEWS = {
-  overview: { label: "Overview", group: "Company" },
-  ledger: { label: "Ledger", group: "Money" },
-  reports: { label: "Reports", group: "Money" },
-  invoices: { label: "Invoices", group: "Money" },
-  accounts: { label: "Accounts", group: "Money" },
-  customers: { label: "Customers", group: "Relationships" },
-  vendors: { label: "Vendors", group: "Relationships" },
-  employees: { label: "Employees", group: "Operations" },
-  projects: { label: "Projects", group: "Operations" },
-  integrations: { label: "Integrations", group: "System" },
-  auditlog: { label: "Audit trail", group: "System" },
-  data: { label: "Data / backup", group: "System" },
+/* ================= rule builder ================= */
+const RULE_FORMS = {
+  categorize: [["name","text","Categorize …"],["matchField","choice:counterparty,memo"],["contains","text",""],["setCategory","text",""],["setDepartment","select:departments"]],
+  flag_overdue: [["name","text","Flag overdue invoices"],["graceDays","number","0"]],
+  approval_threshold: [["name","text","Approval for large amounts"],["thresholdUsd","number","250000"]],
+  alert_balance: [["name","text","Low-balance alert"],["account","select:accounts"],["belowUsd","number",""]],
+  recurring: [["name","text","Monthly …"],["day","number","1"],["amount","number",""],["account","select:accounts"],["category","text",""],["department","select:departments"],["counterparty","text",""],["memo","text",""]],
 };
-let view = location.hash.slice(1) || "overview";
+const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction" };
+function addRuleForm(kind) {
+  const rows = RULE_FORMS[kind].map(([f, k, dflt]) => {
+    let input;
+    if (k.startsWith("select:")) input = `<select data-f="${f}"><option value=""></option>${db[k.split(":")[1]].map((r) => `<option>${r.name}</option>`).join("")}</select>`;
+    else if (k.startsWith("choice:")) input = `<select data-f="${f}">${k.split(":")[1].split(",").map((o) => `<option>${o}</option>`).join("")}</select>`;
+    else input = `<input type="${k}" data-f="${f}" value="${dflt ?? ""}"/>`;
+    return `<div class="formrow"><label>${f}</label>${input}</div>`;
+  }).join("");
+  const w = openWindow(`New rule — ${RULE_LABELS[kind]}`, `${rows}<button class="primary" style="margin-top:6px">Create rule</button>`);
+  w.querySelector("button.primary").onclick = () => {
+    const rec = { id: uid(), source: "manual", createdAt: now(), history: [], kind, enabled: true };
+    w.querySelectorAll("[data-f]").forEach((el) => { rec[el.dataset.f] = el.type === "number" ? Number(el.value) || 0 : el.value; });
+    if (kind === "recurring") rec.lastRun = "";
+    db.rules.unshift(rec);
+    audit("rule", `Created rule: ${rec.name}`);
+    w.remove(); toast("Rule created — running now"); runAutomations(); render();
+  };
+}
+function toggleRule(id) {
+  const r = db.rules.find((x) => x.id === id);
+  r.enabled = !r.enabled;
+  audit("rule", `${r.name}: ${r.enabled ? "enabled" : "disabled"}`);
+  runAutomations(); render();
+}
+
+/* ================= sorting / filtering ================= */
+const sortState = {};
+function sortBy(coll, field) {
+  const s = sortState[coll];
+  sortState[coll] = s && s.field === field ? { field, dir: -s.dir } : { field, dir: 1 };
+  render();
+}
+const ledgerFilter = { account: "", category: "", source: "", department: "" };
+function setFilter(k, v) { ledgerFilter[k] = v; render(); }
+
+/* ================= view helpers ================= */
+let view = location.hash.slice(1) || "dashboard";
 let query = "";
 document.getElementById("search").addEventListener("input", (e) => { query = e.target.value.toLowerCase(); render(); });
-window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "overview"; render(); });
-
-function match(rec) {
-  if (!query) return true;
-  return JSON.stringify(rec).toLowerCase().includes(query);
-}
-function tbl(coll, cols, renderRow) {
-  const rows = db[coll].filter(match);
-  if (!rows.length) return `<div class="tablewrap"><div class="empty">Nothing here${query ? " matching “" + query + "”" : ""} — click “+ Add” above.</div></div>`;
-  return `<div class="tablewrap"><table><thead><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>` +
-    rows.map((r) => `<tr class="row" onclick="if(!event.target.classList.contains('editable')&&event.target.tagName!=='A')drill('${coll}','${r.id}')">${renderRow(r)}</tr>`).join("") +
+window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "dashboard"; render(); });
+function match(rec) { return !query || JSON.stringify(rec).toLowerCase().includes(query); }
+function tbl(coll, cols, renderRow, rows) {
+  rows = (rows || db[coll]).filter(match);
+  const s = sortState[coll];
+  if (s) rows = [...rows].sort((a, b) => {
+    const x = a[s.field], y = b[s.field];
+    return (typeof x === "number" && typeof y === "number" ? x - y : String(x ?? "").localeCompare(String(y ?? ""))) * s.dir;
+  });
+  if (!rows.length) return `<div class="tablewrap"><div class="empty">Nothing here${query ? " matching “" + query + "”" : ""}.</div></div>`;
+  const head = cols.map((c) => {
+    const [label, field] = Array.isArray(c) ? c : [c, null];
+    const arr = field && sortState[coll] && sortState[coll].field === field ? `<span class="arr">${sortState[coll].dir > 0 ? "▲" : "▼"}</span>` : "";
+    return field ? `<th onclick="sortBy('${coll}','${field}')">${label}${arr}</th>` : `<th style="cursor:default">${label}</th>`;
+  }).join("");
+  return `<div class="tablewrap"><table><thead><tr>${head}</tr></thead><tbody>` +
+    rows.map((r) => `<tr class="row" onclick="if(!event.target.classList.contains('editable')&&event.target.tagName!=='A'&&event.target.tagName!=='BUTTON')drill('${coll}','${r.id}')">${renderRow(r)}</tr>`).join("") +
     `</tbody></table></div>`;
 }
-const srcTag = (r) => `<span class="tag src-${(r.source||"manual").split(":")[0]}" title="${r.source}">${(r.source||"").split(":")[0]}</span>`;
+const srcTag = (r) => { const s = (r.source || "manual").split(":")[0]; const cls = s === "automation" ? "acc" : s === "csv" ? "warn" : ""; return `<span class="tag ${cls}" title="${r.source}">${s}</span>`; };
+const stTag = (s) => { const cls = /paid|active|connected|done|approved/.test(s) ? "ok" : /overdue|error|rejected/.test(s) ? "bad" : /sent|open|pending|paused/.test(s) ? "warn" : ""; return `<span class="tag ${cls}">${s}</span>`; };
 
-/* Inline SVG bar chart of monthly net cash flow — no dependencies. */
 function cashflowChart() {
   const byMonth = {};
   for (const t of db.transactions) {
@@ -420,43 +665,136 @@ function cashflowChart() {
   const months = Object.keys(byMonth).sort().slice(-8);
   if (!months.length) return "";
   const max = Math.max(...months.flatMap((m) => [byMonth[m].in, byMonth[m].out]), 1);
-  const bw = 26, gap = 46, H = 130;
+  const bw = 26, gap = 44, H = 120;
   const bars = months.map((m, i) => {
     const x = 20 + i * (bw * 2 + gap);
-    const hi = Math.round((byMonth[m].in / max) * H), ho = Math.round((byMonth[m].out / max) * H);
-    return `<rect x="${x}" y="${150 - hi}" width="${bw}" height="${hi}" rx="3" fill="var(--good)" opacity=".85"><title>${m} in: ${fmt$(byMonth[m].in)}</title></rect>
-      <rect x="${x + bw + 3}" y="${150 - ho}" width="${bw}" height="${ho}" rx="3" fill="var(--bad)" opacity=".8"><title>${m} out: ${fmt$(byMonth[m].out)}</title></rect>
-      <text x="${x + bw}" y="164" fill="var(--dim)" font-size="10" text-anchor="middle">${m.slice(2)}</text>`;
+    const hi = Math.max(2, Math.round((byMonth[m].in / max) * H)), ho = Math.max(2, Math.round((byMonth[m].out / max) * H));
+    return `<rect x="${x}" y="${140 - hi}" width="${bw}" height="${hi}" rx="2.5" fill="#3d6b47"><title>${m} in: ${fmt$(byMonth[m].in)}</title></rect>
+      <rect x="${x + bw + 4}" y="${140 - ho}" width="${bw}" height="${ho}" rx="2.5" fill="#a8b0bd"><title>${m} out: ${fmt$(byMonth[m].out)}</title></rect>
+      <text x="${x + bw}" y="155" fill="#98a2b3" font-size="10" text-anchor="middle">${m.slice(2)}</text>`;
   }).join("");
   const width = 40 + months.length * (bw * 2 + gap);
-  return `<div class="card" style="margin-top:16px"><div class="k">Cash flow by month — <span style="color:var(--good)">in</span> vs <span style="color:var(--bad)">out</span> (hover bars for amounts)</div>
-    <svg viewBox="0 0 ${width} 170" style="width:100%;max-width:${width * 1.4}px;margin-top:8px">${bars}</svg></div>`;
+  return `<div class="card" style="margin-top:16px"><div class="k">Cash flow by month — <span style="color:#3d6b47">■ in</span>&nbsp; <span style="color:#a8b0bd">■ out</span> &nbsp;<span style="font-weight:400;text-transform:none;letter-spacing:0">(hover for amounts)</span></div>
+    <svg viewBox="0 0 ${width} 162" style="width:100%;max-width:${width * 1.35}px;margin-top:10px">${bars}</svg></div>`;
 }
+function kpis() {
+  const months = {};
+  for (const t of db.transactions) {
+    const m = (t.date || "").slice(0, 7); if (!m) continue;
+    months[m] = months[m] || { in: 0, out: 0 };
+    if (t.amount >= 0) months[m].in += t.amount; else months[m].out += -t.amount;
+  }
+  const keys = Object.keys(months).sort().slice(-4, -1);
+  const burn = keys.length ? keys.reduce((s, k) => s + months[k].out, 0) / keys.length : 0;
+  const netAvg = keys.length ? keys.reduce((s, k) => s + months[k].in - months[k].out, 0) / keys.length : 0;
+  const cash = db.accounts.reduce((s, a) => s + a.balance, 0);
+  const runwayMonths = netAvg >= 0 ? Infinity : cash / -netAvg;
+  const paid = db.invoices.filter((i) => i.status === "paid");
+  return { burn, cash, runwayMonths, netAvg, paidCount: paid.length };
+}
+
+/* ================= views ================= */
+const VIEWS = {
+  dashboard: { label: "Dashboard", group: "Company" },
+  departments: { label: "Departments", group: "Company" },
+  tasks: { label: "Tasks", group: "Company" },
+  ledger: { label: "Ledger", group: "Money" },
+  invoices: { label: "Invoices (A/R)", group: "Money" },
+  bills: { label: "Bills (A/P)", group: "Money" },
+  accounts: { label: "Accounts", group: "Money" },
+  budgets: { label: "Budgets", group: "Money" },
+  reports: { label: "Reports", group: "Money" },
+  customers: { label: "Customers", group: "Relationships" },
+  vendors: { label: "Vendors", group: "Relationships" },
+  employees: { label: "Employees", group: "Operations" },
+  projects: { label: "Projects", group: "Operations" },
+  automations: { label: "Automation rules", group: "Automation" },
+  approvals: { label: "Approvals", group: "Automation" },
+  activity: { label: "Automation activity", group: "Automation" },
+  integrations: { label: "Integrations", group: "System" },
+  auditlog: { label: "Audit trail", group: "System" },
+  data: { label: "Data & backup", group: "System" },
+};
+
 function renderView() {
-  if (view === "overview") {
-    const cashIn = db.transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-    const cashOut = db.transactions.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+  const pendingAppr = db.approvals.filter((a) => a.status === "pending").length;
+  if (view === "dashboard") {
+    const k = kpis();
     const ar = db.invoices.filter((i) => i.status === "sent" || i.status === "overdue").reduce((s, i) => s + i.amount, 0);
-    const bal = db.accounts.reduce((s, a) => s + a.balance, 0);
-    const overdue = db.invoices.filter((i) => i.status === "overdue");
-    return `<h2>${editable("companyMeta", dbCompanyRec(), "name")}</h2><div class="crumb">Live picture assembled from ${db.transactions.length} transactions · ${db.invoices.length} invoices · ${db.integrations.filter(i=>i.status==="connected").length} connected integrations</div>
+    const ap = db.bills.filter((b) => b.status === "open").reduce((s, b) => s + b.amount, 0);
+    const overdue = db.invoices.filter((i) => i.status === "overdue").length;
+    const openTasks = db.tasks.filter((t) => t.status === "open").length;
+    return `<h2>${editable("companyMeta", db.companyMeta[0], "name")}</h2>
+    <div class="crumb">${db.transactions.length.toLocaleString()} ledger entries · ${db.rules.filter(r=>r.enabled).length} automation rules active · ${db.integrations.filter(i=>i.status==="connected").length} integrations connected</div>
     <div class="grid g4">
-      <div class="card"><div class="k">Cash position</div><div class="v">${fmt$(bal)}</div><div class="d">across ${db.accounts.length} accounts — <a class="link" href="#accounts">open</a></div></div>
-      <div class="card"><div class="k">Money in</div><div class="v pos">${fmt$(cashIn)}</div><div class="d">recorded inflows</div></div>
-      <div class="card"><div class="k">Money out</div><div class="v neg">${fmt$(cashOut)}</div><div class="d">recorded outflows</div></div>
-      <div class="card"><div class="k">Outstanding A/R</div><div class="v ${overdue.length ? "wrn" : ""}">${fmt$(ar)}</div><div class="d">${overdue.length} overdue — <a class="link" href="#invoices">open invoices</a></div></div>
+      <div class="card"><div class="k">Cash position</div><div class="v">${fmtK(k.cash)}</div><div class="d">across ${db.accounts.length} accounts — <a class="link" href="#accounts">view</a></div></div>
+      <div class="card"><div class="k">Avg monthly outflow</div><div class="v">${fmtK(k.burn)}</div><div class="d">trailing 3 full months</div></div>
+      <div class="card"><div class="k">Receivable</div><div class="v ${overdue ? "wrn" : ""}">${fmtK(ar)}</div><div class="d">${overdue} overdue — <a class="link" href="#invoices">invoices</a></div></div>
+      <div class="card"><div class="k">Payable</div><div class="v">${fmtK(ap)}</div><div class="d"><a class="link" href="#bills">open bills</a></div></div>
+      <div class="card"><div class="k">Pending approvals</div><div class="v ${pendingAppr ? "wrn" : ""}">${pendingAppr}</div><div class="d"><a class="link" href="#approvals">review queue</a></div></div>
+      <div class="card"><div class="k">Open tasks</div><div class="v">${openTasks}</div><div class="d"><a class="link" href="#tasks">task list</a></div></div>
     </div>
     ${cashflowChart()}
-    <div class="section-title" style="margin-top:22px">Latest money movement (click any row to drill into where it came from)</div>
-    ${tbl("transactions", ["Date","Amount","Counterparty","Category","Memo","Source"], (t) =>
-      `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.memo||""}</td><td>${srcTag(t)}</td>`)}`;
+    <div class="section-title" style="margin-top:20px">Recent money movement</div>
+    ${tbl("transactions", [["Date","date"],["Amount","amount"],["Counterparty","counterparty"],["Category","category"],["Dept","department"],["Memo","memo"],["Source"]], (t) =>
+      `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.department||"—"}</td><td>${t.memo||""}</td><td>${srcTag(t)}</td>`,
+      db.transactions.slice(0, 12))}`;
   }
   if (view === "ledger") {
-    const total = db.transactions.filter(match).reduce((s, t) => s + t.amount, 0);
-    return `<h2>Ledger</h2><div class="crumb">Every dollar with its origin. Click a row to drill in and edit. Net of ${db.transactions.filter(match).length} shown: <b class="${total>=0?"pos":"neg"}">${fmt$(total)}</b></div>
-    <div class="toolbar"><button class="primary" onclick="addForm('transactions')">+ Add transaction</button><button onclick="importCsv()">⬆ Import CSV (bank/QuickBooks export)</button></div>
-    ${tbl("transactions", ["Date","Amount","Direction","Account","Counterparty","Category","Memo","Ref","Source"], (t) =>
-      `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.direction}</td><td>${t.account}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.memo||""}</td><td>${t.ref||"—"}</td><td>${srcTag(t)}</td>`)}`;
+    let rows = db.transactions;
+    for (const [k, v] of Object.entries(ledgerFilter)) if (v) rows = rows.filter((t) => String(t[k] || "").split(":")[0] === v || String(t[k] || "") === v);
+    const total = rows.filter(match).reduce((s, t) => s + t.amount, 0);
+    const opts = (arr, key) => `<option value="">${key}: all</option>` + arr.map((v) => `<option ${ledgerFilter[key]===v?"selected":""}>${v}</option>`).join("");
+    const cats = [...new Set(db.transactions.map((t) => t.category))].sort();
+    const srcs = [...new Set(db.transactions.map((t) => (t.source||"").split(":")[0]))].sort();
+    return `<h2>Ledger</h2><div class="crumb">Every dollar with its origin. Net of ${rows.filter(match).length.toLocaleString()} shown: <b class="${total>=0?"pos":"neg"}">${fmt$(total)}</b></div>
+    <div class="toolbar">
+      <button class="primary" onclick="addForm('transactions')">+ Transaction</button>
+      <button onclick="importCsv()">Import CSV</button>
+      <div class="spacer"></div>
+      <select onchange="setFilter('account',this.value)">${opts(db.accounts.map(a=>a.name),"account")}</select>
+      <select onchange="setFilter('category',this.value)">${opts(cats,"category")}</select>
+      <select onchange="setFilter('department',this.value)">${opts(db.departments.map(d=>d.name),"department")}</select>
+      <select onchange="setFilter('source',this.value)">${opts(srcs,"source")}</select>
+    </div>
+    ${tbl("transactions", [["Date","date"],["Amount","amount"],["Account","account"],["Counterparty","counterparty"],["Category","category"],["Dept","department"],["Memo","memo"],["Ref","ref"],["Source"]], (t) =>
+      `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.account}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.department||"—"}</td><td>${t.memo||""}</td><td>${t.ref||"—"}</td><td>${srcTag(t)}</td>`, rows)}`;
+  }
+  if (view === "invoices") {
+    return `<h2>Invoices — accounts receivable</h2><div class="crumb">Open a row to record payment, see linked cash, and full history.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('invoices')">+ Invoice</button></div>
+    ${tbl("invoices", [["Number","number"],["Customer","customer"],["Amount","amount"],["Issued","issued"],["Due","due"],["Status","status"],["Source"]], (i) =>
+      `<td>${i.number}</td><td><a class="link" onclick="event.stopPropagation();drillByName('customers','${i.customer}')">${i.customer}</a></td><td class="num">${fmt$(i.amount)}</td><td>${i.issued}</td><td>${i.due}</td><td>${stTag(i.status)}</td><td>${srcTag(i)}</td>`)}`;
+  }
+  if (view === "bills") {
+    return `<h2>Bills — accounts payable</h2><div class="crumb">Payments above ${fmt$(approvalThreshold())} route to the approval queue automatically.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('bills')">+ Bill</button></div>
+    ${tbl("bills", [["Number","number"],["Vendor","vendor"],["Amount","amount"],["Received","received"],["Due","due"],["Category","category"],["Status","status"],["",""]], (b) =>
+      `<td>${b.number}</td><td><a class="link" onclick="event.stopPropagation();drillByName('vendors','${b.vendor}')">${b.vendor}</a></td><td class="num">${fmt$(b.amount)}</td><td>${b.received}</td><td>${b.due}</td><td>${b.category||"—"}</td><td>${stTag(b.status)}</td>
+       <td>${b.status !== "paid" ? `<button onclick="event.stopPropagation();payBill('${b.id}')">Pay</button>` : ""}</td>`)}`;
+  }
+  if (view === "accounts") {
+    return `<h2>Accounts</h2><div class="crumb">Balances are editable inline.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('accounts')">+ Account</button></div>
+    ${tbl("accounts", [["Name","name"],["Type","type"],["Balance","balance"],["Source"]], (a) =>
+      `<td>${editable("accounts",a,"name")}</td><td>${a.type}</td><td class="num">${editable("accounts",a,"balance",{num:true})}</td><td>${srcTag(a)}</td>`)}`;
+  }
+  if (view === "budgets") {
+    const m = thisMonth();
+    const spent = {};
+    for (const t of db.transactions) if (t.amount < 0 && (t.date || "").slice(0, 7) === m) spent[t.category] = (spent[t.category] || 0) - t.amount;
+    return `<h2>Budgets — ${m}</h2><div class="crumb">Monthly budget vs actual spend by category, from the live ledger.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('budgets')">+ Budget line</button></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">` +
+      db.budgets.map((b) => {
+        const used = spent[b.category] || 0;
+        const pct = Math.min(100, Math.round((used / (b.monthlyUsd || 1)) * 100));
+        const over = used > b.monthlyUsd;
+        return `<div class="card" style="cursor:pointer" onclick="drill('budgets','${b.id}')"><div class="k">${b.category}</div>
+          <div class="v" style="font-size:16px">${fmt$(used)} <span style="color:var(--faint);font-weight:400;font-size:12px">of ${fmt$(b.monthlyUsd)}</span></div>
+          <div class="bar"><i class="${over ? "over" : ""}" style="width:${pct}%"></i></div>
+          <div class="d" style="margin-top:5px" class="${over ? "neg" : ""}">${over ? `<span class="neg">Over by ${fmt$(used - b.monthlyUsd)}</span>` : pct + "% used"}</div></div>`;
+      }).join("") + `</div>`;
   }
   if (view === "reports") {
     const cats = {};
@@ -469,95 +807,131 @@ function renderView() {
       `<tr><td>${c}</td><td class="num pos">${v.in ? fmt$(v.in) : "—"}</td><td class="num neg">${v.out ? fmt$(v.out) : "—"}</td><td class="num ${v.in - v.out >= 0 ? "pos" : "neg"}">${fmt$(v.in - v.out)}</td></tr>`).join("");
     const totIn = Object.values(cats).reduce((s, v) => s + v.in, 0);
     const totOut = Object.values(cats).reduce((s, v) => s + v.out, 0);
-    const t = today();
+    const t0 = today();
     const aging = { current: 0, d30: 0, d60: 0, d90: 0 };
     for (const i of db.invoices) {
       if (i.status === "paid" || i.status === "draft") continue;
-      const days = Math.floor((new Date(t) - new Date(i.due)) / 86400000);
+      const days = Math.floor((new Date(t0) - new Date(i.due)) / 86400000);
       if (days <= 0) aging.current += i.amount; else if (days <= 30) aging.d30 += i.amount;
       else if (days <= 60) aging.d60 += i.amount; else aging.d90 += i.amount;
     }
-    return `<h2>Reports</h2><div class="crumb">Profit & loss by category, plus receivables aging — built live from the ledger and invoices.</div>
-    <div class="section-title">P&L by category</div>
-    <div class="tablewrap" style="max-height:none"><table><thead><tr><th>Category</th><th style="text-align:right">Money in</th><th style="text-align:right">Money out</th><th style="text-align:right">Net</th></tr></thead><tbody>${catRows}
-      <tr style="font-weight:700"><td>Total</td><td class="num pos">${fmt$(totIn)}</td><td class="num neg">${fmt$(totOut)}</td><td class="num ${totIn - totOut >= 0 ? "pos" : "neg"}">${fmt$(totIn - totOut)}</td></tr>
+    const dept = {};
+    for (const t of db.transactions) if (t.amount < 0 && t.department) dept[t.department] = (dept[t.department] || 0) - t.amount;
+    const deptRows = Object.entries(dept).sort((a, b) => b[1] - a[1]).map(([d, v]) =>
+      `<tr><td>${d}</td><td class="num">${fmt$(v)}</td></tr>`).join("");
+    return `<h2>Reports</h2><div class="crumb">Live from the ledger — no refresh needed.</div>
+    <div class="section-title">Profit & loss by category</div>
+    <div class="tablewrap" style="max-height:none"><table><thead><tr><th>Category</th><th style="text-align:right">In</th><th style="text-align:right">Out</th><th style="text-align:right">Net</th></tr></thead><tbody>${catRows}
+      <tr style="font-weight:650"><td>Total</td><td class="num pos">${fmt$(totIn)}</td><td class="num neg">${fmt$(totOut)}</td><td class="num ${totIn - totOut >= 0 ? "pos" : "neg"}">${fmt$(totIn - totOut)}</td></tr>
     </tbody></table></div>
-    <div class="section-title" style="margin-top:20px">Accounts receivable aging (unpaid invoices by days past due)</div>
+    <div class="section-title" style="margin-top:20px">Receivables aging</div>
     <div class="grid g4">
-      <div class="card"><div class="k">Current</div><div class="v">${fmt$(aging.current)}</div></div>
-      <div class="card"><div class="k">1–30 days</div><div class="v wrn">${fmt$(aging.d30)}</div></div>
-      <div class="card"><div class="k">31–60 days</div><div class="v wrn">${fmt$(aging.d60)}</div></div>
-      <div class="card"><div class="k">60+ days</div><div class="v neg">${fmt$(aging.d90)}</div></div>
+      <div class="card"><div class="k">Current</div><div class="v">${fmtK(aging.current)}</div></div>
+      <div class="card"><div class="k">1–30 days</div><div class="v wrn">${fmtK(aging.d30)}</div></div>
+      <div class="card"><div class="k">31–60 days</div><div class="v wrn">${fmtK(aging.d60)}</div></div>
+      <div class="card"><div class="k">60+ days</div><div class="v neg">${fmtK(aging.d90)}</div></div>
     </div>
+    <div class="section-title" style="margin-top:20px">Spend by department (all time)</div>
+    <div class="tablewrap" style="max-height:none;max-width:480px"><table><thead><tr><th>Department</th><th style="text-align:right">Outflow</th></tr></thead><tbody>${deptRows || `<tr><td colspan="2" class="empty">No departmental spend tagged yet.</td></tr>`}</tbody></table></div>
     ${cashflowChart()}`;
   }
-  if (view === "invoices") {
-    return `<h2>Invoices</h2><div class="crumb">Click a row to open it in a window — edit amounts, mark paid, see linked payments.</div>
-    <div class="toolbar"><button class="primary" onclick="addForm('invoices')">+ Add invoice</button></div>
-    ${tbl("invoices", ["Number","Customer","Amount","Issued","Due","Status","Source"], (i) =>
-      `<td>${i.number}</td><td><a class="link" onclick="event.stopPropagation();drillByName('customers','${i.customer}')">${i.customer}</a></td><td class="num">${fmt$(i.amount)}</td><td>${i.issued}</td><td>${i.due}</td><td><span class="tag st-${i.status}">${i.status}</span></td><td>${srcTag(i)}</td>`)}`;
+  if (view === "departments") {
+    const spendByDept = {};
+    for (const t of db.transactions) if (t.amount < 0 && t.department) spendByDept[t.department] = (spendByDept[t.department] || 0) - t.amount;
+    return `<h2>Departments</h2><div class="crumb">Cost centers — spend rolls up from the ledger's department tag.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('departments')">+ Department</button></div>
+    ${tbl("departments", [["Name","name"],["Lead","lead"],["Headcount","headcount"],["Ledger spend",""],["Source"]], (d) =>
+      `<td>${editable("departments",d,"name")}</td><td>${editable("departments",d,"lead")}</td><td class="num">${Number(d.headcount).toLocaleString()}</td><td class="num">${fmt$(spendByDept[d.name] || 0)}</td><td>${srcTag(d)}</td>`)}`;
   }
-  if (view === "accounts") {
-    return `<h2>Accounts</h2><div class="crumb">Balances are editable inline — click a number.</div>
-    <div class="toolbar"><button class="primary" onclick="addForm('accounts')">+ Add account</button></div>
-    ${tbl("accounts", ["Name","Type","Balance","Source"], (a) =>
-      `<td>${editable("accounts",a,"name")}</td><td>${a.type}</td><td class="num">${editable("accounts",a,"balance",{num:true})}</td><td>${srcTag(a)}</td>`)}`;
+  if (view === "tasks") {
+    return `<h2>Tasks</h2><div class="crumb">Automation rules create collection and follow-up tasks here automatically.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('tasks')">+ Task</button></div>
+    ${tbl("tasks", [["Title","title"],["Assignee","assignee"],["Due","due"],["Linked","linked"],["Status","status"],["Source"],["",""]], (t) =>
+      `<td>${editable("tasks",t,"title")}</td><td>${editable("tasks",t,"assignee")}</td><td>${t.due}</td><td>${t.linked||"—"}</td><td>${stTag(t.status)}</td><td>${srcTag(t)}</td>
+       <td>${t.status === "open" ? `<button onclick="event.stopPropagation();completeTask('${t.id}')">Done</button>` : ""}</td>`)}`;
   }
   if (view === "customers") {
-    return `<h2>Customers</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('customers')">+ Add customer</button></div>
-    ${tbl("customers", ["Name","Email","Phone","Terms","Source"], (c) =>
-      `<td>${editable("customers",c,"name")}</td><td>${editable("customers",c,"email")}</td><td>${editable("customers",c,"phone")}</td><td>${editable("customers",c,"terms")}</td><td>${srcTag(c)}</td>`)}`;
+    return `<h2>Customers</h2><div class="toolbar" style="margin-top:12px"><button class="primary" onclick="addForm('customers')">+ Customer</button></div>
+    ${tbl("customers", [["Name","name"],["Email","email"],["Phone","phone"],["Terms","terms"],["Owner","owner"],["Source"]], (c) =>
+      `<td>${editable("customers",c,"name")}</td><td>${editable("customers",c,"email")}</td><td>${editable("customers",c,"phone")}</td><td>${editable("customers",c,"terms")}</td><td>${editable("customers",c,"owner")}</td><td>${srcTag(c)}</td>`)}`;
   }
   if (view === "vendors") {
-    return `<h2>Vendors</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('vendors')">+ Add vendor</button></div>
-    ${tbl("vendors", ["Name","Email","Category","Source"], (v) =>
-      `<td>${editable("vendors",v,"name")}</td><td>${editable("vendors",v,"email")}</td><td>${editable("vendors",v,"category")}</td><td>${srcTag(v)}</td>`)}`;
+    return `<h2>Vendors</h2><div class="toolbar" style="margin-top:12px"><button class="primary" onclick="addForm('vendors')">+ Vendor</button></div>
+    ${tbl("vendors", [["Name","name"],["Email","email"],["Category","category"],["Terms","terms"],["Source"]], (v) =>
+      `<td>${editable("vendors",v,"name")}</td><td>${editable("vendors",v,"email")}</td><td>${editable("vendors",v,"category")}</td><td>${editable("vendors",v,"terms")}</td><td>${srcTag(v)}</td>`)}`;
   }
   if (view === "employees") {
-    return `<h2>Employees</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('employees')">+ Add employee</button></div>
-    ${tbl("employees", ["Name","Role","Salary","Start date","Source"], (e) =>
-      `<td>${editable("employees",e,"name")}</td><td>${editable("employees",e,"role")}</td><td class="num">${editable("employees",e,"salary",{num:true})}</td><td>${e.startDate}</td><td>${srcTag(e)}</td>`)}`;
+    return `<h2>Employees</h2><div class="toolbar" style="margin-top:12px"><button class="primary" onclick="addForm('employees')">+ Employee</button></div>
+    ${tbl("employees", [["Name","name"],["Role","role"],["Department","department"],["Salary","salary"],["Start","startDate"],["Source"]], (e) =>
+      `<td>${editable("employees",e,"name")}</td><td>${editable("employees",e,"role")}</td><td>${e.department||"—"}</td><td class="num">${editable("employees",e,"salary",{num:true})}</td><td>${e.startDate}</td><td>${srcTag(e)}</td>`)}`;
   }
   if (view === "projects") {
-    return `<h2>Projects</h2><div class="toolbar" style="margin-top:10px"><button class="primary" onclick="addForm('projects')">+ Add project</button></div>
-    ${tbl("projects", ["Name","Budget","Spent","Remaining","Status","Source"], (p) =>
-      `<td>${editable("projects",p,"name")}</td><td class="num">${editable("projects",p,"budget",{num:true})}</td><td class="num">${editable("projects",p,"spent",{num:true})}</td><td class="num ${p.budget-p.spent<0?"neg":"pos"}">${fmt$(p.budget-p.spent)}</td><td><span class="tag st-${p.status}">${p.status}</span></td><td>${srcTag(p)}</td>`)}`;
+    return `<h2>Projects</h2><div class="toolbar" style="margin-top:12px"><button class="primary" onclick="addForm('projects')">+ Project</button></div>
+    ${tbl("projects", [["Name","name"],["Dept","department"],["Budget","budget"],["Spent","spent"],["Remaining",""],["Status","status"],["Source"]], (p) =>
+      `<td>${editable("projects",p,"name")}</td><td>${p.department||"—"}</td><td class="num">${editable("projects",p,"budget",{num:true})}</td><td class="num">${editable("projects",p,"spent",{num:true})}</td><td class="num ${p.budget-p.spent<0?"neg":"pos"}">${fmt$(p.budget-p.spent)}</td><td>${stTag(p.status)}</td><td>${srcTag(p)}</td>`)}`;
+  }
+  if (view === "automations") {
+    const desc = (r) => {
+      if (r.kind === "categorize") return `When ${r.matchField} contains “${r.contains}” → category “${r.setCategory}”${r.setDepartment ? ", dept " + r.setDepartment : ""}`;
+      if (r.kind === "flag_overdue") return `Mark unpaid invoices overdue after due date; create a collection task and alert`;
+      if (r.kind === "approval_threshold") return `Route any payment or manual transaction ≥ ${fmt$(r.thresholdUsd)} to the approval queue`;
+      if (r.kind === "alert_balance") return `Alert when ${r.account} drops below ${fmt$(r.belowUsd)}`;
+      if (r.kind === "recurring") return `Post ${fmt$(r.amount)} “${r.memo}” on day ${r.day} each month (${r.account})`;
+      return "";
+    };
+    return `<h2>Automation rules</h2><div class="crumb">These run continuously against your data — on load, after every change, and after every import.</div>
+    <div class="toolbar">${Object.entries(RULE_LABELS).map(([k, l]) => `<button onclick="addRuleForm('${k}')">+ ${l}</button>`).join("")}</div>
+    ${tbl("rules", [["Rule","name"],["Type","kind"],["What it does",""],["Status","enabled"],["",""]], (r) =>
+      `<td><b>${r.name}</b></td><td><span class="tag acc">${RULE_LABELS[r.kind] || r.kind}</span></td><td style="color:var(--dim)">${desc(r)}</td>
+       <td>${r.enabled ? `<span class="tag ok">active</span>` : `<span class="tag">paused</span>`}</td>
+       <td><button onclick="event.stopPropagation();toggleRule('${r.id}')">${r.enabled ? "Pause" : "Enable"}</button></td>`)}`;
+  }
+  if (view === "approvals") {
+    const rows = db.approvals.filter(match);
+    return `<h2>Approvals</h2><div class="crumb">Anything at or above the approval threshold lands here instead of executing directly.</div>
+    <div class="tablewrap"><table><thead><tr><th>Requested</th><th>What</th><th style="text-align:right">Amount</th><th>Status</th><th></th></tr></thead><tbody>` +
+      (rows.map((a) => `<tr><td style="white-space:nowrap">${new Date(a.createdAt).toLocaleString()}</td><td>${a.summary}</td><td class="num ${a.amount>=0?"pos":"neg"}">${fmt$(a.amount)}</td><td>${stTag(a.status)}</td>
+        <td>${a.status === "pending" ? `<button class="primary" onclick="decideApproval('${a.id}',true)">Approve</button> <button class="danger" onclick="decideApproval('${a.id}',false)">Reject</button>` : (a.decidedAt ? new Date(a.decidedAt).toLocaleDateString() : "")}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">Queue is clear.</td></tr>`) +
+    `</tbody></table></div>`;
+  }
+  if (view === "activity") {
+    return `<h2>Automation activity</h2><div class="crumb">What the rules engine did, newest first.</div>
+    <div class="tablewrap"><table><thead><tr><th>When</th><th>Rule</th><th>Action taken</th></tr></thead><tbody>` +
+      (db.autoLog.filter((a) => !query || JSON.stringify(a).toLowerCase().includes(query)).map((a) =>
+        `<tr><td style="white-space:nowrap">${new Date(a.at).toLocaleString()}</td><td><span class="tag acc">${a.rule}</span></td><td>${a.detail}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No automation activity yet.</td></tr>`) +
+    `</tbody></table></div>`;
   }
   if (view === "integrations") {
-    return `<h2>Integrations</h2><div class="crumb">Connect the tools this company already runs on. Keys stay in your browser; imports are labeled with their source so every number is traceable.</div>
-    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">` +
+    return `<h2>Integrations</h2><div class="crumb">Connect the systems this company runs on. Keys stay in your browser; imported records carry their source so every number is traceable.</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(310px,1fr))">` +
       db.integrations.map((i) => `<div class="card intcard">
         <div class="logo" style="background:${i.color}">${i.name[0]}</div>
         <div style="flex:1"><b>${i.name}</b><div style="font-size:12px;color:var(--dim)">${i.desc}</div>
-        <div style="margin-top:6px"><span class="tag st-${i.status}">${i.status}</span>${i.connectedAt ? ` <span class="tag">${i.config.env||""}</span>` : ""}</div></div>
+        <div style="margin-top:6px">${stTag(i.status)}${i.connectedAt ? ` <span class="tag">${i.config.env||""}</span>` : ""}</div></div>
         ${i.status === "connected"
           ? `<button onclick="disconnectIntegration('${i.key}')">Disconnect</button>`
           : `<button class="primary" onclick="connectIntegration('${i.key}')">Connect</button>`}
       </div>`).join("") + `</div>`;
   }
   if (view === "auditlog") {
-    return `<h2>Audit trail</h2><div class="crumb">Every create, edit, delete, import, and integration change — newest first.</div>
+    return `<h2>Audit trail</h2><div class="crumb">Every create, edit, delete, payment, import, rule change, and approval — newest first.</div>
     <div class="tablewrap"><table><thead><tr><th>When</th><th>Action</th><th>Detail</th></tr></thead><tbody>` +
       (db.audit.filter((a) => !query || JSON.stringify(a).toLowerCase().includes(query)).map((a) =>
         `<tr><td style="white-space:nowrap">${new Date(a.at).toLocaleString()}</td><td><span class="tag">${a.action}</span></td><td>${a.detail}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No activity yet.</td></tr>`) +
     `</tbody></table></div>`;
   }
   if (view === "data") {
-    return `<h2>Data & backup</h2><div class="crumb">Your data lives in this browser (localStorage). Export it to a file to move machines or feed the Olympus API server.</div>
+    return `<h2>Data & backup</h2><div class="crumb">Data lives in this browser (localStorage). Export to move machines or feed the Olympus API server.</div>
     <div class="toolbar">
-      <button class="primary" onclick="exportJson()">⬇ Export everything (JSON)</button>
-      <button onclick="importJson()">⬆ Restore from JSON</button>
+      <button class="primary" onclick="exportJson()">Export everything (JSON)</button>
+      <button onclick="importJson()">Restore from JSON</button>
       <button class="danger" onclick="resetAll(this)">Reset to demo data</button>
     </div>
     <div class="card"><div class="k">Current dataset</div><div class="d" style="font-size:13px;margin-top:6px">
-      ${db.transactions.length} transactions · ${db.invoices.length} invoices · ${db.customers.length} customers · ${db.vendors.length} vendors · ${db.employees.length} employees · ${db.projects.length} projects · ${db.audit.length} audit entries
+      ${db.transactions.length.toLocaleString()} transactions · ${db.invoices.length} invoices · ${db.bills.length} bills · ${db.customers.length} customers · ${db.vendors.length} vendors · ${db.employees.length} employees · ${db.projects.length} projects · ${db.rules.length} rules · ${db.audit.length} audit entries
     </div></div>`;
   }
   return `<div class="empty">Unknown view</div>`;
-}
-function dbCompanyRec() {
-  if (!db.companyMeta) db.companyMeta = [{ id: "company", name: db.company.name, source: "seed", createdAt: now(), history: [] }];
-  return db.companyMeta[0];
 }
 function drillByName(coll, name) {
   const rec = db[coll].find((r) => r.name === name);
@@ -582,21 +956,86 @@ function importJson() {
   inp.click();
 }
 function resetAll(btn) {
-  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Click again to wipe & reset"; return; }
-  db = seedData(); save(); toast("Reset to demo data"); render();
+  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Confirm wipe & reset"; return; }
+  db = seedData(); save(); runAutomations(); toast("Reset to demo data"); render();
 }
 
-/* ============================ shell ============================ */
+/* ================= notifications ================= */
+document.getElementById("bell").onclick = () => {
+  const items = db.notifications.slice(0, 30).map((n) =>
+    `<div class="hist" style="${n.read ? "" : "border-left-color:var(--accent);color:var(--ink)"}">${new Date(n.at).toLocaleString()} — ${n.text}</div>`).join("") || `<div class="empty">No notifications.</div>`;
+  const w = openWindow("Notifications", items + `<div style="margin-top:12px"><button onclick="markAllRead(this)">Mark all read</button></div>`);
+  w.style.left = "auto"; w.style.right = "18px"; w.style.top = "60px";
+};
+function markAllRead(btn) {
+  db.notifications.forEach((n) => n.read = true); save();
+  btn.closest(".win").remove(); render();
+}
+
+/* ================= command palette ================= */
+const palette = document.getElementById("palette");
+const palinput = document.getElementById("palinput");
+const palopts = document.getElementById("palopts");
+let palSel = 0;
+function palCommands() {
+  const nav = Object.entries(VIEWS).map(([k, v]) => ({ label: "Go to " + v.label, hint: "page", run: () => { location.hash = k; } }));
+  const acts = [
+    { label: "New transaction", hint: "action", run: () => addForm("transactions") },
+    { label: "New invoice", hint: "action", run: () => addForm("invoices") },
+    { label: "New bill", hint: "action", run: () => addForm("bills") },
+    { label: "New task", hint: "action", run: () => addForm("tasks") },
+    { label: "Import CSV", hint: "action", run: importCsv },
+    { label: "Run automation rules now", hint: "action", run: () => { const c = runAutomations(); toast(c ? "Rules ran — changes applied" : "Rules ran — nothing to do"); render(); } },
+    { label: "Export data (JSON)", hint: "action", run: exportJson },
+  ];
+  return [...acts, ...nav];
+}
+function palRender() {
+  const q = palinput.value.toLowerCase();
+  const cmds = palCommands().filter((c) => c.label.toLowerCase().includes(q));
+  palSel = Math.min(palSel, Math.max(0, cmds.length - 1));
+  palopts.innerHTML = cmds.map((c, i) =>
+    `<div class="opt ${i === palSel ? "sel" : ""}" data-i="${i}">${c.label}<span class="hint">${c.hint}</span></div>`).join("") || `<div class="empty">No matches</div>`;
+  palopts.querySelectorAll(".opt").forEach((el) => {
+    el.onclick = () => { palClose(); cmds[Number(el.dataset.i)].run(); };
+  });
+  return cmds;
+}
+function palOpen() { palette.style.display = "flex"; palinput.value = ""; palSel = 0; palRender(); palinput.focus(); }
+function palClose() { palette.style.display = "none"; }
+palette.onclick = (e) => { if (e.target === palette) palClose(); };
+palinput.oninput = () => { palSel = 0; palRender(); };
+palinput.onkeydown = (e) => {
+  const cmds = palCommands().filter((c) => c.label.toLowerCase().includes(palinput.value.toLowerCase()));
+  if (e.key === "ArrowDown") { palSel = Math.min(palSel + 1, cmds.length - 1); palRender(); e.preventDefault(); }
+  if (e.key === "ArrowUp") { palSel = Math.max(palSel - 1, 0); palRender(); e.preventDefault(); }
+  if (e.key === "Enter" && cmds[palSel]) { palClose(); cmds[palSel].run(); }
+  if (e.key === "Escape") palClose();
+};
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.classList && ev.target.classList.contains("editable") && ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); return; }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); palOpen(); return; }
+  if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) && !ev.target.isContentEditable) {
+    ev.preventDefault(); document.getElementById("search").focus();
+  }
+  if (ev.key === "Escape") palClose();
+});
+
+/* ================= shell ================= */
 function render() {
   save();
-  document.getElementById("companyName").textContent = (db.companyMeta ? db.companyMeta[0].name : db.company.name);
+  document.getElementById("companyName").textContent = "· " + db.companyMeta[0].name;
+  const unread = db.notifications.filter((n) => !n.read).length;
+  document.getElementById("bell").innerHTML = "🔔" + (unread ? `<span class="cnt">${unread}</span>` : "");
+  const pending = db.approvals.filter((a) => a.status === "pending").length;
   const groups = {};
   for (const [key, v] of Object.entries(VIEWS)) (groups[v.group] = groups[v.group] || []).push([key, v.label]);
   document.getElementById("nav").innerHTML = Object.entries(groups).map(([g, items]) =>
     `<div class="navgroup">${g}</div>` + items.map(([k, label]) =>
-      `<a href="#${k}" class="${view === k ? "active" : ""}">${label}</a>`).join("")).join("");
+      `<a href="#${k}" class="${view === k ? "active" : ""}">${label}${k === "approvals" && pending ? ` <span class="tag warn" style="margin-left:auto">${pending}</span>` : ""}</a>`).join("")).join("");
   document.getElementById("main").innerHTML = renderView();
 }
+runAutomations();
 render();
 </script>
 </body>
