@@ -120,6 +120,7 @@ kbd{background:var(--line2);border:1px solid var(--line);border-radius:4px;paddi
     <span onclick="addForm('transactions')">+ Transaction</span><span onclick="addForm('invoices')">+ Invoice</span><span onclick="addForm('bills')">+ Bill</span>
   </div>
   <input id="search" placeholder="Search everything — press / to focus, Ctrl+K for commands" />
+  <button class="ghost" onclick="showHelp()" title="Help (?)" style="font-size:14px">?</button>
   <div class="bell" id="bell" title="Notifications">🔔</div>
 </header>
 <div id="layout">
@@ -253,13 +254,16 @@ function seedData() {
       { id: uid(), source: "seed", createdAt: now(), history: [], sku: "DEV-SCAN-X2", name: "Handheld scanners X2", unitCostUsd: 289, stock: 42, reorderPoint: 60, reorderQty: 150, vendor: "DataCenter West" },
     ],
     purchaseOrders: [],
+    salesOrders: [
+      { id: uid(), source: "seed", createdAt: now(), history: [], number: "SO-30112", customer: "Northwind Traders", sku: "PKG-CORR-L", qty: 5000, unitPriceUsd: 2.95, totalUsd: 14750, status: "open", ordered: "2026-07-03" },
+    ],
   };
 }
 let db = (() => { try { const raw = localStorage.getItem(LS_KEY); if (raw) return JSON.parse(raw); } catch (e) {} return seedData(); })();
 /* Migrate datasets saved by earlier versions of this page. */
 (function migrate() {
   const seed = seedData();
-  for (const k of ["products", "purchaseOrders"]) if (!db[k]) db[k] = seed[k];
+  for (const k of ["products", "purchaseOrders", "salesOrders"]) if (!db[k]) db[k] = seed[k];
   if (!db.rules.some((r) => r.kind === "reorder")) {
     db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Auto-reorder low stock", kind: "reorder", enabled: true });
   }
@@ -449,6 +453,7 @@ function drill(coll, id) {
   }).join("");
   let poActions = "";
   if (coll === "purchaseOrders" && rec.status === "open") poActions = `<button class="primary" onclick="receivePO('${rec.id}',this)">Receive into stock (${fmt$(rec.totalUsd)})</button> `;
+  if (coll === "salesOrders" && rec.status === "open") poActions = `<button class="primary" onclick="fulfillSO('${rec.id}',this)">Fulfill & invoice (${fmt$(rec.totalUsd)})</button> `;
   let statement = "";
   if (coll === "customers") {
     const open = db.invoices.filter((i) => i.customer === rec.name && (i.status === "sent" || i.status === "overdue"));
@@ -550,6 +555,25 @@ function decideApproval(id, ok) {
   toast(ok ? "Approved and executed" : "Rejected"); render();
 }
 /* Receive a PO: stock in, and the payable bill is created automatically. */
+/* Fulfill a sales order from stock; invoice the customer automatically. */
+function fulfillSO(soId, btn) {
+  const so = db.salesOrders.find((s) => s.id === soId);
+  if (!so || so.status !== "open") return;
+  const prod = db.products.find((p) => p.sku === so.sku);
+  if (prod && prod.stock < so.qty) { toast(`Insufficient stock: ${prod.stock.toLocaleString()} on hand, ${so.qty.toLocaleString()} needed`); return; }
+  if (prod) prod.stock -= so.qty;
+  so.status = "fulfilled";
+  so.history.push({ at: now(), field: "status", from: "open", to: "fulfilled", by: "operator" });
+  const due = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const inv = { id: uid(), source: "automation", createdAt: now(), history: [],
+    number: "INV-" + so.number, customer: so.customer, amount: so.totalUsd, issued: today(), due, status: "sent" };
+  db.invoices.unshift(inv);
+  so.status = "invoiced";
+  audit("fulfillment", `${so.number} fulfilled (-${so.qty.toLocaleString()} ${so.sku}); ${inv.number} issued for ${fmt$(so.totalUsd)} (due ${due})`);
+  notify(`${so.number} fulfilled — ${inv.number} sent to ${so.customer} for ${fmt$(so.totalUsd)}`, "sofl:" + so.id);
+  if (btn) btn.closest(".win").remove();
+  toast("Fulfilled — stock decremented, invoice issued"); runAutomations(); render();
+}
 function receivePO(poId, btn) {
   const po = db.purchaseOrders.find((p) => p.id === poId);
   if (!po || po.status !== "open") return;
@@ -609,6 +633,7 @@ const SCHEMAS = {
   employees: [["name","text",""],["role","text",""],["department","select:departments"],["salary","number",""],["startDate","date",""]],
   products: [["sku","text",""],["name","text",""],["unitCostUsd","number",""],["stock","number","0"],["reorderPoint","number","0"],["reorderQty","number","0"],["vendor","select:vendors"]],
   purchaseOrders: [["number","text","PO-"],["vendor","select:vendors"],["sku","text",""],["qty","number",""],["unitCostUsd","number",""],["ordered","date",""],["status","choice:open,received"]],
+  salesOrders: [["number","text","SO-"],["customer","select:customers"],["sku","text",""],["qty","number",""],["unitPriceUsd","number",""],["ordered","date",""],["status","choice:open,fulfilled,invoiced"]],
   accounts: [["name","text",""],["type","choice:bank,credit,cash,loan"],["balance","number","0"]],
   projects: [["name","text",""],["department","select:departments"],["budget","number",""],["spent","number","0"],["status","choice:active,paused,done"]],
   departments: [["name","text",""],["lead","text",""],["headcount","number","0"]],
@@ -636,6 +661,7 @@ function addForm(coll) {
       rec[el.dataset.f] = el.type === "number" ? Number(el.value) || 0 : el.value;
     });
     if (coll === "purchaseOrders") rec.totalUsd = Math.round((rec.qty || 0) * (rec.unitCostUsd || 0) * 100) / 100;
+    if (coll === "salesOrders") rec.totalUsd = Math.round((rec.qty || 0) * (rec.unitPriceUsd || 0) * 100) / 100;
     if (coll === "transactions" && Math.abs(rec.amount) >= approvalThreshold()) {
       db.approvals.unshift({ id: uid(), createdAt: now(), kind: "transaction", payload: rec,
         summary: `${rec.amount < 0 ? "Outflow" : "Inflow"} ${fmt$(rec.amount)} — ${rec.memo || rec.counterparty}`, amount: rec.amount, status: "pending", requestedBy: "operator" });
@@ -880,6 +906,7 @@ const VIEWS = {
   projects: { label: "Projects", group: "Operations" },
   inventory: { label: "Inventory", group: "Supply chain" },
   purchasing: { label: "Purchase orders", group: "Supply chain" },
+  salesorders: { label: "Sales orders", group: "Supply chain" },
   automations: { label: "Automation rules", group: "Automation" },
   approvals: { label: "Approvals", group: "Automation" },
   activity: { label: "Automation activity", group: "Automation" },
@@ -930,6 +957,7 @@ function renderView() {
     <div class="toolbar">
       <button class="primary" onclick="addForm('transactions')">+ Transaction</button>
       <button onclick="importCsv()">Import CSV</button>
+      <button onclick="exportLedgerCsv()">Export CSV</button>
       ${periodBar()}
       <div class="spacer"></div>
       <select onchange="setFilter('account',this.value)">${opts(db.accounts.map(a=>a.name),"account")}</select>
@@ -1111,6 +1139,14 @@ function renderView() {
       `<td>${p.number}</td><td>${p.vendor}</td><td style="font-family:var(--mono);font-size:11.5px">${p.sku}</td><td class="num">${(p.qty||0).toLocaleString()}</td><td class="num">${fmt$(p.unitCostUsd||0)}</td><td class="num">${fmt$(p.totalUsd ?? (p.qty*p.unitCostUsd) ?? 0)}</td><td>${p.ordered}</td><td>${stTag(p.status)}</td><td>${srcTag(p)}</td>
        <td>${p.status === "open" ? `<button onclick="event.stopPropagation();receivePO('${p.id}')">Receive</button>` : ""}</td>`)}`;
   }
+  if (view === "salesorders") {
+    const openVal = db.salesOrders.filter((s) => s.status === "open").reduce((s, x) => s + x.totalUsd, 0);
+    return `<h2>Sales orders</h2><div class="crumb">${fmt$(openVal)} open. Fulfilling decrements stock and issues the customer invoice automatically.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('salesOrders')">+ Sales order</button></div>
+    ${tbl("salesOrders", [["Number","number"],["Customer","customer"],["SKU","sku"],["Qty","qty"],["Unit price","unitPriceUsd"],["Total","totalUsd"],["Ordered","ordered"],["Status","status"],["Source"],["",""]], (s) =>
+      `<td>${s.number}</td><td><a class="link" onclick="event.stopPropagation();drillByName('customers','${s.customer}')">${s.customer}</a></td><td style="font-family:var(--mono);font-size:11.5px">${s.sku}</td><td class="num">${(s.qty||0).toLocaleString()}</td><td class="num">${fmt$(s.unitPriceUsd||0)}</td><td class="num">${fmt$(s.totalUsd||0)}</td><td>${s.ordered}</td><td>${stTag(s.status)}</td><td>${srcTag(s)}</td>
+       <td>${s.status === "open" ? `<button onclick="event.stopPropagation();fulfillSO('${s.id}')">Fulfill</button>` : ""}</td>`)}`;
+  }
   if (view === "employees") {
     const semiMonthly = db.employees.reduce((s, e) => s + (Number(e.salary) || 0) / 24, 0);
     return `<h2>Employees</h2><div class="crumb">Semi-monthly payroll cost: <b>${fmt$(semiMonthly)}</b> — posts one ledger entry per department.</div>
@@ -1192,6 +1228,35 @@ function drillByName(coll, name) {
   const rec = db[coll].find((r) => r.name === name);
   if (rec) drill(coll, rec.id);
 }
+function exportLedgerCsv() {
+  const cols = ["date", "amount", "account", "counterparty", "category", "department", "memo", "ref", "source"];
+  const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [cols.join(",")].concat(db.transactions.filter((t) => inPeriod(t.date || "")).map((t) => cols.map((c) => esc(t[c])).join(",")));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "olympus-ledger-" + today() + ".csv";
+  a.click();
+  audit("export", `Ledger exported to CSV (${lines.length - 1} rows, ${PERIODS[period]})`);
+}
+function showHelp() {
+  openWindow("How this console works", `
+    <div class="section-title">Automated flows</div>
+    <div class="hist"><b>Procure-to-pay</b>: stock ≤ reorder point → PO raised automatically → Receive adds stock + creates the bill → paying routes through the approval threshold → ledger + balances update.</div>
+    <div class="hist"><b>Order-to-cash</b>: sales order → Fulfill checks stock, decrements it, and issues the invoice → Record payment posts cash and links it by reference.</div>
+    <div class="hist"><b>Continuous rules</b>: auto-categorization, overdue watchdog (tasks + alerts), anomaly detection, balance floors, recurring postings — see Automation rules and the activity log.</div>
+    <div class="section-title">Working the data</div>
+    <div class="hist">Click any <span class="editable" style="pointer-events:none">underlined value</span> to edit in place — every change is stamped into the record's history and the audit trail.</div>
+    <div class="hist">Click any row to open it in a draggable window; stack several to compare records side by side.</div>
+    <div class="hist">Ledger: checkboxes select rows for bulk category/department changes or delete; period pills rescope everything; Export CSV respects the selected period.</div>
+    <div class="section-title">Keyboard</div>
+    <div class="kv" style="grid-template-columns:110px 1fr">
+      <div class="k"><kbd>/</kbd></div><div>Focus global search</div>
+      <div class="k"><kbd>Ctrl</kbd>+<kbd>K</kbd></div><div>Command palette — jump to any page or action</div>
+      <div class="k"><kbd>?</kbd></div><div>This help</div>
+      <div class="k"><kbd>Enter</kbd></div><div>Commit an inline edit</div>
+    </div>`);
+}
 function exportJson() {
   const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -1272,6 +1337,9 @@ document.addEventListener("keydown", (ev) => {
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); palOpen(); return; }
   if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) && !ev.target.isContentEditable) {
     ev.preventDefault(); document.getElementById("search").focus();
+  }
+  if (ev.key === "?" && !/INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) && !ev.target.isContentEditable) {
+    ev.preventDefault(); showHelp();
   }
   if (ev.key === "Escape") palClose();
 });
