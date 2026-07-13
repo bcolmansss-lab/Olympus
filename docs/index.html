@@ -417,6 +417,23 @@ function drill(coll, id) {
     const isNum = typeof rec[k] === "number" && /amount|balance|salary|budget|spent|monthlyUsd|thresholdUsd|belowUsd|headcount/.test(k);
     return `<div class="k">${k}</div><div>${editable(coll, rec, k, { num: isNum })}</div>`;
   }).join("");
+  let statement = "";
+  if (coll === "customers") {
+    const open = db.invoices.filter((i) => i.customer === rec.name && (i.status === "sent" || i.status === "overdue"));
+    const paid = db.invoices.filter((i) => i.customer === rec.name && i.status === "paid");
+    statement = `<div class="section-title">Statement</div><div class="kv">
+      <div class="k">Open balance</div><div class="num" style="text-align:left"><b>${fmt$(open.reduce((s, i) => s + i.amount, 0))}</b> across ${open.length} invoice(s)</div>
+      <div class="k">Lifetime paid</div><div>${fmt$(paid.reduce((s, i) => s + i.amount, 0))} across ${paid.length} invoice(s)</div></div>` +
+      open.map((i) => `<div class="hist"><a class="link" onclick="drill('invoices','${i.id}')">${i.number} · ${fmt$(i.amount)} · due ${i.due} · ${i.status}</a></div>`).join("");
+  }
+  if (coll === "vendors") {
+    const open = db.bills.filter((b) => b.vendor === rec.name && b.status === "open");
+    const paid = db.bills.filter((b) => b.vendor === rec.name && b.status === "paid");
+    statement = `<div class="section-title">Statement</div><div class="kv">
+      <div class="k">Owed to vendor</div><div><b>${fmt$(open.reduce((s, b) => s + b.amount, 0))}</b> across ${open.length} bill(s)</div>
+      <div class="k">Lifetime paid</div><div>${fmt$(paid.reduce((s, b) => s + b.amount, 0))} across ${paid.length} bill(s)</div></div>` +
+      open.map((b) => `<div class="hist"><a class="link" onclick="drill('bills','${b.id}')">${b.number} · ${fmt$(b.amount)} · due ${b.due}</a></div>`).join("");
+  }
   let related = "";
   const nm = rec.name || rec.number;
   if (nm) {
@@ -431,7 +448,7 @@ function drill(coll, id) {
   if (coll === "bills" && rec.status !== "paid") actions += `<button class="primary" onclick="payBill('${rec.id}',this)">Pay bill (${fmt$(rec.amount)})</button> `;
   if (coll === "tasks" && rec.status === "open") actions += `<button class="primary" onclick="completeTask('${rec.id}',this)">Mark complete</button> `;
   openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.title || rec.memo || rec.id}`,
-    `<div class="kv">${rows}</div>${related}${provenanceHtml(rec)}
+    `<div class="kv">${rows}</div>${statement}${related}${provenanceHtml(rec)}
      <div style="margin-top:14px">${actions}<button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete</button></div>`);
 }
 function delRec(coll, id, btn) {
@@ -656,6 +673,49 @@ function sortBy(coll, field) {
   render();
 }
 const ledgerFilter = { account: "", category: "", source: "", department: "" };
+/* Period presets applied to ledger and reports. */
+let period = "all";
+const PERIODS = { all: "All time", month: "This month", last: "Last month", qtd: "Quarter to date", ytd: "Year to date" };
+function periodRange() {
+  const t = today(), y = t.slice(0, 4), m = Number(t.slice(5, 7));
+  if (period === "month") return [t.slice(0, 7) + "-01", t];
+  if (period === "last") { const d = new Date(y, m - 2, 1); const e = new Date(y, m - 1, 0); return [d.toISOString().slice(0, 10), e.toISOString().slice(0, 10)]; }
+  if (period === "qtd") { const qm = Math.floor((m - 1) / 3) * 3 + 1; return [`${y}-${String(qm).padStart(2, "0")}-01`, t]; }
+  if (period === "ytd") return [y + "-01-01", t];
+  return null;
+}
+function inPeriod(dateStr) {
+  const r = periodRange();
+  return !r || (dateStr >= r[0] && dateStr <= r[1]);
+}
+function setPeriod(p) { period = p; render(); }
+function periodBar() {
+  return `<div class="pill-toggle">` + Object.entries(PERIODS).map(([k, l]) =>
+    `<span class="${period === k ? "on" : ""}" onclick="setPeriod('${k}')">${l}</span>`).join("") + `</div>`;
+}
+/* Bulk selection on the ledger. */
+const bulkSel = new Set();
+function bulkToggle(id, on) { if (on) bulkSel.add(id); else bulkSel.delete(id); render(); }
+function bulkClear() { bulkSel.clear(); render(); }
+function bulkApply(field, value) {
+  if (!value) return;
+  let n = 0;
+  for (const id of bulkSel) {
+    const t = db.transactions.find((x) => x.id === id);
+    if (!t || t[field] === value) continue;
+    t.history.push({ at: now(), field, from: t[field], to: value, by: "operator (bulk)" });
+    t[field] = value; n++;
+  }
+  audit("bulk-edit", `Set ${field}="${value}" on ${n} transactions`);
+  toast(`Updated ${n} transactions`); bulkSel.clear(); render();
+}
+function bulkDelete(btn) {
+  if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = `Confirm delete ${bulkSel.size}`; return; }
+  const n = bulkSel.size;
+  db.transactions = db.transactions.filter((t) => !bulkSel.has(t.id));
+  audit("bulk-delete", `Deleted ${n} transactions`);
+  toast(`Deleted ${n} transactions`); bulkSel.clear(); render();
+}
 function setFilter(k, v) { ledgerFilter[k] = v; render(); }
 
 /* ================= view helpers ================= */
@@ -678,7 +738,7 @@ function tbl(coll, cols, renderRow, rows) {
     return field ? `<th onclick="sortBy('${coll}','${field}')">${label}${arr}</th>` : `<th style="cursor:default">${label}</th>`;
   }).join("");
   return `<div class="tablewrap"><table><thead><tr>${head}</tr></thead><tbody>` +
-    rows.map((r) => `<tr class="row" onclick="if(!event.target.classList.contains('editable')&&event.target.tagName!=='A'&&event.target.tagName!=='BUTTON')drill('${coll}','${r.id}')">${renderRow(r)}</tr>`).join("") +
+    rows.map((r) => `<tr class="row" onclick="if(!event.target.classList.contains('editable')&&!/^(A|BUTTON|INPUT|SELECT)$/.test(event.target.tagName))drill('${coll}','${r.id}')">${renderRow(r)}</tr>`).join("") +
     `</tbody></table></div>`;
 }
 const srcTag = (r) => { const s = (r.source || "manual").split(":")[0]; const cls = s === "automation" ? "acc" : s === "csv" ? "warn" : ""; return `<span class="tag ${cls}" title="${r.source}">${s}</span>`; };
@@ -772,24 +832,33 @@ function renderView() {
       db.transactions.slice(0, 12))}`;
   }
   if (view === "ledger") {
-    let rows = db.transactions;
+    let rows = db.transactions.filter((t) => inPeriod(t.date || ""));
     for (const [k, v] of Object.entries(ledgerFilter)) if (v) rows = rows.filter((t) => String(t[k] || "").split(":")[0] === v || String(t[k] || "") === v);
     const total = rows.filter(match).reduce((s, t) => s + t.amount, 0);
     const opts = (arr, key) => `<option value="">${key}: all</option>` + arr.map((v) => `<option ${ledgerFilter[key]===v?"selected":""}>${v}</option>`).join("");
     const cats = [...new Set(db.transactions.map((t) => t.category))].sort();
     const srcs = [...new Set(db.transactions.map((t) => (t.source||"").split(":")[0]))].sort();
+    const bulkBar = bulkSel.size ? `<div class="toolbar" style="background:var(--accent-soft);border:1px solid var(--line);border-radius:8px;padding:7px 12px">
+      <b>${bulkSel.size} selected</b>
+      <select onchange="bulkApply('category',this.value)"><option value="">Set category…</option>${cats.map(c=>`<option>${c}</option>`).join("")}</select>
+      <select onchange="bulkApply('department',this.value)"><option value="">Set department…</option>${db.departments.map(d=>`<option>${d.name}</option>`).join("")}</select>
+      <button class="danger" onclick="bulkDelete(this)">Delete selected</button>
+      <button class="ghost" onclick="bulkClear()">Clear</button>
+    </div>` : "";
     return `<h2>Ledger</h2><div class="crumb">Every dollar with its origin. Net of ${rows.filter(match).length.toLocaleString()} shown: <b class="${total>=0?"pos":"neg"}">${fmt$(total)}</b></div>
     <div class="toolbar">
       <button class="primary" onclick="addForm('transactions')">+ Transaction</button>
       <button onclick="importCsv()">Import CSV</button>
+      ${periodBar()}
       <div class="spacer"></div>
       <select onchange="setFilter('account',this.value)">${opts(db.accounts.map(a=>a.name),"account")}</select>
       <select onchange="setFilter('category',this.value)">${opts(cats,"category")}</select>
       <select onchange="setFilter('department',this.value)">${opts(db.departments.map(d=>d.name),"department")}</select>
       <select onchange="setFilter('source',this.value)">${opts(srcs,"source")}</select>
     </div>
-    ${tbl("transactions", [["Date","date"],["Amount","amount"],["Account","account"],["Counterparty","counterparty"],["Category","category"],["Dept","department"],["Memo","memo"],["Ref","ref"],["Source"]], (t) =>
-      `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.account}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.department||"—"}</td><td>${t.memo||""}</td><td>${t.ref||"—"}</td><td>${srcTag(t)}</td>`, rows)}`;
+    ${bulkBar}
+    ${tbl("transactions", [["",""],["Date","date"],["Amount","amount"],["Account","account"],["Counterparty","counterparty"],["Category","category"],["Dept","department"],["Memo","memo"],["Ref","ref"],["Source"]], (t) =>
+      `<td><input type="checkbox" ${bulkSel.has(t.id)?"checked":""} onclick="event.stopPropagation();bulkToggle('${t.id}',this.checked)"/></td><td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.account}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.department||"—"}</td><td>${t.memo||""}</td><td>${t.ref||"—"}</td><td>${srcTag(t)}</td>`, rows)}`;
   }
   if (view === "invoices") {
     return `<h2>Invoices — accounts receivable</h2><div class="crumb">Open a row to record payment, see linked cash, and full history.</div>
@@ -874,7 +943,8 @@ function renderView() {
   }
   if (view === "reports") {
     const cats = {};
-    for (const t of db.transactions) {
+    const inScope = db.transactions.filter((t) => inPeriod(t.date || ""));
+    for (const t of inScope) {
       const c = t.category || "Uncategorized";
       cats[c] = cats[c] || { in: 0, out: 0 };
       if (t.amount >= 0) cats[c].in += t.amount; else cats[c].out += -t.amount;
@@ -892,11 +962,11 @@ function renderView() {
       else if (days <= 60) aging.d60 += i.amount; else aging.d90 += i.amount;
     }
     const dept = {};
-    for (const t of db.transactions) if (t.amount < 0 && t.department) dept[t.department] = (dept[t.department] || 0) - t.amount;
+    for (const t of inScope) if (t.amount < 0 && t.department) dept[t.department] = (dept[t.department] || 0) - t.amount;
     const deptRows = Object.entries(dept).sort((a, b) => b[1] - a[1]).map(([d, v]) =>
       `<tr><td>${d}</td><td class="num">${fmt$(v)}</td></tr>`).join("");
-    return `<h2>Reports</h2><div class="crumb">Live from the ledger — no refresh needed.</div>
-    <div class="toolbar"><button onclick="window.print()">Print / save as PDF</button></div>
+    return `<h2>Reports</h2><div class="crumb">Live from the ledger — no refresh needed. Showing: <b>${PERIODS[period]}</b></div>
+    <div class="toolbar"><button onclick="window.print()">Print / save as PDF</button>${periodBar()}</div>
     <div class="section-title">Profit & loss by category</div>
     <div class="tablewrap" style="max-height:none"><table><thead><tr><th>Category</th><th style="text-align:right">In</th><th style="text-align:right">Out</th><th style="text-align:right">Net</th></tr></thead><tbody>${catRows}
       <tr style="font-weight:650"><td>Total</td><td class="num pos">${fmt$(totIn)}</td><td class="num neg">${fmt$(totOut)}</td><td class="num ${totIn - totOut >= 0 ? "pos" : "neg"}">${fmt$(totIn - totOut)}</td></tr>
@@ -908,7 +978,7 @@ function renderView() {
       <div class="card"><div class="k">31–60 days</div><div class="v wrn">${fmtK(aging.d60)}</div></div>
       <div class="card"><div class="k">60+ days</div><div class="v neg">${fmtK(aging.d90)}</div></div>
     </div>
-    <div class="section-title" style="margin-top:20px">Spend by department (all time)</div>
+    <div class="section-title" style="margin-top:20px">Spend by department</div>
     <div class="tablewrap" style="max-height:none;max-width:480px"><table><thead><tr><th>Department</th><th style="text-align:right">Outflow</th></tr></thead><tbody>${deptRows || `<tr><td colspan="2" class="empty">No departmental spend tagged yet.</td></tr>`}</tbody></table></div>
     ${cashflowChart()}`;
   }
