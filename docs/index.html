@@ -292,6 +292,12 @@ let db = (() => { try { const raw = localStorage.getItem(LS_KEY); if (raw) retur
   if (!db.rules.some((r) => r.kind === "duplicate")) {
     db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Duplicate payment detector", kind: "duplicate", enabled: true });
   }
+  if (!db.rules.some((r) => r.kind === "budget_breach")) {
+    db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Budget breach alerts", kind: "budget_breach", enabled: true });
+  }
+  if (!db.rules.some((r) => r.kind === "reminder")) {
+    db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Payment reminders", kind: "reminder", leadDays: 5, enabled: true });
+  }
   if (!db.rules.some((r) => r.kind === "reorder")) {
     db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Auto-reorder low stock", kind: "reorder", enabled: true });
   }
@@ -353,6 +359,48 @@ function runAutomations() {
       if (acct && acct.balance < rule.belowUsd) {
         notify(`${acct.name} balance ${fmt$(acct.balance)} is below the ${fmt$(rule.belowUsd)} floor`, "bal:" + acct.name + ":" + thisMonth());
         logAuto(rule, `${acct.name} below floor`);
+      }
+    }
+    if (rule.kind === "budget_breach") {
+      const m = thisMonth();
+      const spent = {};
+      for (const t of db.transactions) if (t.amount < 0 && (t.date || "").slice(0, 7) === m) {
+        const c = t.category || "Uncategorized";
+        spent[c] = (spent[c] || 0) - t.amount;
+      }
+      for (const b of db.budgets) {
+        const used = spent[b.category] || 0;
+        if (used > b.monthlyUsd) {
+          notify(`Budget breached: ${b.category} at ${fmt$(used)} vs ${fmt$(b.monthlyUsd)} budget for ${m}`, "bud:" + b.category + ":" + m);
+          logAuto(rule, `${b.category} over budget by ${fmt$(used - b.monthlyUsd)} (${m})`);
+        }
+      }
+    }
+    if (rule.kind === "reminder") {
+      const lead = rule.leadDays || 5;
+      const horizon = new Date(Date.now() + lead * 86400000).toISOString().slice(0, 10);
+      for (const i of db.invoices) {
+        if (i.status !== "sent" || !i.due || i.due < today() || i.due > horizon) continue;
+        const key = "rem:" + i.number;
+        if (db.notifKeys.includes(key)) continue;
+        notify(`Reminder: ${i.number} (${i.customer}, ${fmt$(i.amount)}) is due ${i.due}`, key);
+        db.tasks.unshift({ id: uid(), source: "automation", createdAt: now(), history: [], title: `Payment reminder: ${i.number} due ${i.due} — ${i.customer}`, assignee: "AR team", due: i.due, status: "open", linked: i.number });
+        logAuto(rule, `reminder raised for ${i.number} (due ${i.due})`);
+        changed = true;
+      }
+    }
+    if (rule.kind === "recurring_invoice") {
+      const m = thisMonth();
+      const dom = Number(today().slice(8, 10));
+      if (rule.lastRun !== m && dom >= (rule.day || 1)) {
+        const due = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+        const inv = { id: uid(), source: "automation", createdAt: now(), history: [],
+          number: "INV-R" + m.replace("-", "") + "-" + String(db.invoices.length + 1), customer: rule.customer,
+          amount: rule.amount, issued: today(), due, status: "sent" };
+        db.invoices.unshift(inv);
+        rule.lastRun = m; changed = true;
+        notify(`Recurring invoice ${inv.number} issued to ${rule.customer} for ${fmt$(rule.amount)}`, "rinv:" + rule.id + ":" + m);
+        logAuto(rule, `issued ${inv.number} (${fmt$(rule.amount)}) for ${m}`);
       }
     }
     if (rule.kind === "duplicate") {
@@ -814,11 +862,14 @@ const RULE_FORMS = {
   anomaly: [["name","text","Unusual spend detector"],["factor","number","3"]],
   reorder: [["name","text","Auto-reorder low stock"]],
   duplicate: [["name","text","Duplicate payment detector"]],
+  budget_breach: [["name","text","Budget breach alerts"]],
+  reminder: [["name","text","Payment reminders"],["leadDays","number","5"]],
+  recurring_invoice: [["name","text","Monthly invoice — …"],["customer","select:customers"],["amount","number",""],["day","number","1"]],
   approval_threshold: [["name","text","Approval for large amounts"],["thresholdUsd","number","250000"]],
   alert_balance: [["name","text","Low-balance alert"],["account","select:accounts"],["belowUsd","number",""]],
   recurring: [["name","text","Monthly …"],["day","number","1"],["amount","number",""],["account","select:accounts"],["category","text",""],["department","select:departments"],["counterparty","text",""],["memo","text",""]],
 };
-const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction", anomaly: "Anomaly detector", reorder: "Inventory auto-reorder", duplicate: "Duplicate detector" };
+const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction", anomaly: "Anomaly detector", reorder: "Inventory auto-reorder", duplicate: "Duplicate detector", budget_breach: "Budget breach alert", reminder: "Payment reminder", recurring_invoice: "Recurring invoice" };
 function addRuleForm(kind) {
   const rows = RULE_FORMS[kind].map(([f, k, dflt]) => {
     let input;
@@ -831,7 +882,7 @@ function addRuleForm(kind) {
   w.querySelector("button.primary").onclick = () => {
     const rec = { id: uid(), source: "manual", createdAt: now(), history: [], kind, enabled: true };
     w.querySelectorAll("[data-f]").forEach((el) => { rec[el.dataset.f] = el.type === "number" ? Number(el.value) || 0 : el.value; });
-    if (kind === "recurring") rec.lastRun = "";
+    if (kind === "recurring" || kind === "recurring_invoice") rec.lastRun = "";
     db.rules.unshift(rec);
     audit("rule", `Created rule: ${rec.name}`);
     w.remove(); toast("Rule created — running now"); runAutomations(); render();
@@ -1040,6 +1091,7 @@ function renderView() {
       <div class="card"><div class="k">Receivable</div><div class="v ${overdue ? "wrn" : ""}">${fmtK(ar)}</div><div class="d">${overdue} overdue — <a class="link" href="#invoices">invoices</a></div></div>
       <div class="card"><div class="k">Payable</div><div class="v">${fmtK(ap)}</div><div class="d"><a class="link" href="#bills">open bills</a></div></div>
       <div class="card"><div class="k">Pending approvals</div><div class="v ${pendingAppr ? "wrn" : ""}">${pendingAppr}</div><div class="d"><a class="link" href="#approvals">review queue</a></div></div>
+      <div class="card"><div class="k">3-mo cash outlook</div><div class="v ${k.cash + k.netAvg * 3 < 0 ? "neg" : ""}">${fmtK(k.cash + k.netAvg * 3)}</div><div class="d"><a class="link" href="#forecast">full forecast & scenarios</a></div></div>
       <div class="card"><div class="k">Open tasks</div><div class="v">${openTasks}</div><div class="d"><a class="link" href="#tasks">task list</a></div></div>
     </div>
     ${cashflowChart()}
@@ -1350,6 +1402,9 @@ function renderView() {
       if (r.kind === "anomaly") return `Alert when an outflow exceeds ${r.factor || 3}× its category average`;
       if (r.kind === "reorder") return `When stock ≤ reorder point and no open PO exists → raise a purchase order automatically`;
       if (r.kind === "duplicate") return `Alert when multiple outflows share the same date, amount, and counterparty`;
+      if (r.kind === "budget_breach") return `Alert when a category's spend this month exceeds its budget line`;
+      if (r.kind === "reminder") return `Create a reminder task + alert ${r.leadDays || 5} days before an invoice falls due`;
+      if (r.kind === "recurring_invoice") return `Issue ${fmt$(r.amount)} to ${r.customer} on day ${r.day} each month`;
       return "";
     };
     return `<h2>Automation rules</h2><div class="crumb">These run continuously against your data — on load, after every change, and after every import.</div>
