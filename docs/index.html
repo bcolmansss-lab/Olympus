@@ -89,6 +89,17 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:auto;max-height:calc(100vh - 250px);box-shadow:var(--shadow)}
 a.link{color:var(--accent);cursor:pointer;text-decoration:none;font-weight:500}
 a.link:hover{text-decoration:underline}
+#searchresults{position:fixed;top:50px;right:120px;width:440px;max-height:420px;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg);z-index:400;display:none}
+#searchresults .sr{padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--line2);font-size:12.5px;display:flex;gap:10px;align-items:baseline}
+#searchresults .sr:hover{background:var(--accent-soft)}
+#searchresults .sr .where{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
+html[data-theme=dark]{
+  --bg:#14161a; --panel:#1c1f25; --panel2:#22262d; --line:#2c313a; --line2:#262b33;
+  --ink:#e4e7ec; --dim:#98a2b3; --faint:#667085;
+  --accent:#7d9bd4; --accent-ink:#10131a; --accent-soft:#263042;
+  --good:#5cb88a; --good-bg:#1b2a23; --bad:#e08579; --bad-bg:#2d1f1d; --warn:#d9a55c; --warn-bg:#2b251a;
+  --shadow:0 1px 2px rgba(0,0,0,.35); --shadow-lg:0 8px 24px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.35);
+}
 .bar{height:7px;border-radius:99px;background:var(--line2);overflow:hidden;margin-top:6px}
 .bar i{display:block;height:100%;border-radius:99px;background:var(--accent)}
 .bar i.over{background:var(--bad)}
@@ -120,6 +131,7 @@ kbd{background:var(--line2);border:1px solid var(--line);border-radius:4px;paddi
     <span onclick="addForm('transactions')">+ Transaction</span><span onclick="addForm('invoices')">+ Invoice</span><span onclick="addForm('bills')">+ Bill</span>
   </div>
   <input id="search" placeholder="Search everything — press / to focus, Ctrl+K for commands" />
+  <button class="ghost" onclick="toggleTheme()" id="themebtn" title="Toggle dark mode" style="font-size:13px">◐</button>
   <button class="ghost" onclick="showHelp()" title="Help (?)" style="font-size:14px">?</button>
   <div class="bell" id="bell" title="Notifications">🔔</div>
 </header>
@@ -434,10 +446,14 @@ function openWindow(title, bodyHtml) {
   host.appendChild(w);
   return w;
 }
-function provenanceHtml(rec) {
+function provenanceHtml(rec, coll) {
   const hist = (rec.history || []).slice().reverse().map((h) =>
     `<div class="hist">${new Date(h.at).toLocaleString()} — <b>${h.field}</b>: <i>${h.from ?? "—"}</i> → <i>${h.to}</i> (${h.by})</div>`).join("") || `<div class="hist">No edits since creation.</div>`;
-  return `<div class="section-title">Provenance</div>
+  const notes = (rec.notes || []).slice().reverse().map((n) =>
+    `<div class="hist">${new Date(n.at).toLocaleString()} — ${n.text}</div>`).join("");
+  const noteBox = `<div class="section-title">Notes${rec.notes && rec.notes.length ? " (" + rec.notes.length + ")" : ""}</div>${notes}
+    <div style="display:flex;gap:6px;margin-top:6px"><input type="text" placeholder="Add a note…" style="flex:1" data-noteinput onkeydown="if(event.key==='Enter')addNote('${coll}','${rec.id}',this)"/><button onclick="addNote('${coll}','${rec.id}',this.previousElementSibling)">Add</button></div>`;
+  return noteBox + `<div class="section-title">Provenance</div>
     <div class="kv"><div class="k">Source</div><div><span class="tag acc">${rec.source || "manual"}</span></div>
     <div class="k">Created</div><div>${new Date(rec.createdAt).toLocaleString()}</div>
     <div class="k">Record ID</div><div style="font-family:var(--mono);font-size:11px">${rec.id}</div></div>
@@ -446,7 +462,7 @@ function provenanceHtml(rec) {
 function drill(coll, id) {
   const rec = db[coll].find((r) => r.id === id);
   if (!rec) return;
-  const skip = new Set(["id", "source", "createdAt", "history", "autoTagged"]);
+  const skip = new Set(["id", "source", "createdAt", "history", "autoTagged", "notes", "_coll", "anomalyChecked"]);
   const rows = Object.keys(rec).filter((k) => !skip.has(k)).map((k) => {
     const isNum = typeof rec[k] === "number" && /amount|balance|salary|budget|spent|monthlyUsd|thresholdUsd|belowUsd|headcount/.test(k);
     return `<div class="k">${k}</div><div>${editable(coll, rec, k, { num: isNum })}</div>`;
@@ -485,8 +501,21 @@ function drill(coll, id) {
   if (coll === "bills" && rec.status !== "paid") actions += `<button class="primary" onclick="payBill('${rec.id}',this)">Pay bill (${fmt$(rec.amount)})</button> `;
   if (coll === "tasks" && rec.status === "open") actions += `<button class="primary" onclick="completeTask('${rec.id}',this)">Mark complete</button> `;
   openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.title || rec.memo || rec.id}`,
-    `<div class="kv">${rows}</div>${statement}${related}${provenanceHtml(rec)}
+    `<div class="kv">${rows}</div>${statement}${related}${provenanceHtml(rec, coll)}
      <div style="margin-top:14px">${poActions}${actions}<button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete</button></div>`);
+}
+function addNote(coll, id, inputEl) {
+  const rec = db[coll].find((r) => r.id === id);
+  const text = inputEl.value.trim();
+  if (!rec || !text) return;
+  rec.notes = rec.notes || [];
+  rec.notes.push({ at: now(), text });
+  audit("note", `${coll}/${rec.name || rec.number || rec.title || rec.memo || rec.id}: "${text}"`);
+  const win = inputEl.closest(".win");
+  if (win) win.remove();
+  drill(coll, id);
+  toast("Note added");
+  save();
 }
 function delRec(coll, id, btn) {
   const rec = db[coll].find((r) => r.id === id);
@@ -826,7 +855,38 @@ function setFilter(k, v) { ledgerFilter[k] = v; render(); }
 /* ================= view helpers ================= */
 let view = location.hash.slice(1) || "dashboard";
 let query = "";
-document.getElementById("search").addEventListener("input", (e) => { query = e.target.value.toLowerCase(); render(); });
+document.getElementById("search").addEventListener("input", (e) => { query = e.target.value.toLowerCase(); renderSearchResults(); render(); });
+/* Cross-module search dropdown: hits from every collection, click to drill. */
+const SEARCHABLE = { transactions: "Ledger", invoices: "Invoices", bills: "Bills", customers: "Customers", vendors: "Vendors", employees: "Employees", projects: "Projects", products: "Inventory", purchaseOrders: "Purchase orders", salesOrders: "Sales orders", tasks: "Tasks", rules: "Automation" };
+function renderSearchResults() {
+  let box = document.getElementById("searchresults");
+  if (!box) { box = document.createElement("div"); box.id = "searchresults"; document.body.appendChild(box); }
+  if (!query || query.length < 2) { box.style.display = "none"; return; }
+  const hits = [];
+  for (const [coll, label] of Object.entries(SEARCHABLE)) {
+    for (const r of db[coll] || []) {
+      if (hits.length >= 14) break;
+      if (JSON.stringify(r).toLowerCase().includes(query)) {
+        const title = r.name || r.number || r.title || r.memo || r.sku || r.id;
+        const detail = r.amount !== undefined ? fmt$(r.amount) : (r.customer || r.vendor || r.counterparty || r.category || r.role || "");
+        hits.push({ coll, label, id: r.id, title, detail });
+      }
+    }
+  }
+  box.innerHTML = hits.map((h) =>
+    `<div class="sr" onclick="document.getElementById('searchresults').style.display='none';drill('${h.coll}','${h.id}')"><b>${h.title}</b><span style="color:var(--dim)">${h.detail}</span><span class="where">${h.label}</span></div>`).join("") ||
+    `<div class="sr" style="cursor:default;color:var(--faint)">No matches anywhere</div>`;
+  box.style.display = "block";
+}
+document.addEventListener("click", (e) => {
+  const box = document.getElementById("searchresults");
+  if (box && e.target.id !== "search" && !box.contains(e.target)) box.style.display = "none";
+});
+/* Theme */
+const THEME_KEY = "olympus-theme";
+function applyTheme(t) { document.documentElement.dataset.theme = t; localStorage.setItem(THEME_KEY, t); }
+function toggleTheme() { applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); }
+applyTheme(localStorage.getItem(THEME_KEY) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
 window.addEventListener("hashchange", () => { view = location.hash.slice(1) || "dashboard"; render(); });
 function match(rec) { return !query || JSON.stringify(rec).toLowerCase().includes(query); }
 function tbl(coll, cols, renderRow, rows) {
