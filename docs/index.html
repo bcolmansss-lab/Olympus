@@ -103,6 +103,14 @@ a.link:hover{text-decoration:underline}
 #palette .opt.sel,#palette .opt:hover{background:var(--accent-soft)}
 #palette .opt .hint{margin-left:auto;color:var(--faint);font-size:11px}
 kbd{background:var(--line2);border:1px solid var(--line);border-radius:4px;padding:0 5px;font:11px var(--mono);color:var(--dim)}
+@media print{
+  header.top,nav,.toolbar,#windows,.bell,#quickadd{display:none!important}
+  body{overflow:visible;background:#fff}
+  #layout{display:block;height:auto}
+  main{overflow:visible;padding:0}
+  .tablewrap{max-height:none;overflow:visible;box-shadow:none}
+  .card{box-shadow:none;break-inside:avoid}
+}
 </style>
 </head>
 <body>
@@ -217,6 +225,7 @@ function seedData() {
       mk({ name: "Approval for large outflows", kind: "approval_threshold", thresholdUsd: 250000, enabled: true }),
       mk({ name: "Low-balance alert — Payroll", kind: "alert_balance", account: "Payroll", belowUsd: 1000000, enabled: true }),
       mk({ name: "Monthly office lease", kind: "recurring", day: 1, amount: -84000, account: "Operating — Main", category: "Facilities", department: "People", counterparty: "Harborview Properties", memo: "HQ + regional office leases", lastRun: thisMonth(), enabled: true }),
+      mk({ name: "Unusual spend detector", kind: "anomaly", factor: 3, enabled: true }),
     ],
     approvals: [],
     notifications: [],
@@ -297,6 +306,26 @@ function runAutomations() {
       if (acct && acct.balance < rule.belowUsd) {
         notify(`${acct.name} balance ${fmt$(acct.balance)} is below the ${fmt$(rule.belowUsd)} floor`, "bal:" + acct.name + ":" + thisMonth());
         logAuto(rule, `${acct.name} below floor`);
+      }
+    }
+    if (rule.kind === "anomaly") {
+      const stats = {};
+      for (const t of db.transactions) {
+        if (t.amount >= 0) continue;
+        const c = t.category || "Uncategorized";
+        (stats[c] = stats[c] || []).push(-t.amount);
+      }
+      for (const t of db.transactions) {
+        if (t.amount >= 0 || t.anomalyChecked) continue;
+        t.anomalyChecked = true;
+        const arr = stats[t.category || "Uncategorized"] || [];
+        if (arr.length < 4) continue;
+        const avg = (arr.reduce((s, x) => s + x, 0) - (-t.amount)) / (arr.length - 1);
+        if (-t.amount > avg * (rule.factor || 3)) {
+          changed = true;
+          notify(`Unusual outflow: ${fmt$(t.amount)} to ${t.counterparty || "?"} is ${Math.round(-t.amount / avg)}× the ${t.category} average`, "anom:" + t.id);
+          logAuto(rule, `flagged ${fmt$(t.amount)} (${t.category}) vs avg ${fmt$(-avg)}`);
+        }
       }
     }
     if (rule.kind === "recurring") {
@@ -588,11 +617,12 @@ function disconnectIntegration(key) {
 const RULE_FORMS = {
   categorize: [["name","text","Categorize …"],["matchField","choice:counterparty,memo"],["contains","text",""],["setCategory","text",""],["setDepartment","select:departments"]],
   flag_overdue: [["name","text","Flag overdue invoices"],["graceDays","number","0"]],
+  anomaly: [["name","text","Unusual spend detector"],["factor","number","3"]],
   approval_threshold: [["name","text","Approval for large amounts"],["thresholdUsd","number","250000"]],
   alert_balance: [["name","text","Low-balance alert"],["account","select:accounts"],["belowUsd","number",""]],
   recurring: [["name","text","Monthly …"],["day","number","1"],["amount","number",""],["account","select:accounts"],["category","text",""],["department","select:departments"],["counterparty","text",""],["memo","text",""]],
 };
-const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction" };
+const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction", anomaly: "Anomaly detector" };
 function addRuleForm(kind) {
   const rows = RULE_FORMS[kind].map(([f, k, dflt]) => {
     let input;
@@ -703,6 +733,7 @@ const VIEWS = {
   bills: { label: "Bills (A/P)", group: "Money" },
   accounts: { label: "Accounts", group: "Money" },
   budgets: { label: "Budgets", group: "Money" },
+  forecast: { label: "Forecast", group: "Money" },
   reports: { label: "Reports", group: "Money" },
   customers: { label: "Customers", group: "Relationships" },
   vendors: { label: "Vendors", group: "Relationships" },
@@ -796,6 +827,51 @@ function renderView() {
           <div class="d" style="margin-top:5px" class="${over ? "neg" : ""}">${over ? `<span class="neg">Over by ${fmt$(used - b.monthlyUsd)}</span>` : pct + "% used"}</div></div>`;
       }).join("") + `</div>`;
   }
+  if (view === "forecast") {
+    const months = {};
+    for (const t of db.transactions) {
+      const m = (t.date || "").slice(0, 7); if (!m) continue;
+      months[m] = months[m] || { in: 0, out: 0 };
+      if (t.amount >= 0) months[m].in += t.amount; else months[m].out += -t.amount;
+    }
+    const hist = Object.keys(months).sort().slice(-4, -1);
+    const baseIn = hist.length ? hist.reduce((s, k) => s + months[k].in, 0) / hist.length : 0;
+    const baseOut = hist.length ? hist.reduce((s, k) => s + months[k].out, 0) / hist.length : 0;
+    const recurringOut = db.rules.filter((r) => r.enabled && r.kind === "recurring" && r.amount < 0).reduce((s, r) => s - r.amount, 0);
+    let cash = db.accounts.reduce((s, a) => s + a.balance, 0);
+    const start = new Date(today().slice(0, 7) + "-01T00:00:00Z");
+    const rows = [];
+    let firstNegative = null;
+    for (let i = 1; i <= 6; i++) {
+      const d = new Date(start); d.setUTCMonth(d.getUTCMonth() + i);
+      const m = d.toISOString().slice(0, 7);
+      const arDue = db.invoices.filter((x) => (x.status === "sent" || x.status === "overdue") && (x.due || "").slice(0, 7) === m).reduce((s, x) => s + x.amount, 0);
+      const apDue = db.bills.filter((x) => x.status === "open" && (x.due || "").slice(0, 7) === m).reduce((s, x) => s + x.amount, 0);
+      const inflow = baseIn + arDue;
+      const outflow = baseOut + apDue + recurringOut;
+      const net = inflow - outflow;
+      cash += net;
+      if (cash < 0 && firstNegative === null) firstNegative = m;
+      rows.push({ m, inflow, outflow, arDue, apDue, net, cash });
+    }
+    const maxCash = Math.max(...rows.map((r) => Math.abs(r.cash)), 1);
+    const W = 620, H = 130, step = W / (rows.length - 1 || 1);
+    const y = (c) => 20 + (H - Math.max(4, (Math.max(0, c) / maxCash) * H));
+    const pts = rows.map((r, i) => `${20 + i * step},${y(r.cash)}`).join(" ");
+    return `<h2>Cash forecast — next 6 months</h2>
+    <div class="crumb">Baseline = trailing 3-month average flows, plus scheduled receivables, open bills by due date, and active recurring rules. A planning projection, not a promise.</div>
+    ${firstNegative ? `<div class="card" style="border-color:var(--bad);background:var(--bad-bg);margin-bottom:14px"><b class="neg">Projected cash goes negative in ${firstNegative}.</b> <span style="color:var(--dim)">Tighten outflows, accelerate receivables, or arrange financing before then.</span></div>` : ""}
+    <div class="card"><div class="k">Projected cash balance</div>
+      <svg viewBox="0 0 ${W + 40} ${H + 44}" style="width:100%;max-width:860px;margin-top:10px">
+        <polyline points="${pts}" fill="none" stroke="#34518c" stroke-width="2.5"/>
+        ${rows.map((r, i) => `<circle cx="${20 + i * step}" cy="${y(r.cash)}" r="3.5" fill="${r.cash < 0 ? "#b42318" : "#34518c"}"><title>${r.m}: ${fmt$(r.cash)}</title></circle>
+          <text x="${20 + i * step}" y="${H + 38}" fill="#98a2b3" font-size="10" text-anchor="middle">${r.m.slice(2)}</text>`).join("")}
+      </svg></div>
+    <div class="section-title" style="margin-top:18px">Month-by-month projection</div>
+    <div class="tablewrap" style="max-height:none"><table><thead><tr><th>Month</th><th style="text-align:right">Inflow</th><th style="text-align:right">Outflow</th><th style="text-align:right">of which A/R due</th><th style="text-align:right">of which A/P due</th><th style="text-align:right">Net</th><th style="text-align:right">End cash</th></tr></thead><tbody>` +
+      rows.map((r) => `<tr><td>${r.m}</td><td class="num pos">${fmtK(r.inflow)}</td><td class="num neg">${fmtK(r.outflow)}</td><td class="num">${r.arDue ? fmtK(r.arDue) : "—"}</td><td class="num">${r.apDue ? fmtK(r.apDue) : "—"}</td><td class="num ${r.net >= 0 ? "pos" : "neg"}">${fmtK(r.net)}</td><td class="num ${r.cash >= 0 ? "" : "neg"}"><b>${fmtK(r.cash)}</b></td></tr>`).join("") +
+    `</tbody></table></div>`;
+  }
   if (view === "reports") {
     const cats = {};
     for (const t of db.transactions) {
@@ -820,6 +896,7 @@ function renderView() {
     const deptRows = Object.entries(dept).sort((a, b) => b[1] - a[1]).map(([d, v]) =>
       `<tr><td>${d}</td><td class="num">${fmt$(v)}</td></tr>`).join("");
     return `<h2>Reports</h2><div class="crumb">Live from the ledger — no refresh needed.</div>
+    <div class="toolbar"><button onclick="window.print()">Print / save as PDF</button></div>
     <div class="section-title">Profit & loss by category</div>
     <div class="tablewrap" style="max-height:none"><table><thead><tr><th>Category</th><th style="text-align:right">In</th><th style="text-align:right">Out</th><th style="text-align:right">Net</th></tr></thead><tbody>${catRows}
       <tr style="font-weight:650"><td>Total</td><td class="num pos">${fmt$(totIn)}</td><td class="num neg">${fmt$(totOut)}</td><td class="num ${totIn - totOut >= 0 ? "pos" : "neg"}">${fmt$(totIn - totOut)}</td></tr>
@@ -877,6 +954,7 @@ function renderView() {
       if (r.kind === "approval_threshold") return `Route any payment or manual transaction ≥ ${fmt$(r.thresholdUsd)} to the approval queue`;
       if (r.kind === "alert_balance") return `Alert when ${r.account} drops below ${fmt$(r.belowUsd)}`;
       if (r.kind === "recurring") return `Post ${fmt$(r.amount)} “${r.memo}” on day ${r.day} each month (${r.account})`;
+      if (r.kind === "anomaly") return `Alert when an outflow exceeds ${r.factor || 3}× its category average`;
       return "";
     };
     return `<h2>Automation rules</h2><div class="crumb">These run continuously against your data — on load, after every change, and after every import.</div>
