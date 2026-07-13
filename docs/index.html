@@ -276,6 +276,10 @@ let db = (() => { try { const raw = localStorage.getItem(LS_KEY); if (raw) retur
 (function migrate() {
   const seed = seedData();
   for (const k of ["products", "purchaseOrders", "salesOrders"]) if (!db[k]) db[k] = seed[k];
+  if (!db.trash) db.trash = [];
+  if (!db.rules.some((r) => r.kind === "duplicate")) {
+    db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Duplicate payment detector", kind: "duplicate", enabled: true });
+  }
   if (!db.rules.some((r) => r.kind === "reorder")) {
     db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Auto-reorder low stock", kind: "reorder", enabled: true });
   }
@@ -337,6 +341,19 @@ function runAutomations() {
       if (acct && acct.balance < rule.belowUsd) {
         notify(`${acct.name} balance ${fmt$(acct.balance)} is below the ${fmt$(rule.belowUsd)} floor`, "bal:" + acct.name + ":" + thisMonth());
         logAuto(rule, `${acct.name} below floor`);
+      }
+    }
+    if (rule.kind === "duplicate") {
+      const groups = {};
+      for (const t of db.transactions) {
+        if (t.amount >= 0) continue;
+        const key = `${t.date}|${t.amount}|${(t.counterparty || "").toLowerCase()}`;
+        (groups[key] = groups[key] || []).push(t);
+      }
+      for (const [key, arr] of Object.entries(groups)) {
+        if (arr.length < 2) continue;
+        notify(`Possible duplicate payment: ${arr.length}× ${fmt$(arr[0].amount)} to ${arr[0].counterparty || "?"} on ${arr[0].date}`, "dup:" + key);
+        logAuto(rule, `flagged ${arr.length} matching outflows (${fmt$(arr[0].amount)} / ${arr[0].counterparty} / ${arr[0].date})`);
       }
     }
     if (rule.kind === "reorder") {
@@ -517,14 +534,28 @@ function addNote(coll, id, inputEl) {
   toast("Note added");
   save();
 }
+function trashPut(coll, rec) {
+  db.trash = db.trash || [];
+  db.trash.unshift({ coll, rec, deletedAt: now() });
+  if (db.trash.length > 100) db.trash.pop();
+}
+function trashRestore(idx) {
+  const item = db.trash[idx];
+  if (!item) return;
+  db.trash.splice(idx, 1);
+  (db[item.coll] = db[item.coll] || []).unshift(item.rec);
+  audit("restore", `${item.coll}: restored ${item.rec.name || item.rec.number || item.rec.title || item.rec.memo || item.rec.id}`);
+  toast("Restored"); render();
+}
 function delRec(coll, id, btn) {
   const rec = db[coll].find((r) => r.id === id);
   if (!rec) return;
   if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = "Confirm delete"; return; }
   db[coll] = db[coll].filter((r) => r.id !== id);
-  audit("delete", `${coll}: removed ${rec.name || rec.number || rec.title || rec.memo || id}`);
+  trashPut(coll, rec);
+  audit("delete", `${coll}: removed ${rec.name || rec.number || rec.title || rec.memo || id} (recoverable in trash)`);
   btn.closest(".win").remove();
-  toast("Deleted"); render();
+  toast("Deleted — recoverable from Data & backup"); render();
 }
 
 /* ================= money actions ================= */
@@ -767,11 +798,12 @@ const RULE_FORMS = {
   flag_overdue: [["name","text","Flag overdue invoices"],["graceDays","number","0"]],
   anomaly: [["name","text","Unusual spend detector"],["factor","number","3"]],
   reorder: [["name","text","Auto-reorder low stock"]],
+  duplicate: [["name","text","Duplicate payment detector"]],
   approval_threshold: [["name","text","Approval for large amounts"],["thresholdUsd","number","250000"]],
   alert_balance: [["name","text","Low-balance alert"],["account","select:accounts"],["belowUsd","number",""]],
   recurring: [["name","text","Monthly …"],["day","number","1"],["amount","number",""],["account","select:accounts"],["category","text",""],["department","select:departments"],["counterparty","text",""],["memo","text",""]],
 };
-const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction", anomaly: "Anomaly detector", reorder: "Inventory auto-reorder" };
+const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction", anomaly: "Anomaly detector", reorder: "Inventory auto-reorder", duplicate: "Duplicate detector" };
 function addRuleForm(kind) {
   const rows = RULE_FORMS[kind].map(([f, k, dflt]) => {
     let input;
@@ -846,6 +878,7 @@ function bulkApply(field, value) {
 function bulkDelete(btn) {
   if (!btn.dataset.armed) { btn.dataset.armed = "1"; btn.textContent = `Confirm delete ${bulkSel.size}`; return; }
   const n = bulkSel.size;
+  for (const t of db.transactions) if (bulkSel.has(t.id)) trashPut("transactions", t);
   db.transactions = db.transactions.filter((t) => !bulkSel.has(t.id));
   audit("bulk-delete", `Deleted ${n} transactions`);
   toast(`Deleted ${n} transactions`); bulkSel.clear(); render();
@@ -995,6 +1028,18 @@ function renderView() {
       <div class="card"><div class="k">Open tasks</div><div class="v">${openTasks}</div><div class="d"><a class="link" href="#tasks">task list</a></div></div>
     </div>
     ${cashflowChart()}
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px">
+      <div class="card"><div class="k">Top customers by open receivables</div><table style="margin-top:8px"><tbody>${
+        Object.entries(db.invoices.filter((i) => i.status === "sent" || i.status === "overdue").reduce((m, i) => { m[i.customer] = (m[i.customer] || 0) + i.amount; return m; }, {}))
+          .sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([c, v]) => `<tr><td style="border:none;padding:3px 0"><a class="link" onclick="drillByName('customers','${c}')">${c}</a></td><td class="num" style="border:none;padding:3px 0">${fmtK(v)}</td></tr>`).join("") || `<tr><td class="empty" style="border:none">Nothing outstanding</td></tr>`
+      }</tbody></table></div>
+      <div class="card"><div class="k">Top vendors by outflow</div><table style="margin-top:8px"><tbody>${
+        Object.entries(db.transactions.filter((t) => t.amount < 0 && t.counterparty).reduce((m, t) => { m[t.counterparty] = (m[t.counterparty] || 0) - t.amount; return m; }, {}))
+          .sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([c, v]) => `<tr><td style="border:none;padding:3px 0">${c}</td><td class="num" style="border:none;padding:3px 0">${fmtK(v)}</td></tr>`).join("") || `<tr><td class="empty" style="border:none">No outflows yet</td></tr>`
+      }</tbody></table></div>
+    </div>
     <div class="section-title" style="margin-top:20px">Recent money movement</div>
     ${tbl("transactions", [["Date","date"],["Amount","amount"],["Counterparty","counterparty"],["Category","category"],["Dept","department"],["Memo","memo"],["Source"]], (t) =>
       `<td>${t.date}</td><td class="num ${t.amount>=0?"pos":"neg"}">${fmt$(t.amount)}</td><td>${t.counterparty||"—"}</td><td>${t.category}</td><td>${t.department||"—"}</td><td>${t.memo||""}</td><td>${srcTag(t)}</td>`,
@@ -1275,6 +1320,7 @@ function renderView() {
       if (r.kind === "recurring") return `Post ${fmt$(r.amount)} “${r.memo}” on day ${r.day} each month (${r.account})`;
       if (r.kind === "anomaly") return `Alert when an outflow exceeds ${r.factor || 3}× its category average`;
       if (r.kind === "reorder") return `When stock ≤ reorder point and no open PO exists → raise a purchase order automatically`;
+      if (r.kind === "duplicate") return `Alert when multiple outflows share the same date, amount, and counterparty`;
       return "";
     };
     return `<h2>Automation rules</h2><div class="crumb">These run continuously against your data — on load, after every change, and after every import.</div>
@@ -1327,7 +1373,13 @@ function renderView() {
     </div>
     <div class="card"><div class="k">Current dataset</div><div class="d" style="font-size:13px;margin-top:6px">
       ${db.transactions.length.toLocaleString()} transactions · ${db.invoices.length} invoices · ${db.bills.length} bills · ${db.customers.length} customers · ${db.vendors.length} vendors · ${db.employees.length} employees · ${db.projects.length} projects · ${db.rules.length} rules · ${db.audit.length} audit entries
-    </div></div>`;
+    </div></div>
+    <div class="section-title" style="margin-top:20px">Trash — last ${(db.trash || []).length} deleted (recoverable)</div>
+    <div class="tablewrap" style="max-height:340px"><table><thead><tr><th>Deleted</th><th>Type</th><th>Record</th><th></th></tr></thead><tbody>` +
+      ((db.trash || []).map((item, idx) =>
+        `<tr><td style="white-space:nowrap">${new Date(item.deletedAt).toLocaleString()}</td><td><span class="tag">${item.coll}</span></td><td>${item.rec.name || item.rec.number || item.rec.title || item.rec.memo || item.rec.id}${item.rec.amount !== undefined ? " · " + fmt$(item.rec.amount) : ""}</td>
+         <td><button onclick="trashRestore(${idx})">Restore</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">Trash is empty.</td></tr>`) +
+    `</tbody></table></div>`;
   }
   return `<div class="empty">Unknown view</div>`;
 }
