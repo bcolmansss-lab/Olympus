@@ -127,6 +127,7 @@ kbd{background:var(--line2);border:1px solid var(--line);border-radius:4px;paddi
 <body>
 <header class="top">
   <div class="brand"><div class="mark">O</div><div>Olympus <small id="companyName"></small></div></div>
+  <select id="wspicker" onchange="wsSwitch(this.value)" title="Workspace" style="max-width:170px"></select>
   <div class="pill-toggle" id="quickadd" style="margin-left:8px">
     <span onclick="addForm('transactions')">+ Transaction</span><span onclick="addForm('invoices')">+ Invoice</span><span onclick="addForm('bills')">+ Bill</span>
   </div>
@@ -144,7 +145,18 @@ kbd{background:var(--line2);border:1px solid var(--line);border-radius:4px;paddi
 <script>
 "use strict";
 /* ================= core data ================= */
-const LS_KEY = "olympus-console-v3";
+/* Workspaces: independent datasets (companies) switchable from the header. */
+const WS_REG_KEY = "olympus-workspaces";
+const WS_CUR_KEY = "olympus-workspace-current";
+function wsRegistry() {
+  try { const r = JSON.parse(localStorage.getItem(WS_REG_KEY)); if (Array.isArray(r) && r.length) return r; } catch (e) {}
+  return [{ key: "default", name: "Primary workspace" }];
+}
+function wsSave(reg) { localStorage.setItem(WS_REG_KEY, JSON.stringify(reg)); }
+let wsCurrent = localStorage.getItem(WS_CUR_KEY) || "default";
+if (!wsRegistry().some((w) => w.key === wsCurrent)) wsCurrent = wsRegistry()[0].key;
+wsSave(wsRegistry());
+const LS_KEY = wsCurrent === "default" ? "olympus-console-v3" : "olympus-console-v3:" + wsCurrent;
 const uid = () => Math.random().toString(36).slice(2, 10);
 const today = () => new Date().toISOString().slice(0, 10);
 const now = () => new Date().toISOString();
@@ -514,7 +526,10 @@ function drill(coll, id) {
     }
   }
   let actions = "";
-  if (coll === "invoices" && rec.status !== "paid") actions += `<button class="primary" onclick="recordPayment('${rec.id}',this)">✓ Record payment (${fmt$(rec.amount)})</button> `;
+  if (coll === "invoices") {
+    actions += `<button onclick="viewInvoiceDoc('${rec.id}')">View document</button> `;
+    if (rec.status !== "paid") actions += `<button class="primary" onclick="recordPayment('${rec.id}',this)">✓ Record payment (${fmt$(rec.amount)})</button> `;
+  }
   if (coll === "bills" && rec.status !== "paid") actions += `<button class="primary" onclick="payBill('${rec.id}',this)">Pay bill (${fmt$(rec.amount)})</button> `;
   if (coll === "tasks" && rec.status === "open") actions += `<button class="primary" onclick="completeTask('${rec.id}',this)">Mark complete</button> `;
   openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.title || rec.memo || rec.id}`,
@@ -1195,6 +1210,13 @@ function renderView() {
       if (days <= 0) aging.current += i.amount; else if (days <= 30) aging.d30 += i.amount;
       else if (days <= 60) aging.d60 += i.amount; else aging.d90 += i.amount;
     }
+    const apAging = { current: 0, d30: 0, d60: 0, d90: 0 };
+    for (const b of db.bills) {
+      if (b.status !== "open") continue;
+      const days = Math.floor((new Date(t0) - new Date(b.due)) / 86400000);
+      if (days <= 0) apAging.current += b.amount; else if (days <= 30) apAging.d30 += b.amount;
+      else if (days <= 60) apAging.d60 += b.amount; else apAging.d90 += b.amount;
+    }
     const dept = {};
     for (const t of inScope) if (t.amount < 0 && t.department) dept[t.department] = (dept[t.department] || 0) - t.amount;
     const deptRows = Object.entries(dept).sort((a, b) => b[1] - a[1]).map(([d, v]) =>
@@ -1211,6 +1233,13 @@ function renderView() {
       <div class="card"><div class="k">1–30 days</div><div class="v wrn">${fmtK(aging.d30)}</div></div>
       <div class="card"><div class="k">31–60 days</div><div class="v wrn">${fmtK(aging.d60)}</div></div>
       <div class="card"><div class="k">60+ days</div><div class="v neg">${fmtK(aging.d90)}</div></div>
+    </div>
+    <div class="section-title" style="margin-top:20px">Payables aging (open bills by days past due)</div>
+    <div class="grid g4">
+      <div class="card"><div class="k">Current</div><div class="v">${fmtK(apAging.current)}</div></div>
+      <div class="card"><div class="k">1–30 days</div><div class="v wrn">${fmtK(apAging.d30)}</div></div>
+      <div class="card"><div class="k">31–60 days</div><div class="v wrn">${fmtK(apAging.d60)}</div></div>
+      <div class="card"><div class="k">60+ days</div><div class="v neg">${fmtK(apAging.d90)}</div></div>
     </div>
     <div class="section-title" style="margin-top:20px">Spend by department</div>
     <div class="tablewrap" style="max-height:none;max-width:480px"><table><thead><tr><th>Department</th><th style="text-align:right">Outflow</th></tr></thead><tbody>${deptRows || `<tr><td colspan="2" class="empty">No departmental spend tagged yet.</td></tr>`}</tbody></table></div>
@@ -1324,6 +1353,7 @@ function renderView() {
       return "";
     };
     return `<h2>Automation rules</h2><div class="crumb">These run continuously against your data — on load, after every change, and after every import.</div>
+    <div class="toolbar"><button class="primary" onclick="const c=runAutomations();toast(c?'Rules ran — changes applied':'Rules ran — nothing to do');render()">▶ Run all rules now</button></div>
     <div class="toolbar">${Object.entries(RULE_LABELS).map(([k, l]) => `<button onclick="addRuleForm('${k}')">+ ${l}</button>`).join("")}</div>
     ${tbl("rules", [["Rule","name"],["Type","kind"],["What it does",""],["Status","enabled"],["",""]], (r) =>
       `<td><b>${r.name}</b></td><td><span class="tag acc">${RULE_LABELS[r.kind] || r.kind}</span></td><td style="color:var(--dim)">${desc(r)}</td>
@@ -1386,6 +1416,44 @@ function renderView() {
 function drillByName(coll, name) {
   const rec = db[coll].find((r) => r.name === name);
   if (rec) drill(coll, rec.id);
+}
+function wsSwitch(key) {
+  if (key === "__new__") {
+    const name = prompt("Name for the new workspace (e.g. a subsidiary or client):");
+    if (!name) { renderWsPicker(); return; }
+    const k = "ws" + uid();
+    const reg = wsRegistry(); reg.push({ key: k, name }); wsSave(reg);
+    localStorage.setItem(WS_CUR_KEY, k);
+    location.reload();
+    return;
+  }
+  localStorage.setItem(WS_CUR_KEY, key);
+  location.reload();
+}
+function renderWsPicker() {
+  const sel = document.getElementById("wspicker");
+  sel.innerHTML = wsRegistry().map((w) => `<option value="${w.key}" ${w.key === wsCurrent ? "selected" : ""}>${w.name}</option>`).join("") +
+    `<option value="__new__">+ New workspace…</option>`;
+}
+function viewInvoiceDoc(id) {
+  const inv = db.invoices.find((i) => i.id === id);
+  if (!inv) return;
+  const cust = db.customers.find((c) => c.name === inv.customer);
+  const w = window.open("", "_blank");
+  w.document.write(`<!doctype html><title>${inv.number}</title>
+  <body style="font:14px/1.6 -apple-system,'Segoe UI',sans-serif;color:#1d2433;max-width:640px;margin:48px auto;padding:0 24px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #1d2433;padding-bottom:14px">
+      <h1 style="font-size:22px;margin:0">${db.companyMeta[0].name}</h1><div style="font-size:24px;color:#667085">INVOICE</div></div>
+    <table style="width:100%;margin:26px 0;font-size:14px"><tr>
+      <td><b>Bill to</b><br>${inv.customer}${cust ? "<br>" + (cust.email || "") : ""}</td>
+      <td style="text-align:right"><b>${inv.number}</b><br>Issued ${inv.issued}<br>Due ${inv.due}<br>Terms: ${cust ? cust.terms : "—"}</td></tr></table>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <tr style="border-bottom:1px solid #e4e7ec;text-align:left"><th style="padding:8px 0">Description</th><th style="text-align:right">Amount</th></tr>
+      <tr><td style="padding:10px 0">Services rendered — ${inv.number}</td><td style="text-align:right">${fmt$(inv.amount)}</td></tr>
+      <tr style="border-top:2px solid #1d2433;font-weight:700"><td style="padding:10px 0">Total due</td><td style="text-align:right">${fmt$(inv.amount)}</td></tr></table>
+    <p style="color:#667085;font-size:12px;margin-top:32px">Status: ${inv.status}. Generated by Olympus on ${today()}.</p>
+    <script>window.print()<\/script></body>`);
+  w.document.close();
 }
 function goLedgerFilter(k, v) { ledgerFilter[k] = v; location.hash = "ledger"; render(); }
 function closeMonth() {
@@ -1535,6 +1603,7 @@ document.addEventListener("keydown", (ev) => {
 function render() {
   save();
   snapshot();
+  renderWsPicker();
   document.getElementById("companyName").textContent = "· " + db.companyMeta[0].name;
   const unread = db.notifications.filter((n) => !n.read).length;
   document.getElementById("bell").innerHTML = "🔔" + (unread ? `<span class="cnt">${unread}</span>` : "");
