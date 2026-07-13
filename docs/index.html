@@ -246,9 +246,24 @@ function seedData() {
       { key: "snowflake", name: "Snowflake", color: "#29b5e8", desc: "Warehouse-scale analytics export", status: "disconnected", config: {} },
     ],
     audit: [],
+    products: [
+      { id: uid(), source: "seed", createdAt: now(), history: [], sku: "PKG-CORR-L", name: "Corrugated boxes — large", unitCostUsd: 1.84, stock: 12400, reorderPoint: 15000, reorderQty: 40000, vendor: "Metro Office Supply" },
+      { id: uid(), source: "seed", createdAt: now(), history: [], sku: "PKG-MAILER-P", name: "Poly mailers", unitCostUsd: 0.22, stock: 88000, reorderPoint: 50000, reorderQty: 200000, vendor: "Metro Office Supply" },
+      { id: uid(), source: "seed", createdAt: now(), history: [], sku: "LBL-THERM-4x6", name: "Thermal labels 4x6", unitCostUsd: 0.031, stock: 240000, reorderPoint: 100000, reorderQty: 500000, vendor: "Metro Office Supply" },
+      { id: uid(), source: "seed", createdAt: now(), history: [], sku: "DEV-SCAN-X2", name: "Handheld scanners X2", unitCostUsd: 289, stock: 42, reorderPoint: 60, reorderQty: 150, vendor: "DataCenter West" },
+    ],
+    purchaseOrders: [],
   };
 }
 let db = (() => { try { const raw = localStorage.getItem(LS_KEY); if (raw) return JSON.parse(raw); } catch (e) {} return seedData(); })();
+/* Migrate datasets saved by earlier versions of this page. */
+(function migrate() {
+  const seed = seedData();
+  for (const k of ["products", "purchaseOrders"]) if (!db[k]) db[k] = seed[k];
+  if (!db.rules.some((r) => r.kind === "reorder")) {
+    db.rules.push({ id: uid(), source: "seed", createdAt: now(), history: [], name: "Auto-reorder low stock", kind: "reorder", enabled: true });
+  }
+})();
 function save() { localStorage.setItem(LS_KEY, JSON.stringify(db)); }
 function audit(action, detail) {
   db.audit.unshift({ at: now(), action, detail });
@@ -308,6 +323,21 @@ function runAutomations() {
         logAuto(rule, `${acct.name} below floor`);
       }
     }
+    if (rule.kind === "reorder") {
+      for (const p of db.products) {
+        if (p.stock > p.reorderPoint) continue;
+        const open = db.purchaseOrders.some((po) => po.sku === p.sku && po.status === "open");
+        if (open) continue;
+        const po = { id: uid(), source: "automation", createdAt: now(), history: [],
+          number: "PO-" + String(1000 + db.purchaseOrders.length + 1), vendor: p.vendor, sku: p.sku,
+          qty: p.reorderQty, unitCostUsd: p.unitCostUsd, totalUsd: Math.round(p.reorderQty * p.unitCostUsd * 100) / 100,
+          status: "open", ordered: today() };
+        db.purchaseOrders.unshift(po);
+        changed = true;
+        notify(`Auto-reorder: ${po.number} for ${p.reorderQty.toLocaleString()} × ${p.sku} (${fmt$(po.totalUsd)}) — stock ${p.stock.toLocaleString()} ≤ reorder point ${p.reorderPoint.toLocaleString()}`, "po:" + p.sku + ":" + po.number);
+        logAuto(rule, `created ${po.number}: ${p.reorderQty.toLocaleString()} × ${p.sku} from ${p.vendor}`);
+      }
+    }
     if (rule.kind === "anomaly") {
       const stats = {};
       for (const t of db.transactions) {
@@ -364,8 +394,8 @@ document.addEventListener("blur", (ev) => {
   const rec = db[coll].find((r) => r.id === id);
   if (!rec) return;
   let nv = el.textContent.trim();
-  if (el.dataset.num === "1") nv = Number(nv.replace(/[$,]/g, "")) || 0;
   const old = rec[field];
+  if (el.dataset.num === "1" || typeof old === "number") nv = Number(String(nv).replace(/[$,]/g, "")) || 0;
   if (String(old) === String(nv)) { el.textContent = el.dataset.num === "1" ? fmt$(Number(old)) : String(old ?? ""); return; }
   rec.history = rec.history || [];
   rec.history.push({ at: now(), field, from: old, to: nv, by: "operator" });
@@ -417,6 +447,8 @@ function drill(coll, id) {
     const isNum = typeof rec[k] === "number" && /amount|balance|salary|budget|spent|monthlyUsd|thresholdUsd|belowUsd|headcount/.test(k);
     return `<div class="k">${k}</div><div>${editable(coll, rec, k, { num: isNum })}</div>`;
   }).join("");
+  let poActions = "";
+  if (coll === "purchaseOrders" && rec.status === "open") poActions = `<button class="primary" onclick="receivePO('${rec.id}',this)">Receive into stock (${fmt$(rec.totalUsd)})</button> `;
   let statement = "";
   if (coll === "customers") {
     const open = db.invoices.filter((i) => i.customer === rec.name && (i.status === "sent" || i.status === "overdue"));
@@ -449,7 +481,7 @@ function drill(coll, id) {
   if (coll === "tasks" && rec.status === "open") actions += `<button class="primary" onclick="completeTask('${rec.id}',this)">Mark complete</button> `;
   openWindow(`${coll.slice(0, -1)} — ${rec.name || rec.number || rec.title || rec.memo || rec.id}`,
     `<div class="kv">${rows}</div>${statement}${related}${provenanceHtml(rec)}
-     <div style="margin-top:14px">${actions}<button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete</button></div>`);
+     <div style="margin-top:14px">${poActions}${actions}<button class="danger" onclick="delRec('${coll}','${rec.id}',this)">Delete</button></div>`);
 }
 function delRec(coll, id, btn) {
   const rec = db[coll].find((r) => r.id === id);
@@ -517,6 +549,47 @@ function decideApproval(id, ok) {
   audit("approval", `${ap.summary}: ${ap.status}`);
   toast(ok ? "Approved and executed" : "Rejected"); render();
 }
+/* Receive a PO: stock in, and the payable bill is created automatically. */
+function receivePO(poId, btn) {
+  const po = db.purchaseOrders.find((p) => p.id === poId);
+  if (!po || po.status !== "open") return;
+  po.status = "received"; po.receivedAt = today();
+  po.history.push({ at: now(), field: "status", from: "open", to: "received", by: "operator" });
+  const prod = db.products.find((p) => p.sku === po.sku);
+  if (prod) prod.stock += po.qty;
+  const due = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  db.bills.unshift({ id: uid(), source: "automation", createdAt: now(), history: [],
+    number: "BILL-" + po.number, vendor: po.vendor, amount: po.totalUsd, received: today(), due,
+    status: "open", category: "Inventory", department: "Logistics" });
+  audit("purchase", `${po.number} received: +${po.qty.toLocaleString()} ${po.sku}; bill created for ${fmt$(po.totalUsd)} (due ${due})`);
+  notify(`${po.number} received — ${po.qty.toLocaleString()} × ${po.sku} in stock; payable ${fmt$(po.totalUsd)} due ${due}`, "porcv:" + po.id);
+  if (btn) btn.closest(".win").remove();
+  toast("Received — stock updated, bill created"); render();
+}
+/* Post a payroll run: one aggregated transaction per department. */
+function runPayroll() {
+  const m = thisMonth();
+  const byDept = {};
+  for (const e of db.employees) {
+    const d = e.department || "General";
+    byDept[d] = (byDept[d] || 0) + (Number(e.salary) || 0) / 24;
+  }
+  const total = Object.values(byDept).reduce((s, x) => s + x, 0);
+  if (!total) { toast("No employee salaries to run"); return; }
+  const key = "pay:" + m + ":" + today();
+  if (db.notifKeys.includes(key)) { toast("Payroll already run today"); return; }
+  db.notifKeys.push(key);
+  for (const [d, amt] of Object.entries(byDept)) {
+    db.transactions.unshift({ id: uid(), source: "automation", createdAt: now(), history: [],
+      date: today(), amount: -Math.round(amt * 100) / 100, account: "Payroll", category: "Payroll",
+      department: d, counterparty: "Payroll run " + today(), memo: `Semi-monthly payroll — ${d}` });
+  }
+  const payAcct = db.accounts.find((a) => a.name === "Payroll");
+  if (payAcct) payAcct.balance = Math.round((payAcct.balance - total) * 100) / 100;
+  audit("payroll", `Payroll run posted: ${fmt$(total)} across ${Object.keys(byDept).length} departments`);
+  notify(`Payroll run posted — ${fmt$(total)}`, key + ":n");
+  toast(`Payroll posted — ${fmt$(total)}`); runAutomations(); render();
+}
 function completeTask(id, btn) {
   const t = db.tasks.find((x) => x.id === id);
   if (!t) return;
@@ -534,6 +607,8 @@ const SCHEMAS = {
   customers: [["name","text",""],["email","text",""],["phone","text",""],["terms","text","Net 30"],["owner","text",""]],
   vendors: [["name","text",""],["email","text",""],["category","text",""],["terms","text","Net 30"]],
   employees: [["name","text",""],["role","text",""],["department","select:departments"],["salary","number",""],["startDate","date",""]],
+  products: [["sku","text",""],["name","text",""],["unitCostUsd","number",""],["stock","number","0"],["reorderPoint","number","0"],["reorderQty","number","0"],["vendor","select:vendors"]],
+  purchaseOrders: [["number","text","PO-"],["vendor","select:vendors"],["sku","text",""],["qty","number",""],["unitCostUsd","number",""],["ordered","date",""],["status","choice:open,received"]],
   accounts: [["name","text",""],["type","choice:bank,credit,cash,loan"],["balance","number","0"]],
   projects: [["name","text",""],["department","select:departments"],["budget","number",""],["spent","number","0"],["status","choice:active,paused,done"]],
   departments: [["name","text",""],["lead","text",""],["headcount","number","0"]],
@@ -560,6 +635,7 @@ function addForm(coll) {
     w.querySelectorAll("[data-f]").forEach((el) => {
       rec[el.dataset.f] = el.type === "number" ? Number(el.value) || 0 : el.value;
     });
+    if (coll === "purchaseOrders") rec.totalUsd = Math.round((rec.qty || 0) * (rec.unitCostUsd || 0) * 100) / 100;
     if (coll === "transactions" && Math.abs(rec.amount) >= approvalThreshold()) {
       db.approvals.unshift({ id: uid(), createdAt: now(), kind: "transaction", payload: rec,
         summary: `${rec.amount < 0 ? "Outflow" : "Inflow"} ${fmt$(rec.amount)} — ${rec.memo || rec.counterparty}`, amount: rec.amount, status: "pending", requestedBy: "operator" });
@@ -635,11 +711,12 @@ const RULE_FORMS = {
   categorize: [["name","text","Categorize …"],["matchField","choice:counterparty,memo"],["contains","text",""],["setCategory","text",""],["setDepartment","select:departments"]],
   flag_overdue: [["name","text","Flag overdue invoices"],["graceDays","number","0"]],
   anomaly: [["name","text","Unusual spend detector"],["factor","number","3"]],
+  reorder: [["name","text","Auto-reorder low stock"]],
   approval_threshold: [["name","text","Approval for large amounts"],["thresholdUsd","number","250000"]],
   alert_balance: [["name","text","Low-balance alert"],["account","select:accounts"],["belowUsd","number",""]],
   recurring: [["name","text","Monthly …"],["day","number","1"],["amount","number",""],["account","select:accounts"],["category","text",""],["department","select:departments"],["counterparty","text",""],["memo","text",""]],
 };
-const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction", anomaly: "Anomaly detector" };
+const RULE_LABELS = { categorize: "Auto-categorize", flag_overdue: "Overdue watchdog", approval_threshold: "Approval threshold", alert_balance: "Balance alert", recurring: "Recurring transaction", anomaly: "Anomaly detector", reorder: "Inventory auto-reorder" };
 function addRuleForm(kind) {
   const rows = RULE_FORMS[kind].map(([f, k, dflt]) => {
     let input;
@@ -689,6 +766,8 @@ function inPeriod(dateStr) {
   return !r || (dateStr >= r[0] && dateStr <= r[1]);
 }
 function setPeriod(p) { period = p; render(); }
+let scenario = { rev: 0, cost: 0 };
+function setScenario(k, v) { scenario[k] = Number(v); render(); }
 function periodBar() {
   return `<div class="pill-toggle">` + Object.entries(PERIODS).map(([k, l]) =>
     `<span class="${period === k ? "on" : ""}" onclick="setPeriod('${k}')">${l}</span>`).join("") + `</div>`;
@@ -799,6 +878,8 @@ const VIEWS = {
   vendors: { label: "Vendors", group: "Relationships" },
   employees: { label: "Employees", group: "Operations" },
   projects: { label: "Projects", group: "Operations" },
+  inventory: { label: "Inventory", group: "Supply chain" },
+  purchasing: { label: "Purchase orders", group: "Supply chain" },
   automations: { label: "Automation rules", group: "Automation" },
   approvals: { label: "Approvals", group: "Automation" },
   activity: { label: "Automation activity", group: "Automation" },
@@ -916,8 +997,9 @@ function renderView() {
       const m = d.toISOString().slice(0, 7);
       const arDue = db.invoices.filter((x) => (x.status === "sent" || x.status === "overdue") && (x.due || "").slice(0, 7) === m).reduce((s, x) => s + x.amount, 0);
       const apDue = db.bills.filter((x) => x.status === "open" && (x.due || "").slice(0, 7) === m).reduce((s, x) => s + x.amount, 0);
-      const inflow = baseIn + arDue;
-      const outflow = baseOut + apDue + recurringOut;
+      const grow = (base, pct) => base * Math.pow(1 + pct / 100, i);
+      const inflow = grow(baseIn, scenario.rev) + arDue;
+      const outflow = grow(baseOut, scenario.cost) + apDue + recurringOut;
       const net = inflow - outflow;
       cash += net;
       if (cash < 0 && firstNegative === null) firstNegative = m;
@@ -929,6 +1011,11 @@ function renderView() {
     const pts = rows.map((r, i) => `${20 + i * step},${y(r.cash)}`).join(" ");
     return `<h2>Cash forecast — next 6 months</h2>
     <div class="crumb">Baseline = trailing 3-month average flows, plus scheduled receivables, open bills by due date, and active recurring rules. A planning projection, not a promise.</div>
+    <div class="toolbar"><span style="color:var(--dim);font-size:12px">Scenario:</span>
+      <label style="font-size:12px;color:var(--dim)">revenue ${scenario.rev >= 0 ? "+" : ""}${scenario.rev}%/mo <input type="range" min="-10" max="10" step="1" value="${scenario.rev}" oninput="setScenario('rev',this.value)" style="vertical-align:middle"/></label>
+      <label style="font-size:12px;color:var(--dim)">costs ${scenario.cost >= 0 ? "+" : ""}${scenario.cost}%/mo <input type="range" min="-10" max="10" step="1" value="${scenario.cost}" oninput="setScenario('cost',this.value)" style="vertical-align:middle"/></label>
+      ${scenario.rev || scenario.cost ? `<button class="ghost" onclick="scenario={rev:0,cost:0};render()">Reset</button>` : ""}
+    </div>
     ${firstNegative ? `<div class="card" style="border-color:var(--bad);background:var(--bad-bg);margin-bottom:14px"><b class="neg">Projected cash goes negative in ${firstNegative}.</b> <span style="color:var(--dim)">Tighten outflows, accelerate receivables, or arrange financing before then.</span></div>` : ""}
     <div class="card"><div class="k">Projected cash balance</div>
       <svg viewBox="0 0 ${W + 40} ${H + 44}" style="width:100%;max-width:860px;margin-top:10px">
@@ -1007,8 +1094,27 @@ function renderView() {
     ${tbl("vendors", [["Name","name"],["Email","email"],["Category","category"],["Terms","terms"],["Source"]], (v) =>
       `<td>${editable("vendors",v,"name")}</td><td>${editable("vendors",v,"email")}</td><td>${editable("vendors",v,"category")}</td><td>${editable("vendors",v,"terms")}</td><td>${srcTag(v)}</td>`)}`;
   }
+  if (view === "inventory") {
+    const value = db.products.reduce((s, p) => s + p.stock * p.unitCostUsd, 0);
+    const low = db.products.filter((p) => p.stock <= p.reorderPoint).length;
+    return `<h2>Inventory</h2><div class="crumb">Stock value ${fmt$(value)} · ${low} SKU(s) at or below reorder point — the auto-reorder rule raises POs for these.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('products')">+ Product</button></div>
+    ${tbl("products", [["SKU","sku"],["Name","name"],["Unit cost","unitCostUsd"],["Stock","stock"],["Reorder at","reorderPoint"],["Reorder qty","reorderQty"],["Vendor","vendor"],["Status",""]], (p) =>
+      `<td style="font-family:var(--mono);font-size:11.5px">${p.sku}</td><td>${editable("products",p,"name")}</td><td class="num">${fmt$(p.unitCostUsd)}</td><td class="num">${editable("products",p,"stock",{num:false})}</td><td class="num">${p.reorderPoint.toLocaleString()}</td><td class="num">${p.reorderQty.toLocaleString()}</td><td><a class="link" onclick="event.stopPropagation();drillByName('vendors','${p.vendor}')">${p.vendor}</a></td>
+       <td>${p.stock <= p.reorderPoint ? `<span class="tag bad">low stock</span>` : `<span class="tag ok">ok</span>`}</td>`)}`;
+  }
+  if (view === "purchasing") {
+    const openVal = db.purchaseOrders.filter((p) => p.status === "open").reduce((s, p) => s + p.totalUsd, 0);
+    return `<h2>Purchase orders</h2><div class="crumb">${fmt$(openVal)} on order. Receiving a PO adds stock and creates the payable bill automatically.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('purchaseOrders')">+ Purchase order</button></div>
+    ${tbl("purchaseOrders", [["Number","number"],["Vendor","vendor"],["SKU","sku"],["Qty","qty"],["Unit cost","unitCostUsd"],["Total","totalUsd"],["Ordered","ordered"],["Status","status"],["Source"],["",""]], (p) =>
+      `<td>${p.number}</td><td>${p.vendor}</td><td style="font-family:var(--mono);font-size:11.5px">${p.sku}</td><td class="num">${(p.qty||0).toLocaleString()}</td><td class="num">${fmt$(p.unitCostUsd||0)}</td><td class="num">${fmt$(p.totalUsd ?? (p.qty*p.unitCostUsd) ?? 0)}</td><td>${p.ordered}</td><td>${stTag(p.status)}</td><td>${srcTag(p)}</td>
+       <td>${p.status === "open" ? `<button onclick="event.stopPropagation();receivePO('${p.id}')">Receive</button>` : ""}</td>`)}`;
+  }
   if (view === "employees") {
-    return `<h2>Employees</h2><div class="toolbar" style="margin-top:12px"><button class="primary" onclick="addForm('employees')">+ Employee</button></div>
+    const semiMonthly = db.employees.reduce((s, e) => s + (Number(e.salary) || 0) / 24, 0);
+    return `<h2>Employees</h2><div class="crumb">Semi-monthly payroll cost: <b>${fmt$(semiMonthly)}</b> — posts one ledger entry per department.</div>
+    <div class="toolbar"><button class="primary" onclick="addForm('employees')">+ Employee</button><button onclick="runPayroll()">Run payroll now</button></div>
     ${tbl("employees", [["Name","name"],["Role","role"],["Department","department"],["Salary","salary"],["Start","startDate"],["Source"]], (e) =>
       `<td>${editable("employees",e,"name")}</td><td>${editable("employees",e,"role")}</td><td>${e.department||"—"}</td><td class="num">${editable("employees",e,"salary",{num:true})}</td><td>${e.startDate}</td><td>${srcTag(e)}</td>`)}`;
   }
@@ -1025,6 +1131,7 @@ function renderView() {
       if (r.kind === "alert_balance") return `Alert when ${r.account} drops below ${fmt$(r.belowUsd)}`;
       if (r.kind === "recurring") return `Post ${fmt$(r.amount)} “${r.memo}” on day ${r.day} each month (${r.account})`;
       if (r.kind === "anomaly") return `Alert when an outflow exceeds ${r.factor || 3}× its category average`;
+      if (r.kind === "reorder") return `When stock ≤ reorder point and no open PO exists → raise a purchase order automatically`;
       return "";
     };
     return `<h2>Automation rules</h2><div class="crumb">These run continuously against your data — on load, after every change, and after every import.</div>
